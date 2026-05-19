@@ -119,11 +119,19 @@ export async function submitMyMagicQuiz(videoId, payload) {
   return postJson(`/api/magic-academy/my/videos/${videoId}/submit-quiz`, payload, "提交答题失败。");
 }
 
-export async function fetchMagicVideoStats(videoId) {
-  return getJson(`/api/magic-academy/videos/${videoId}/stats`, "学习统计加载失败。");
+export async function fetchMagicVideoStats(videoId, params = {}) {
+  const search = new URLSearchParams();
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/videos/${videoId}/stats${suffix}`, "学习统计加载失败。");
 }
-export async function fetchMagicVideoAnswers(videoId) {
-  return getJson(`/api/magic-academy/videos/${videoId}/answers`, "答题详情加载失败。");
+export async function fetchMagicVideoAnswers(videoId, params = {}) {
+  const search = new URLSearchParams();
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/videos/${videoId}/answers${suffix}`, "答题详情加载失败。");
 }
 
 export async function downloadMagicFile(path) {
@@ -150,6 +158,12 @@ export async function deleteMagicWhitelist(id) {
 export async function fetchMyAudios() {
   return getJson("/api/magic-academy/my/audios", "录音记录加载失败。");
 }
+export async function fetchMyAudioCalendar(month) {
+  const search = new URLSearchParams();
+  if (month) search.set("month", month);
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/my/audios/calendar${suffix}`, "录音日历加载失败。");
+}
 export async function uploadMyAudio(file, remark = "") {
   const formData = new FormData();
   formData.append("file", file);
@@ -173,4 +187,12 @@ export async function fetchMagicAudioStats(params = {}) {
   if (params.user_id) search.set("user_id", String(params.user_id));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/admin/audio-stats${suffix}`, "录音统计加载失败。");
+}
+export async function fetchAdminAudioCalendar(params = {}) {
+  const search = new URLSearchParams();
+  if (params.month) search.set("month", params.month);
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/audios/calendar${suffix}`, "录音日历加载失败。");
 }

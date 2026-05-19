@@ -81,33 +81,52 @@ export default function HomePage() {
       </header>
 
       <main className="home-main">
-        <Card
-          className="home-cta-card"
-          variant="borderless"
-          styles={{ body: { padding: 24 } }}
-        >
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <Title level={4} style={{ margin: 0, color: "#fff" }}>立即训练</Title>
-            <Text style={{ color: "rgba(255,255,255,0.85)" }}>自由选择训练类型与客户画像，AI 客户陪你练 ≥10 轮。</Text>
-            <Button
-              type="default"
-              size="large"
-              icon={<RocketOutlined />}
-              style={{ marginTop: 12, background: "#fff", borderColor: "#fff", color: "var(--accent-deep)", fontWeight: 600 }}
-              onClick={() => navigate("/train/prepare")}
-            >
-              开始训练
-            </Button>
-            <Button
-              size="large"
-              icon={<ReadOutlined />}
-              style={{ marginTop: 8, borderColor: "#fff", color: "#fff", background: "transparent" }}
-              onClick={() => navigate("/magic-academy")}
-            >
-              进入魔学院
-            </Button>
-          </Space>
-        </Card>
+        <div className="home-entry-grid">
+          <Card
+            className="home-cta-card"
+            variant="borderless"
+            styles={{ body: { padding: 24 } }}
+          >
+            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <Title level={4} style={{ margin: 0, color: "#fff" }}>立即训练</Title>
+              <Text style={{ color: "rgba(255,255,255,0.85)" }}>自由选择训练类型与客户画像，AI 客户陪你练 ≥10 轮。</Text>
+              <Button
+                type="default"
+                size="large"
+                icon={<RocketOutlined />}
+                style={{ marginTop: 12, background: "#fff", borderColor: "#fff", color: "var(--accent-deep)", fontWeight: 600 }}
+                onClick={() => navigate("/train/prepare")}
+              >
+                开始训练
+              </Button>
+            </Space>
+          </Card>
+
+          <Card
+            className="home-magic-card"
+            variant="outlined"
+            styles={{ body: { padding: 24 } }}
+          >
+            <Space direction="vertical" size={8} style={{ width: "100%" }}>
+              <Space size={10}>
+                <ReadOutlined style={{ fontSize: 20, color: "var(--accent-deep)" }} />
+                <Title level={4} style={{ margin: 0 }}>魔学院</Title>
+              </Space>
+              <Text style={{ color: "var(--text-mute)" }}>
+                覆盖视频学习、节点答题、学习统计、白名单、读书录音上传和月度统计。
+              </Text>
+              <Button
+                type="primary"
+                size="large"
+                icon={<ReadOutlined />}
+                style={{ marginTop: 12, alignSelf: "flex-start" }}
+                onClick={() => navigate("/magic-academy")}
+              >
+                进入魔学院
+              </Button>
+            </Space>
+          </Card>
+        </div>
 
         <Card
           title="待办考试"

@@ -10,6 +10,7 @@ import {
 import {
   App as AntdApp,
   Button,
+  Calendar,
   Card,
   Checkbox,
   Empty,
@@ -30,6 +31,7 @@ import {
   Typography,
   Upload,
 } from "antd";
+import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildMagicVideoStreamUrl,
@@ -45,9 +47,11 @@ import {
   disableMagicVideo,
   downloadMagicFile,
   failMagicVideoUpload,
+  fetchAdminAudioCalendar,
   fetchMagicAudioStats,
   fetchMagicVideoAnswers,
   fetchMagicVideoStats,
+  fetchMyAudioCalendar,
   fetchMyAudios,
   fetchMyMagicVideoDetail,
   fetchMyMagicVideos,
@@ -91,6 +95,37 @@ function formatFileSize(bytes) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function getCurrentMonthText() {
+  return dayjs().format("YYYY-MM");
+}
+
+function getTodayText() {
+  return dayjs().format("YYYY-MM-DD");
+}
+
+function buildAudioCalendarMap(days) {
+  return Object.fromEntries((Array.isArray(days) ? days : []).map((item) => [item.date, item]));
+}
+
+function getAudioDayStatus(dateText, dayData) {
+  const todayText = getTodayText();
+  if (dateText > todayText) return "future";
+  if (dayData?.uploaded) {
+    return dateText === todayText ? "today_uploaded" : "uploaded";
+  }
+  return dateText === todayText ? "today_missing" : "missing";
+}
+
+function renderAudioStatusTag(status, count = 0, uploadedUsers = 0) {
+  if (status === "future") return <Tag bordered={false} color="default">未来</Tag>;
+  if (status === "today_uploaded") return <Tag bordered={false} color="success">今日已上传</Tag>;
+  if (status === "today_missing") return <Tag bordered={false} color="error">今日未上传</Tag>;
+  if (status === "uploaded") {
+    return <Tag bordered={false} color="success">{uploadedUsers > 0 ? `已上传 ${uploadedUsers} 人` : `已上传${count > 1 ? ` ${count} 条` : ""}`}</Tag>;
+  }
+  return <Tag bordered={false} color="default">未上传</Tag>;
 }
 
 function logOssUploadError(error) {
@@ -197,6 +232,37 @@ const QUESTION_TYPE_OPTIONS = [
 const QUESTION_TYPE_LABELS = Object.fromEntries(
   QUESTION_TYPE_OPTIONS.map((item) => [item.value, item.label]),
 );
+const UNASSIGNED_DEPARTMENT_FILTER = "__UNASSIGNED__";
+
+const VIDEO_STATUS_META = {
+  draft: { label: "草稿", color: "default" },
+  uploading: { label: "上传中", color: "processing" },
+  uploaded: { label: "已上传未发布", color: "blue" },
+  published: { label: "已发布", color: "success" },
+  failed: { label: "上传失败", color: "error" },
+  offline: { label: "已下架", color: "default" },
+  disabled: { label: "已下架", color: "default" },
+};
+
+function getVideoStatusMeta(videoOrStatus, uploadStatus) {
+  if (videoOrStatus && typeof videoOrStatus === "object") {
+    const status = videoOrStatus.status || "draft";
+    const statusLabel = videoOrStatus.status_label;
+    if (statusLabel) {
+      return {
+        label: statusLabel,
+        color: VIDEO_STATUS_META[status]?.color || "default",
+      };
+    }
+    return getVideoStatusMeta(status, videoOrStatus.upload_status);
+  }
+  if (uploadStatus === "failed") return VIDEO_STATUS_META.failed;
+  if (uploadStatus && uploadStatus !== "completed") return VIDEO_STATUS_META.uploading;
+  if (videoOrStatus === "published") return VIDEO_STATUS_META.published;
+  if (videoOrStatus === "disabled") return VIDEO_STATUS_META.disabled;
+  if (uploadStatus === "completed" && videoOrStatus === "draft") return VIDEO_STATUS_META.uploaded;
+  return VIDEO_STATUS_META[videoOrStatus] || { label: videoOrStatus || "草稿", color: "default" };
+}
 
 function normalizeQuestionType(value) {
   if (value === "blank") return "fill";
@@ -812,7 +878,25 @@ function renderQuestionAnswer(question, value, onChange) {
   return <Input.TextArea value={value} onChange={(e) => onChange(e.target.value)} rows={3} placeholder="请输入简答内容" />;
 }
 
-export default function MagicAcademyPage() {
+function ResponsiveVideoPlayer({ videoRef, src, onLoadedMetadata, onTimeUpdate, onSeeking, onPause, onEnded }) {
+  return (
+    <div className="magic-video-player-wrap">
+      <video
+        ref={videoRef}
+        src={src}
+        controls
+        className="magic-video-player"
+        onLoadedMetadata={onLoadedMetadata}
+        onTimeUpdate={onTimeUpdate}
+        onSeeking={onSeeking}
+        onPause={onPause}
+        onEnded={onEnded}
+      />
+    </div>
+  );
+}
+
+export default function MagicAcademyPage({ embedded = false }) {
   const adminMode = isAdmin();
   const currentUser = getCurrentUser();
   const { message } = AntdApp.useApp();
@@ -826,27 +910,73 @@ export default function MagicAcademyPage() {
   const [myVideos, setMyVideos] = useState([]);
   const [myAudios, setMyAudios] = useState([]);
   const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [selectedAdminVideoId, setSelectedAdminVideoId] = useState(null);
   const [videoDetail, setVideoDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [videoModal, setVideoModal] = useState(null);
   const [videoSubmitting, setVideoSubmitting] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const [publishingVideoId, setPublishingVideoId] = useState(null);
+  const [disablingVideoId, setDisablingVideoId] = useState(null);
   const [quizVideoId, setQuizVideoId] = useState(null);
   const [quizPoints, setQuizPoints] = useState([]);
   const [pointModal, setPointModal] = useState(null);
   const [questionModal, setQuestionModal] = useState(null);
   const [statsVideoId, setStatsVideoId] = useState(null);
+  const [statsDepartment, setStatsDepartment] = useState("");
+  const [statsUserId, setStatsUserId] = useState(null);
+  const [appliedStatsDepartment, setAppliedStatsDepartment] = useState("");
+  const [appliedStatsUserId, setAppliedStatsUserId] = useState(null);
   const [whitelistForm] = Form.useForm();
   const [pointForm] = Form.useForm();
   const [quizAnswerState, setQuizAnswerState] = useState({ open: false, point: null, values: {} });
   const [audioRemark, setAudioRemark] = useState("");
-  const [audioMonth, setAudioMonth] = useState("");
+  const [audioMonth, setAudioMonth] = useState(getCurrentMonthText());
   const [audioDepartment, setAudioDepartment] = useState("");
   const [audioUserId, setAudioUserId] = useState(null);
+  const [myAudioMonth, setMyAudioMonth] = useState(getCurrentMonthText());
+  const [myAudioCalendarDays, setMyAudioCalendarDays] = useState([]);
+  const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(getTodayText());
+  const [adminAudioCalendarDays, setAdminAudioCalendarDays] = useState([]);
+  const [adminAudioSelectedDate, setAdminAudioSelectedDate] = useState(getTodayText());
   const videoRef = useRef(null);
   const progressTimerRef = useRef(null);
   const watchedRef = useRef(0);
+  const lastSafeTimeRef = useRef(0);
+  const blockingSeekRef = useRef(false);
+  const lastSeekWarnAtRef = useRef(0);
+  const lockedQuizPointIdRef = useRef(null);
   const answeredPointIds = useMemo(() => new Set(videoDetail?.progress?.answered_point_ids || []), [videoDetail]);
+  const selectedAdminVideo = useMemo(
+    () => videos.find((item) => item.id === selectedAdminVideoId) || null,
+    [selectedAdminVideoId, videos],
+  );
+  const myAudioCalendarMap = useMemo(() => buildAudioCalendarMap(myAudioCalendarDays), [myAudioCalendarDays]);
+  const adminAudioCalendarMap = useMemo(() => buildAudioCalendarMap(adminAudioCalendarDays), [adminAudioCalendarDays]);
+  const selectedMyAudioDay = myAudioCalendarMap[myAudioSelectedDate] || null;
+  const selectedAdminAudioDay = adminAudioCalendarMap[adminAudioSelectedDate] || null;
+  const employeeUsers = useMemo(
+    () => users.filter((item) => item.role === "user"),
+    [users],
+  );
+  const statsDepartmentOptions = useMemo(
+    () => Array.from(new Set(employeeUsers.map((item) => item.department || UNASSIGNED_DEPARTMENT_FILTER))).map((item) => ({
+      value: item,
+      label: item === UNASSIGNED_DEPARTMENT_FILTER ? "未分配部门" : item,
+    })),
+    [employeeUsers],
+  );
+  const filteredStatsEmployees = useMemo(
+    () => employeeUsers.filter((item) => (statsDepartment ? (item.department || UNASSIGNED_DEPARTMENT_FILTER) === statsDepartment : true)),
+    [employeeUsers, statsDepartment],
+  );
+  const statsEmployeeOptions = useMemo(
+    () => filteredStatsEmployees.map((item) => ({
+      value: item.id,
+      label: `${item.real_name || item.display_name || item.username} (${item.username})`,
+    })),
+    [filteredStatsEmployees],
+  );
 
   const reloadAdminData = async () => {
     if (!adminMode) return;
@@ -859,14 +989,36 @@ export default function MagicAcademyPage() {
     setVideos(Array.isArray(videoData) ? videoData : []);
     setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
     if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
-    if (!quizVideoId && videoData?.[0]?.id) setQuizVideoId(videoData[0].id);
   };
 
   const reloadMyData = async () => {
     const [videoData, audioData] = await Promise.all([fetchMyMagicVideos(), fetchMyAudios()]);
     setMyVideos(Array.isArray(videoData) ? videoData : []);
     setMyAudios(Array.isArray(audioData) ? audioData : []);
-    if (!selectedVideoId && videoData?.[0]?.id) setSelectedVideoId(videoData[0].id);
+  };
+
+  const reloadMyAudioCalendar = async (monthText = myAudioMonth) => {
+    const result = await fetchMyAudioCalendar(monthText);
+    const days = Array.isArray(result?.days) ? result.days : [];
+    setMyAudioCalendarDays(days);
+    if (!days.some((item) => item.date === myAudioSelectedDate)) {
+      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${monthText}-01`).format("YYYY-MM-DD");
+      setMyAudioSelectedDate(fallback);
+    }
+  };
+
+  const reloadAdminAudioCalendar = async (params = {}) => {
+    const result = await fetchAdminAudioCalendar({
+      month: params.month ?? audioMonth,
+      department: params.department ?? audioDepartment,
+      user_id: params.user_id ?? audioUserId,
+    });
+    const days = Array.isArray(result?.days) ? result.days : [];
+    setAdminAudioCalendarDays(days);
+    if (!days.some((item) => item.date === adminAudioSelectedDate)) {
+      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${(params.month ?? audioMonth)}-01`).format("YYYY-MM-DD");
+      setAdminAudioSelectedDate(fallback);
+    }
   };
 
   useEffect(() => {
@@ -917,13 +1069,29 @@ export default function MagicAcademyPage() {
 
   useEffect(() => {
     if (!statsVideoId || !adminMode) return;
-    Promise.all([fetchMagicVideoStats(statsVideoId), fetchMagicVideoAnswers(statsVideoId)])
+    Promise.all([
+      fetchMagicVideoStats(statsVideoId, {
+        department: appliedStatsDepartment || undefined,
+        user_id: appliedStatsUserId || undefined,
+      }),
+      fetchMagicVideoAnswers(statsVideoId, {
+        department: appliedStatsDepartment || undefined,
+        user_id: appliedStatsUserId || undefined,
+      }),
+    ])
       .then(([stats, answers]) => {
         setStatsRows(Array.isArray(stats) ? stats : []);
         setAnswerRows(Array.isArray(answers) ? answers : []);
       })
       .catch((error) => message.error(error?.message || "统计加载失败。"));
-  }, [statsVideoId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [statsVideoId, adminMode, appliedStatsDepartment, appliedStatsUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!statsUserId) return;
+    if (!filteredStatsEmployees.some((item) => item.id === statsUserId)) {
+      setStatsUserId(null);
+    }
+  }, [filteredStatsEmployees, statsUserId]);
 
   useEffect(() => {
     if (!adminMode) return;
@@ -936,13 +1104,30 @@ export default function MagicAcademyPage() {
     });
   }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    reloadMyAudioCalendar(myAudioMonth).catch((error) => {
+      message.error(error?.message || "录音日历加载失败。");
+    });
+  }, [myAudioMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!adminMode) return;
+    reloadAdminAudioCalendar().catch((error) => {
+      message.error(error?.message || "录音日历加载失败。");
+    });
+  }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const saveProgress = async (extra = {}) => {
     if (activeTab !== "study") return;
     if (!videoDetail?.id || !videoRef.current) return;
     const element = videoRef.current;
+    const safeCurrentTime = Math.min(
+      Number(element.currentTime || 0),
+      Math.max(lastSafeTimeRef.current || 0, watchedRef.current || 0),
+    );
     try {
       const data = await saveMyMagicVideoProgress(videoDetail.id, {
-        current_position: element.currentTime || 0,
+        current_position: safeCurrentTime,
         max_watched_position: watchedRef.current || 0,
         duration_seconds: element.duration || videoDetail.duration_seconds || 0,
         page_visible: !document.hidden,
@@ -954,15 +1139,55 @@ export default function MagicAcademyPage() {
     }
   };
 
+  const showSeekWarning = (text) => {
+    const now = Date.now();
+    if (now - lastSeekWarnAtRef.current < 2000) return;
+    lastSeekWarnAtRef.current = now;
+    message.warning(text);
+  };
+
   const maybeOpenQuiz = (currentTime) => {
-    if (!videoDetail || videoDetail.is_whitelisted) return;
+    if (!videoDetail || videoDetail.is_whitelisted || videoDetail.progress?.is_completed) return false;
     const nextPoint = (videoDetail.quiz_points || []).find((point) => (
       point.enabled && !answeredPointIds.has(point.id) && currentTime >= point.trigger_second
     ));
     if (nextPoint) {
+      if (lockedQuizPointIdRef.current === nextPoint.id && quizAnswerState.open) return true;
+      lockedQuizPointIdRef.current = nextPoint.id;
       videoRef.current?.pause();
+      if (videoRef.current) {
+        const lockedTime = Number(nextPoint.trigger_second || 0);
+        videoRef.current.currentTime = lockedTime;
+        lastSafeTimeRef.current = lockedTime;
+        watchedRef.current = Math.max(watchedRef.current, lockedTime);
+      }
       setQuizAnswerState({ open: true, point: nextPoint, values: {} });
+      return true;
     }
+    return false;
+  };
+
+  const getAllowedSeekTime = () => {
+    if (!videoDetail || videoDetail.is_whitelisted || videoDetail.progress?.is_completed) {
+      return Number.POSITIVE_INFINITY;
+    }
+    return Math.max(watchedRef.current || 0, lastSafeTimeRef.current || 0) + 2;
+  };
+
+  const clampToSafePosition = (reason = "请按顺序观看视频，暂不能跳过未学习内容。") => {
+    if (!videoRef.current) return;
+    const activeLockedPoint = (videoDetail?.quiz_points || []).find((point) => point.id === lockedQuizPointIdRef.current);
+    const fallback = activeLockedPoint
+      ? Number(activeLockedPoint.trigger_second || 0)
+      : Math.max(lastSafeTimeRef.current || 0, watchedRef.current || 0);
+    blockingSeekRef.current = true;
+    videoRef.current.currentTime = fallback;
+    lastSafeTimeRef.current = fallback;
+    videoRef.current.pause();
+    window.setTimeout(() => {
+      blockingSeekRef.current = false;
+    }, 0);
+    showSeekWarning(reason);
   };
 
   const handleVideoLoaded = () => {
@@ -970,6 +1195,8 @@ export default function MagicAcademyPage() {
     const saved = Number(videoDetail.progress?.current_position || 0);
     videoRef.current.currentTime = saved;
     watchedRef.current = Math.max(Number(videoDetail.progress?.max_watched_position || 0), saved);
+    lastSafeTimeRef.current = saved;
+    lockedQuizPointIdRef.current = null;
   };
 
   const handleTimeUpdate = () => {
@@ -978,17 +1205,31 @@ export default function MagicAcademyPage() {
       videoRef.current.pause();
       return;
     }
+    if (blockingSeekRef.current) return;
     const currentTime = videoRef.current.currentTime || 0;
+    if (quizAnswerState.open && quizAnswerState.point) {
+      const lockedTime = Number(quizAnswerState.point.trigger_second || 0);
+      if (currentTime > lockedTime + 0.5) {
+        clampToSafePosition("请先完成当前节点答题，再继续学习。");
+        return;
+      }
+    }
     watchedRef.current = Math.max(watchedRef.current, currentTime);
-    maybeOpenQuiz(currentTime);
+    lastSafeTimeRef.current = Math.min(currentTime, watchedRef.current);
+    if (maybeOpenQuiz(currentTime)) return;
   };
 
   const handleSeeking = () => {
-    if (!videoRef.current || !videoDetail || videoDetail.is_whitelisted) return;
-    const allowed = Math.max(watchedRef.current, Number(videoDetail.progress?.max_watched_position || 0));
-    if (videoRef.current.currentTime > allowed + 1) {
-      videoRef.current.currentTime = allowed;
-      message.warning("当前视频暂不支持快进到未观看位置。");
+    if (!videoRef.current || !videoDetail || videoDetail.is_whitelisted || videoDetail.progress?.is_completed) return;
+    if (blockingSeekRef.current) return;
+    const targetTime = Number(videoRef.current.currentTime || 0);
+    const lockedPoint = quizAnswerState.point || (videoDetail.quiz_points || []).find((point) => point.id === lockedQuizPointIdRef.current);
+    if (lockedPoint && !answeredPointIds.has(lockedPoint.id) && targetTime > Number(lockedPoint.trigger_second || 0) + 0.5) {
+      clampToSafePosition("请先完成当前节点答题，再继续学习。");
+      return;
+    }
+    if (targetTime > getAllowedSeekTime()) {
+      clampToSafePosition("请按顺序观看视频，暂不能跳过未学习内容。");
     }
   };
 
@@ -1154,6 +1395,56 @@ export default function MagicAcademyPage() {
     }
   };
 
+  const openStudyVideo = (videoId) => {
+    setSelectedVideoId(videoId);
+  };
+
+  const backToStudyList = () => {
+    setSelectedVideoId(null);
+    setVideoDetail(null);
+    watchedRef.current = 0;
+    lastSafeTimeRef.current = 0;
+    blockingSeekRef.current = false;
+    lockedQuizPointIdRef.current = null;
+  };
+
+  const openAdminVideoDetail = (videoId) => {
+    setSelectedAdminVideoId(videoId);
+    setQuizVideoId(videoId);
+  };
+
+  const backToAdminVideoList = () => {
+    setSelectedAdminVideoId(null);
+    setQuizVideoId(null);
+    setQuizPoints([]);
+  };
+
+  const handlePublishVideo = async (videoId) => {
+    try {
+      setPublishingVideoId(videoId);
+      await publishMagicVideo(videoId);
+      message.success("发布成功");
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "发布视频失败。");
+    } finally {
+      setPublishingVideoId(null);
+    }
+  };
+
+  const handleDisableVideo = async (videoId) => {
+    try {
+      setDisablingVideoId(videoId);
+      await disableMagicVideo(videoId);
+      message.success("已下架");
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "下架视频失败。");
+    } finally {
+      setDisablingVideoId(null);
+    }
+  };
+
   const handleQuizSubmit = async () => {
     try {
       const point = quizAnswerState.point;
@@ -1168,13 +1459,22 @@ export default function MagicAcademyPage() {
       });
       if (!result.passed) {
         message.warning(`本次得分 ${result.score}，未达到 ${result.required_score} 分，请重新作答。`);
+        lockedQuizPointIdRef.current = point?.id || null;
         return;
       }
       message.success("答题通过，可以继续播放。");
+      const resumeTime = Number(point?.trigger_second || videoRef.current?.currentTime || 0);
+      watchedRef.current = Math.max(watchedRef.current, resumeTime);
+      lastSafeTimeRef.current = Math.max(lastSafeTimeRef.current, resumeTime);
+      lockedQuizPointIdRef.current = null;
       setQuizAnswerState({ open: false, point: null, values: {} });
       const detail = await fetchMyMagicVideoDetail(videoDetail.id);
       setVideoDetail(detail);
       watchedRef.current = Math.max(detail?.progress?.max_watched_position || 0, watchedRef.current);
+      lastSafeTimeRef.current = Math.max(lastSafeTimeRef.current, resumeTime);
+      if (videoRef.current) {
+        videoRef.current.currentTime = resumeTime;
+      }
       videoRef.current?.play?.().catch(() => {});
       await reloadMyData();
     } catch (error) {
@@ -1186,7 +1486,14 @@ export default function MagicAcademyPage() {
     { title: "标题", dataIndex: "title" },
     { title: "分类", dataIndex: "category", render: (v) => v || "—" },
     { title: "时长", dataIndex: "duration_seconds", render: (v) => formatTime(v) },
-    { title: "状态", dataIndex: "status", render: (v) => <Tag color={v === "published" ? "success" : v === "disabled" ? "default" : "processing"}>{v}</Tag> },
+    {
+      title: "状态",
+      dataIndex: "status",
+      render: (_, row) => {
+        const meta = getVideoStatusMeta(row);
+        return <Tag color={meta.color}>{meta.label}</Tag>;
+      },
+    },
     { title: "上传", dataIndex: "upload_status", render: (v) => <Tag color={v === "completed" ? "success" : v === "failed" ? "error" : "processing"}>{v || "completed"}</Tag> },
     { title: "必修", dataIndex: "is_required", render: (v) => v ? <Tag color="gold">必修</Tag> : "—" },
     {
@@ -1195,9 +1502,31 @@ export default function MagicAcademyPage() {
       width: 280,
       render: (_, row) => (
         <Space wrap>
+          <Button size="small" type="link" onClick={() => openAdminVideoDetail(row.id)}>查看 / 配置</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => setVideoModal(row)}>编辑</Button>
-          <Button size="small" onClick={async () => { await publishMagicVideo(row.id); await reloadAdminData(); }}>发布</Button>
-          <Button size="small" onClick={async () => { await disableMagicVideo(row.id); await reloadAdminData(); }}>停用</Button>
+          {row.status === "published" ? (
+            <Tag color="success">已发布</Tag>
+          ) : (
+            <Button
+              size="small"
+              type="primary"
+              loading={publishingVideoId === row.id}
+              disabled={!row.can_publish || disablingVideoId === row.id}
+              onClick={() => handlePublishVideo(row.id)}
+            >
+              发布
+            </Button>
+          )}
+          {row.status === "published" ? (
+            <Button
+              size="small"
+              loading={disablingVideoId === row.id}
+              disabled={publishingVideoId === row.id}
+              onClick={() => handleDisableVideo(row.id)}
+            >
+              下架
+            </Button>
+          ) : null}
           <Popconfirm title="确认删除该视频？" onConfirm={async () => { await deleteMagicVideo(row.id); await reloadAdminData(); }}>
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -1208,7 +1537,7 @@ export default function MagicAcademyPage() {
 
   const statsColumns = [
     { title: "姓名", dataIndex: "name" },
-    { title: "部门", dataIndex: "department", render: (v) => v || "—" },
+    { title: "部门", dataIndex: "department", render: (v) => v || "未分配部门" },
     { title: "已观看", dataIndex: "watched_seconds", render: (v) => formatTime(v) },
     { title: "进度", dataIndex: "progress_percent", render: (v) => `${Math.round(v || 0)}%` },
     { title: "完成", dataIndex: "is_completed", render: (v) => v ? <Tag color="success">已完成</Tag> : <Tag>未完成</Tag> },
@@ -1261,81 +1590,206 @@ export default function MagicAcademyPage() {
     return `/api/magic-academy/admin/audio-stats/export${query ? `?${query}` : ""}`;
   }, [audioDepartment, audioMonth, audioUserId]);
 
+  const statsExportPath = useMemo(() => {
+    if (!statsVideoId) return "";
+    const params = new URLSearchParams();
+    if (appliedStatsDepartment) params.set("department", appliedStatsDepartment);
+    if (appliedStatsUserId) params.set("user_id", String(appliedStatsUserId));
+    const query = params.toString();
+    return `/api/magic-academy/videos/${statsVideoId}/export-progress${query ? `?${query}` : ""}`;
+  }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
+
+  const answerExportPath = useMemo(() => {
+    if (!statsVideoId) return "";
+    const params = new URLSearchParams();
+    if (appliedStatsDepartment) params.set("department", appliedStatsDepartment);
+    if (appliedStatsUserId) params.set("user_id", String(appliedStatsUserId));
+    const query = params.toString();
+    return `/api/magic-academy/videos/${statsVideoId}/export-answers${query ? `?${query}` : ""}`;
+  }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
+
+  const handleStatsSearch = () => {
+    setAppliedStatsDepartment(statsDepartment);
+    setAppliedStatsUserId(statsUserId || null);
+  };
+
+  const handleStatsReset = () => {
+    setStatsDepartment("");
+    setStatsUserId(null);
+    setAppliedStatsDepartment("");
+    setAppliedStatsUserId(null);
+  };
+
+  const handleExportStats = async (type) => {
+    if (!statsVideoId) {
+      message.warning("请先选择视频。");
+      return;
+    }
+    if (type === "progress" && statsRows.length === 0) {
+      message.warning("当前筛选条件下暂无学习统计数据。");
+      return;
+    }
+    if (type === "answers" && answerRows.length === 0) {
+      message.warning("当前筛选条件下暂无答题详情数据。");
+      return;
+    }
+    const path = type === "progress" ? statsExportPath : answerExportPath;
+    await saveBlob(await downloadMagicFile(path));
+  };
+
+  const renderEmployeeAudioCell = (value) => {
+    const dateText = value.format("YYYY-MM-DD");
+    const dayData = myAudioCalendarMap[dateText];
+    const status = getAudioDayStatus(dateText, dayData);
+    return (
+      <div className={`magic-audio-calendar-cell ${status === "future" ? "is-future" : ""}`}>
+        {renderAudioStatusTag(status, dayData?.count || 0, 0)}
+      </div>
+    );
+  };
+
+  const renderAdminAudioCell = (value) => {
+    const dateText = value.format("YYYY-MM-DD");
+    const dayData = adminAudioCalendarMap[dateText];
+    const status = getAudioDayStatus(dateText, dayData);
+    return (
+      <div className={`magic-audio-calendar-cell ${status === "future" ? "is-future" : ""}`}>
+        {renderAudioStatusTag(status, dayData?.count || 0, dayData?.uploaded_user_count || 0)}
+      </div>
+    );
+  };
+
+  const renderAudioRecordList = (records, showUser = false) => (
+    <List
+      dataSource={records}
+      locale={{ emptyText: "当天暂无录音上传" }}
+      renderItem={(item) => (
+        <List.Item>
+          <List.Item.Meta
+            title={(
+              <Space wrap>
+                <Text strong>{item.file_name || "未命名录音"}</Text>
+                {showUser && item.user_name ? <Tag>{item.user_name}</Tag> : null}
+                {showUser && item.department ? <Tag color="blue">{item.department}</Tag> : null}
+              </Space>
+            )}
+            description={(
+              <Space wrap>
+                <Text type="secondary">大小：{formatFileSize(item.file_size || 0)}</Text>
+                <Text type="secondary">类型：{item.file_type || "—"}</Text>
+                <Text type="secondary">备注：{item.remark || "—"}</Text>
+                <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
+              </Space>
+            )}
+          />
+        </List.Item>
+      )}
+    />
+  );
+
   const userTabs = [
     {
       key: "study",
       label: "我的学习",
-      children: (
-        <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16 }}>
-          <Card title="学习任务" variant="outlined">
+      children: selectedVideoId ? (
+        <Card title="学习详情" loading={loadingDetail}>
+          {!videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="视频详情加载中" /> : (
+            <Space direction="vertical" size={20} style={{ width: "100%" }}>
+              <Button style={{ alignSelf: "flex-start" }} onClick={backToStudyList}>返回学习任务</Button>
+              <div className="magic-video-detail-shell">
+                <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                  <Title level={4} style={{ margin: 0 }}>{videoDetail.title}</Title>
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>{videoDetail.description || "暂无简介"}</Paragraph>
+                  <Space wrap>
+                    <Tag>{videoDetail.category || "未分类"}</Tag>
+                    {videoDetail.is_required ? <Tag color="gold">必修</Tag> : null}
+                    <Tag color={videoDetail.progress?.is_completed ? "success" : "processing"}>
+                      {videoDetail.progress?.is_completed ? "已完成" : "学习中"}
+                    </Tag>
+                    <Tag color="blue">进度 {Math.round(videoDetail.progress?.progress_percent || 0)}%</Tag>
+                    {currentUser?.is_newcomer && videoDetail.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
+                  </Space>
+                  <ResponsiveVideoPlayer
+                    videoRef={videoRef}
+                    src={buildMagicVideoStreamUrl(videoDetail.id)}
+                    onLoadedMetadata={handleVideoLoaded}
+                    onTimeUpdate={handleTimeUpdate}
+                    onSeeking={handleSeeking}
+                    onPause={() => saveProgress()}
+                    onEnded={() => saveProgress()}
+                  />
+                  {!videoDetail.progress?.is_completed ? (
+                    <Text type="secondary">请按顺序观看视频，完成节点答题后可继续学习。已完成后支持自由回看。</Text>
+                  ) : null}
+                  <Space wrap>
+                    <Text>当前进度：{Math.round(videoDetail.progress?.progress_percent || 0)}%</Text>
+                    <Text>已观看：{formatTime(videoDetail.progress?.max_watched_position || 0)} / {formatTime(videoDetail.duration_seconds || 0)}</Text>
+                    {videoDetail.progress?.is_completed ? <Tag icon={<CheckCircleFilled />} color="success">已完成</Tag> : null}
+                  </Space>
+                  {(videoDetail.quiz_points || []).length > 0 ? (
+                    <Card size="small" title="答题节点">
+                      <Space wrap>
+                        {(videoDetail.quiz_points || []).map((point) => (
+                          <Tag key={point.id} color={answeredPointIds.has(point.id) ? "success" : "default"}>
+                            {formatTime(point.trigger_second)} / {answeredPointIds.has(point.id) ? "已通过" : "待答题"}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </Card>
+                  ) : null}
+                </Space>
+              </div>
+            </Space>
+          )}
+        </Card>
+      ) : (
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <Card title="学习任务">
             {myVideos.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" /> : (
               <List
+                grid={{ gutter: 16, xs: 1, sm: 1, md: 2, xl: 3 }}
                 dataSource={myVideos}
-                renderItem={(item) => (
-                  <List.Item
-                    style={{ cursor: "pointer", background: selectedVideoId === item.id ? "rgba(24,144,255,0.06)" : "transparent", paddingInline: 8 }}
-                    onClick={() => setSelectedVideoId(item.id)}
-                  >
-                    <List.Item.Meta
-                      avatar={<VideoCameraOutlined style={{ fontSize: 18, color: "var(--accent)" }} />}
-                      title={<Space>{item.title}{item.is_required ? <Tag color="gold">必修</Tag> : null}{item.is_whitelisted ? <Tag color="purple">白名单</Tag> : null}</Space>}
-                      description={
-                        <Space direction="vertical" size={4}>
+                renderItem={(item) => {
+                  const progressPercent = Math.round(item.progress?.progress_percent || 0);
+                  const actionLabel = item.progress?.is_completed ? "重新学习" : progressPercent > 0 ? "继续学习" : "开始学习";
+                  return (
+                    <List.Item>
+                      <Card
+                        hoverable
+                        onClick={() => openStudyVideo(item.id)}
+                        actions={[
+                          <Button type="link" onClick={(event) => { event.stopPropagation(); openStudyVideo(item.id); }}>{actionLabel}</Button>,
+                        ]}
+                      >
+                        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                          <Title level={5} style={{ margin: 0 }}>{item.title}</Title>
+                          <Paragraph ellipsis={{ rows: 2 }} type="secondary" style={{ marginBottom: 0 }}>
+                            {item.description || "暂无简介"}
+                          </Paragraph>
+                          <Space wrap>
+                            {item.is_required ? <Tag color="gold">必修</Tag> : null}
+                            {item.is_whitelisted ? <Tag color="purple">白名单</Tag> : null}
+                            {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
+                            <Tag color={item.progress?.is_completed ? "success" : "processing"}>
+                              {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}
+                            </Tag>
+                          </Space>
                           <Text type="secondary">{item.category || "未分类"}</Text>
-                          <Progress percent={Math.round(item.progress?.progress_percent || 0)} size="small" />
+                          <Progress percent={progressPercent} size="small" />
                         </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
+                      </Card>
+                    </List.Item>
+                  );
+                }}
               />
             )}
           </Card>
-          <Card title={videoDetail?.title || "选择一个视频开始学习"} loading={loadingDetail}>
-            {!videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可学习视频" /> : (
-              <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                <Paragraph type="secondary" style={{ marginBottom: 0 }}>{videoDetail.description || "暂无简介"}</Paragraph>
-                <Space wrap>
-                  <Tag>{videoDetail.category || "未分类"}</Tag>
-                  <Tag color={videoDetail.progress?.is_completed ? "success" : "processing"}>{videoDetail.progress?.is_completed ? "已完成" : "学习中"}</Tag>
-                  {currentUser?.is_newcomer && videoDetail.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
-                </Space>
-                <video
-                  ref={videoRef}
-                  src={buildMagicVideoStreamUrl(videoDetail.id)}
-                  controls
-                  style={{ width: "100%", background: "#000", borderRadius: 12 }}
-                  onLoadedMetadata={handleVideoLoaded}
-                  onTimeUpdate={handleTimeUpdate}
-                  onSeeking={handleSeeking}
-                  onPause={() => saveProgress()}
-                  onEnded={() => saveProgress()}
-                />
-                <Space wrap>
-                  <Text>当前进度：{Math.round(videoDetail.progress?.progress_percent || 0)}%</Text>
-                  <Text>已观看：{formatTime(videoDetail.progress?.max_watched_position || 0)} / {formatTime(videoDetail.duration_seconds || 0)}</Text>
-                  {videoDetail.progress?.is_completed ? <Tag icon={<CheckCircleFilled />} color="success">已完成</Tag> : null}
-                </Space>
-                {(videoDetail.quiz_points || []).length > 0 ? (
-                  <Card size="small" title="答题节点">
-                    <Space wrap>
-                      {(videoDetail.quiz_points || []).map((point) => (
-                        <Tag key={point.id} color={answeredPointIds.has(point.id) ? "success" : "default"}>
-                          {formatTime(point.trigger_second)} / {answeredPointIds.has(point.id) ? "已通过" : "待答题"}
-                        </Tag>
-                      ))}
-                    </Space>
-                  </Card>
-                ) : null}
-              </Space>
-            )}
-          </Card>
-        </div>
+        </Space>
       ),
     },
     {
       key: "audio",
-      label: "我的录音",
+      label: "读书打卡",
       children: (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
           <Card title="上传读书录音">
@@ -1349,6 +1803,7 @@ export default function MagicAcademyPage() {
                     setAudioRemark("");
                     message.success("录音已上传。");
                     await reloadMyData();
+                    await reloadMyAudioCalendar();
                     onSuccess?.({});
                   } catch (error) {
                     onError?.(error);
@@ -1359,6 +1814,27 @@ export default function MagicAcademyPage() {
                 <Button type="primary" icon={<UploadOutlined />}>上传录音</Button>
               </Upload>
               <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg，单个文件不超过 50MB。</Text>
+            </Space>
+          </Card>
+          <Card title="上传日历">
+            <Space direction="vertical" style={{ width: "100%" }} size={16}>
+              <Calendar
+                fullscreen={false}
+                value={dayjs(myAudioSelectedDate)}
+                onSelect={(value) => setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
+                onPanelChange={(value) => {
+                  setMyAudioMonth(value.format("YYYY-MM"));
+                  setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
+                }}
+                cellRender={renderEmployeeAudioCell}
+              />
+              <Card
+                size="small"
+                title={`选中日期记录 · ${myAudioSelectedDate || "未选择日期"}`}
+                extra={renderAudioStatusTag(getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay), selectedMyAudioDay?.count || 0, 0)}
+              >
+                {renderAudioRecordList(selectedMyAudioDay?.records || [])}
+              </Card>
             </Space>
           </Card>
           <Card title="我的上传记录">
@@ -1375,7 +1851,7 @@ export default function MagicAcademyPage() {
                 {
                   title: "操作",
                   render: (_, row) => (
-                    <Popconfirm title="确认删除这条录音记录？" onConfirm={async () => { await deleteMyAudio(row.id); await reloadMyData(); }}>
+                    <Popconfirm title="确认删除这条录音记录？" onConfirm={async () => { await deleteMyAudio(row.id); await reloadMyData(); await reloadMyAudioCalendar(); }}>
                       <Button size="small" danger>删除</Button>
                     </Popconfirm>
                   ),
@@ -1392,7 +1868,100 @@ export default function MagicAcademyPage() {
     {
       key: "video_manage",
       label: "视频管理",
-      children: (
+      children: selectedAdminVideo ? (
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <Card>
+            <Space direction="vertical" size={16} style={{ width: "100%" }}>
+              <Button style={{ alignSelf: "flex-start" }} onClick={backToAdminVideoList}>返回视频列表</Button>
+              <div className="magic-video-detail-shell">
+                <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                  <Space wrap style={{ justifyContent: "space-between", width: "100%" }}>
+                    <Title level={4} style={{ margin: 0 }}>{selectedAdminVideo.title}</Title>
+                    <Space wrap>
+                      <Tag color={getVideoStatusMeta(selectedAdminVideo).color}>{getVideoStatusMeta(selectedAdminVideo).label}</Tag>
+                      <Tag color={selectedAdminVideo.upload_status === "completed" ? "success" : selectedAdminVideo.upload_status === "failed" ? "error" : "processing"}>
+                        上传 {selectedAdminVideo.upload_status || "completed"}
+                      </Tag>
+                      {selectedAdminVideo.is_required ? <Tag color="gold">必修</Tag> : null}
+                    </Space>
+                  </Space>
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>{selectedAdminVideo.description || "暂无简介"}</Paragraph>
+                  <ResponsiveVideoPlayer src={buildMagicVideoStreamUrl(selectedAdminVideo.id)} />
+                  <Space wrap>
+                    <Text>分类：{selectedAdminVideo.category || "未分类"}</Text>
+                    <Text>时长：{formatTime(selectedAdminVideo.duration_seconds || 0)}</Text>
+                    <Text>文件大小：{formatFileSize(selectedAdminVideo.file_size || 0)}</Text>
+                  </Space>
+                  <Space wrap>
+                    {selectedAdminVideo.status !== "published" ? (
+                      <Button
+                        type="primary"
+                        loading={publishingVideoId === selectedAdminVideo.id}
+                        disabled={!selectedAdminVideo.can_publish || disablingVideoId === selectedAdminVideo.id}
+                        onClick={() => handlePublishVideo(selectedAdminVideo.id)}
+                      >
+                        发布
+                      </Button>
+                    ) : (
+                      <Button
+                        loading={disablingVideoId === selectedAdminVideo.id}
+                        disabled={publishingVideoId === selectedAdminVideo.id}
+                        onClick={() => handleDisableVideo(selectedAdminVideo.id)}
+                      >
+                        下架
+                      </Button>
+                    )}
+                    <Button icon={<EditOutlined />} onClick={() => setVideoModal(selectedAdminVideo)}>编辑视频</Button>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setPointModal({})}>新增节点</Button>
+                  </Space>
+                </Space>
+              </div>
+            </Space>
+          </Card>
+          <List
+            grid={{ gutter: 16, xs: 1, md: 2 }}
+            dataSource={quizPoints}
+            locale={{ emptyText: "当前视频还没有配置答题节点" }}
+            renderItem={(point) => (
+              <List.Item>
+                <Card
+                  title={`节点 ${formatTime(point.trigger_second)}`}
+                  extra={<Space><Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button><Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button></Space>}
+                >
+                  <Space wrap style={{ marginBottom: 12 }}>
+                    <Tag>题目数 {point.question_count}</Tag>
+                    <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
+                    <Tag>通过分 {point.pass_score}</Tag>
+                  </Space>
+                  <List
+                    dataSource={point.questions || []}
+                    renderItem={(question) => (
+                      <List.Item
+                        actions={[
+                          <Button key="edit" size="small" onClick={() => setQuestionModal({ ...question, pointId: point.id })}>编辑</Button>,
+                          <Popconfirm key="del" title="删除题目？" onConfirm={async () => { await deleteMagicQuestion(question.id); setQuizPoints(await listMagicQuizPoints(selectedAdminVideo.id)); }}>
+                            <Button size="small" danger>删除</Button>
+                          </Popconfirm>,
+                        ]}
+                      >
+                        <List.Item.Meta
+                          title={`${QUESTION_TYPE_LABELS[normalizeQuestionType(question.question_type)] || question.question_type} · ${question.stem}`}
+                          description={`答案：${(question.correct_answers || []).join(" / ") || "无"}`}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                  <div style={{ marginTop: 12 }}>
+                    <Popconfirm title="删除整个答题节点？" onConfirm={async () => { await deleteMagicQuizPoint(point.id); setQuizPoints(await listMagicQuizPoints(selectedAdminVideo.id)); }}>
+                      <Button danger size="small">删除节点</Button>
+                    </Popconfirm>
+                  </div>
+                </Card>
+              </List.Item>
+            )}
+          />
+        </Space>
+      ) : (
         <Card extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>}>
           <Table rowKey="id" dataSource={videos} columns={adminVideoColumns} pagination={{ pageSize: 8 }} />
         </Card>
@@ -1463,8 +2032,28 @@ export default function MagicAcademyPage() {
             <Space wrap>
               <Text>选择视频：</Text>
               <Select style={{ minWidth: 260 }} value={statsVideoId} onChange={setStatsVideoId} options={videos.map((item) => ({ value: item.id, label: item.title }))} />
-              <Button icon={<DownloadOutlined />} onClick={async () => saveBlob(await downloadMagicFile(`/api/magic-academy/videos/${statsVideoId}/export-progress`))}>导出学习统计</Button>
-              <Button icon={<DownloadOutlined />} onClick={async () => saveBlob(await downloadMagicFile(`/api/magic-academy/videos/${statsVideoId}/export-answers`))}>导出答题详情</Button>
+              <Select
+                allowClear
+                style={{ width: 180 }}
+                placeholder="选择部门"
+                value={statsDepartment || undefined}
+                onChange={(value) => setStatsDepartment(value || "")}
+                options={statsDepartmentOptions}
+              />
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 240 }}
+                placeholder="选择员工"
+                value={statsUserId || undefined}
+                onChange={(value) => setStatsUserId(value || null)}
+                options={statsEmployeeOptions}
+              />
+              <Button type="primary" onClick={handleStatsSearch}>查询</Button>
+              <Button onClick={handleStatsReset}>重置</Button>
+              <Button icon={<DownloadOutlined />} disabled={!statsVideoId} onClick={() => handleExportStats("progress")}>导出学习统计</Button>
+              <Button icon={<DownloadOutlined />} disabled={!statsVideoId} onClick={() => handleExportStats("answers")}>导出答题详情</Button>
             </Space>
           </Card>
           <Card title="学习统计">
@@ -1542,6 +2131,35 @@ export default function MagicAcademyPage() {
               <Text type="secondary">管理员只能看统计，不返回音频地址，也不能试听和下载。</Text>
             </Space>
           </Card>
+          <Card title="员工录音上传日历">
+            <Space direction="vertical" style={{ width: "100%" }} size={16}>
+              <Calendar
+                fullscreen={false}
+                value={dayjs(adminAudioSelectedDate)}
+                onSelect={(value) => setAdminAudioSelectedDate(value.format("YYYY-MM-DD"))}
+                onPanelChange={(value) => {
+                  setAudioMonth(value.format("YYYY-MM"));
+                  setAdminAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
+                }}
+                cellRender={renderAdminAudioCell}
+              />
+              <Card
+                size="small"
+                title={`选中日期记录 · ${adminAudioSelectedDate || "未选择日期"}`}
+                extra={renderAudioStatusTag(
+                  getAudioDayStatus(adminAudioSelectedDate, selectedAdminAudioDay),
+                  selectedAdminAudioDay?.count || 0,
+                  selectedAdminAudioDay?.uploaded_user_count || 0,
+                )}
+              >
+                {audioUserId ? (
+                  renderAudioRecordList(selectedAdminAudioDay?.records || [])
+                ) : (
+                  renderAudioRecordList(selectedAdminAudioDay?.records || [], true)
+                )}
+              </Card>
+            </Space>
+          </Card>
           <Card>
             <Table rowKey="user_id" dataSource={audioRows} columns={audioColumns} pagination={{ pageSize: 8 }} />
           </Card>
@@ -1551,7 +2169,7 @@ export default function MagicAcademyPage() {
   ] : [];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: embedded ? 0 : 24 }}>
       <Space direction="vertical" size={20} style={{ width: "100%" }}>
         <Card variant="borderless" style={{ background: "linear-gradient(135deg, #0f766e, #155e75)", color: "#fff" }}>
           <Space direction="vertical" size={6}>

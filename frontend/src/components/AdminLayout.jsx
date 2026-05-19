@@ -5,6 +5,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import UsersTab from "./admin/UsersTab";
 import OptionsTab from "./admin/OptionsTab";
 import ExamsTab from "./admin/ExamsTab";
+import MagicAcademyPage from "./MagicAcademyPage";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, getCurrentUser } from "../lib/auth";
 
@@ -14,7 +15,7 @@ const MENU_ITEMS = [
   { key: "users", icon: <TeamOutlined />, label: "用户管理" },
   { key: "options", icon: <AppstoreOutlined />, label: "选项管理" },
   { key: "exams", icon: <FormOutlined />, label: "考试管理" },
-  { key: "__magic__", icon: <ReadOutlined />, label: "魔学院" },
+  { key: "magic-academy", icon: <ReadOutlined />, label: "魔学院" },
 ];
 
 export default function AdminLayout() {
@@ -23,7 +24,8 @@ export default function AdminLayout() {
   const user = getCurrentUser();
 
   const activeKey = useMemo(() => {
-    const m = location.pathname.match(/^\/admin\/?(\w+)?/);
+    if (location.pathname.startsWith("/admin/magic-academy")) return "magic-academy";
+    const m = location.pathname.match(/^\/admin\/?([\w-]+)?/);
     return m?.[1] || "users";
   }, [location.pathname]);
 
@@ -46,8 +48,7 @@ export default function AdminLayout() {
           selectedKeys={[activeKey]}
           items={MENU_ITEMS}
           onClick={({ key }) => {
-            if (key === "__magic__") navigate("/magic-academy");
-            else navigate(`/admin/${key}`);
+            navigate(`/admin/${key}`);
           }}
         />
       </Sider>
@@ -73,6 +74,7 @@ export default function AdminLayout() {
             <Route path="users" element={<UsersTab />} />
             <Route path="options" element={<OptionsTab />} />
             <Route path="exams" element={<ExamsTab />} />
+            <Route path="magic-academy" element={<MagicAcademyPage embedded />} />
             <Route path="*" element={<Navigate to="users" replace />} />
           </Routes>
         </Content>

@@ -38,6 +38,70 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.magic-video-detail-shell {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.magic-video-player-wrap {
+  width: 100%;
+  max-width: 960px;
+  max-height: calc(100vh - 260px);
+  margin: 0 auto;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+}
+
+.magic-video-player-wrap video,
+.magic-video-player-wrap .ant-image,
+.magic-video-player-wrap iframe,
+.magic-video-player {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 260px);
+  display: block;
+  object-fit: contain;
+  background: #000;
+}
+
+@media (max-width: 768px) {
+  .magic-video-detail-shell {
+    max-width: 100%;
+  }
+
+  .magic-video-player-wrap {
+    max-width: 100%;
+    max-height: calc(100vh - 220px);
+  }
+
+  .magic-video-player-wrap video,
+  .magic-video-player-wrap .ant-image,
+  .magic-video-player-wrap iframe,
+  .magic-video-player {
+    max-height: calc(100vh - 220px);
+  }
+}
+
+.magic-audio-calendar-cell {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.magic-audio-calendar-cell .ant-tag {
+  margin-inline-end: 0;
+  white-space: nowrap;
+}
+
+.magic-audio-calendar-cell.is-future {
+  opacity: 0.55;
+}
+
 /* ============ 准备页：全屏品牌页 ============ */
 
 .prepare-screen {
@@ -608,12 +672,33 @@ body {
   gap: 16px;
 }
 
+.home-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .home-cta-card {
   background: linear-gradient(135deg, #1677ff 0%, #4096ff 100%) !important;
   color: #fff;
   border: none !important;
   border-radius: 14px !important;
   box-shadow: 0 10px 30px rgba(22, 119, 255, 0.32) !important;
+}
+
+.home-magic-card {
+  border-radius: 14px !important;
+  border-color: rgba(22, 119, 255, 0.16) !important;
+  background:
+    radial-gradient(circle at right top, rgba(22, 119, 255, 0.1), transparent 42%),
+    #ffffff !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06) !important;
+}
+
+@media (max-width: 768px) {
+  .home-entry-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ============ 通用页面壳 ============ */

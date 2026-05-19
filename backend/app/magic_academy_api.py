@@ -60,6 +60,7 @@ MULTIPART_URL_EXPIRE_SECONDS = 3600
 STREAM_URL_EXPIRE_SECONDS = 600
 MIN_MULTIPART_PART_SIZE = 8 * 1024 * 1024
 MAX_MULTIPART_PARTS = 1000
+UNASSIGNED_DEPARTMENT_FILTER = "__UNASSIGNED__"
 settings = get_settings()
 
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
@@ -93,6 +94,16 @@ def _json_dumps(value: Any) -> str:
 
 def _user_name(user: User) -> str:
     return (user.real_name or user.display_name or user.username or "").strip()
+
+
+def _user_department(user: User) -> str:
+    return (user.department or "").strip()
+
+
+def _department_matches_filter(user: User, department: str) -> bool:
+    if department == UNASSIGNED_DEPARTMENT_FILTER:
+        return not _user_department(user)
+    return _user_department(user) == department
 
 
 def _normalize_target_type(value: str) -> str:
@@ -279,6 +290,31 @@ def _normalize_upload_status(value: str) -> str:
     return status
 
 
+def _is_video_upload_ready(video: MagicVideo) -> bool:
+    upload_status = (video.upload_status or "completed").strip().lower()
+    if upload_status != "completed":
+        return False
+    if (video.storage_type or "local").strip().lower() == "oss":
+        return bool((video.oss_object_key or "").strip())
+    return bool((video.file_path or "").strip())
+
+
+def _video_status_label(video: MagicVideo) -> str:
+    status = (video.status or "draft").strip().lower()
+    upload_status = (video.upload_status or "completed").strip().lower()
+    if upload_status == "failed":
+        return "上传失败"
+    if upload_status in {"pending", "uploading"}:
+        return "上传中"
+    if status == "published":
+        return "已发布"
+    if status == "disabled":
+        return "已下架"
+    if upload_status == "completed":
+        return "已上传未发布"
+    return "草稿"
+
+
 def _normalize_transcode_status(value: str) -> str:
     status = (value or "none").strip().lower()
     if status not in TRANSCODE_STATUSES:
@@ -295,8 +331,13 @@ def _parse_answer(value: Any) -> list[str]:
     if not text:
         return []
     parsed = _json_loads(text, None)
-    if parsed is not None and parsed != text:
+    if isinstance(parsed, (list, tuple, set)):
         return _parse_answer(parsed)
+    if isinstance(parsed, str) and parsed != text:
+        return _parse_answer(parsed)
+    if parsed is not None and not isinstance(parsed, str):
+        normalized = str(parsed).strip()
+        return [normalized] if normalized else []
     if "\n" in text:
         return [item.strip() for item in text.splitlines() if item.strip()]
     if "," in text or "，" in text:
@@ -360,6 +401,61 @@ def _parse_month(month_text: str | None) -> tuple[date, date]:
 
 def _expected_days(month_start: date, month_end: date) -> int:
     return max((month_end - month_start).days + 1, 0)
+
+
+def _month_last_day(month_start: date) -> date:
+    return date(month_start.year, month_start.month, monthrange(month_start.year, month_start.month)[1])
+
+
+def _serialize_audio_record(item: MagicAudioUpload, user_map: dict[int, User] | None = None) -> dict[str, Any]:
+    owner = user_map.get(item.user_id) if user_map else None
+    return {
+        "id": item.id,
+        "user_id": item.user_id,
+        "user_name": _user_name(owner) if owner else "",
+        "department": (owner.department or "") if owner else "",
+        "file_name": item.file_name or "",
+        "file_size": int(item.file_size or 0),
+        "file_type": item.mime_type or "",
+        "remark": item.remark or "",
+        "uploaded_date": _iso(item.uploaded_date),
+        "uploaded_time": _iso(item.uploaded_on),
+        "status": "已上传",
+    }
+
+
+def _build_audio_calendar_payload(
+    month_start: date,
+    month_last_day: date,
+    uploads: list[MagicAudioUpload],
+    user_map: dict[int, User] | None = None,
+    aggregate_users: bool = False,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[MagicAudioUpload]] = {}
+    for item in uploads:
+        key = item.uploaded_date.isoformat() if item.uploaded_date else None
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(item)
+    today = date.today().isoformat()
+    days: list[dict[str, Any]] = []
+    cursor = month_start
+    while cursor <= month_last_day:
+        key = cursor.isoformat()
+        items = grouped.get(key, [])
+        uploaded_users = sorted({item.user_id for item in items})
+        days.append({
+            "date": key,
+            "is_today": key == today,
+            "is_future": key > today,
+            "uploaded": bool(items),
+            "count": len(items),
+            "uploaded_user_count": len(uploaded_users),
+            "records": [_serialize_audio_record(item, user_map) for item in items],
+            "user_ids": uploaded_users if aggregate_users else [],
+        })
+        cursor += timedelta(days=1)
+    return days
 
 
 def _xlsx_response(filename: str, headers: list[str], rows: list[list[Any]]) -> StreamingResponse:
@@ -491,7 +587,7 @@ def _video_visible_to_user(video: MagicVideo, user: User, targets: list[MagicVid
     if video.is_newcomer_required and user.is_newcomer:
         return True
     if not targets:
-        return False
+        return True
     return any(_user_matches_target(user, target) for target in targets)
 
 
@@ -502,6 +598,8 @@ def _video_to_dict(
     whitelisted: bool = False,
 ) -> dict[str, Any]:
     answered = _json_loads(progress.answered_point_ids_json, []) if progress else []
+    status = (video.status or "draft").strip().lower()
+    upload_status = (video.upload_status or "completed").strip().lower()
     return {
         "id": video.id,
         "title": video.title,
@@ -527,10 +625,13 @@ def _video_to_dict(
         "is_required": bool(video.is_required),
         "is_newcomer_required": bool(video.is_newcomer_required),
         "deadline_at": _iso(video.deadline_at),
-        "status": video.status,
-        "upload_status": video.upload_status or "completed",
+        "status": status,
+        "status_label": _video_status_label(video),
+        "upload_status": upload_status,
         "upload_error": video.upload_error or "",
         "transcode_status": video.transcode_status or "none",
+        "can_publish": status != "published" and _is_video_upload_ready(video),
+        "can_disable": status == "published",
         "created_by": video.created_by,
         "created_at": _iso(video.created_at),
         "updated_at": _iso(video.updated_at),
@@ -559,6 +660,8 @@ async def _collect_target_users(db: AsyncSession, video: MagicVideo, targets: li
         select(User).where(User.role == "user", User.disabled.is_(False)).order_by(User.id.asc())
     )
     users = result.scalars().all()
+    if not targets and not video.is_newcomer_required:
+        return users
     visible_users = []
     for user in users:
         if video.is_newcomer_required and user.is_newcomer:
@@ -570,6 +673,25 @@ async def _collect_target_users(db: AsyncSession, video: MagicVideo, targets: li
     for item in visible_users:
         unique[item.id] = item
     return list(unique.values())
+
+
+def _filter_stats_users(users: list[User], department: str | None = None, user_id: int | None = None) -> list[User]:
+    filtered = users
+    if department:
+        filtered = [item for item in filtered if _department_matches_filter(item, department)]
+    if user_id:
+        filtered = [item for item in filtered if item.id == user_id]
+    return filtered
+
+
+def _build_export_filename(prefix: str, video_title: str, department: str | None = None, user_name: str | None = None) -> str:
+    parts = [prefix, video_title]
+    if department:
+        parts.append("未分配部门" if department == UNASSIGNED_DEPARTMENT_FILTER else department)
+    if user_name:
+        parts.append(user_name)
+    parts.append(date.today().isoformat())
+    return _safe_filename("_".join(part.strip() for part in parts if (part or "").strip())) + ".xlsx"
 
 
 async def _ensure_video_access(
@@ -1007,8 +1129,11 @@ async def publish_video(
 ) -> dict[str, Any]:
     del admin
     video = await _get_video_or_404(db, video_id)
+    if not _is_video_upload_ready(video):
+        raise HTTPException(status_code=400, detail="视频尚未上传完成，不能发布。")
     video.status = "published"
-    await db.flush()
+    await db.commit()
+    await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
 
@@ -1022,7 +1147,8 @@ async def disable_video(
     del admin
     video = await _get_video_or_404(db, video_id)
     video.status = "disabled"
-    await db.flush()
+    await db.commit()
+    await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
 
@@ -1488,6 +1614,8 @@ async def submit_my_video_quiz(
 @router.get("/videos/{video_id}/stats")
 async def get_video_stats(
     video_id: int,
+    department: str | None = None,
+    user_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
@@ -1495,7 +1623,7 @@ async def get_video_stats(
     video = await _get_video_or_404(db, video_id)
     targets_map = await _get_video_targets(db, [video_id])
     targets = targets_map.get(video_id, [])
-    users = await _collect_target_users(db, video, targets)
+    users = _filter_stats_users(await _collect_target_users(db, video, targets), department, user_id)
     if not users:
         return []
     user_ids = [item.id for item in users]
@@ -1520,7 +1648,7 @@ async def get_video_stats(
         rows.append({
             "user_id": item.id,
             "name": _user_name(item),
-            "department": item.department or "",
+            "department": _user_department(item),
             "position": item.position or "",
             "video_name": video.title,
             "video_duration_seconds": int(video.duration_seconds or 0),
@@ -1539,25 +1667,33 @@ async def get_video_stats(
 @router.get("/videos/{video_id}/answers")
 async def get_video_answer_details(
     video_id: int,
+    department: str | None = None,
+    user_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
     del admin
-    await _get_video_or_404(db, video_id)
+    video = await _get_video_or_404(db, video_id)
+    targets_map = await _get_video_targets(db, [video_id])
+    targets = targets_map.get(video_id, [])
+    users = _filter_stats_users(await _collect_target_users(db, video, targets), department, user_id)
+    if not users:
+        return []
+    user_ids = [item.id for item in users]
     answer_result = await db.execute(
         select(MagicQuizAnswer, User, MagicVideoQuizPoint, MagicQuestion, MagicVideo)
         .join(User, User.id == MagicQuizAnswer.user_id)
         .join(MagicVideoQuizPoint, MagicVideoQuizPoint.id == MagicQuizAnswer.quiz_point_id)
         .join(MagicQuestion, MagicQuestion.id == MagicQuizAnswer.question_id)
         .join(MagicVideo, MagicVideo.id == MagicQuizAnswer.video_id)
-        .where(MagicQuizAnswer.video_id == video_id)
+        .where(MagicQuizAnswer.video_id == video_id, MagicQuizAnswer.user_id.in_(user_ids))
         .order_by(MagicQuizAnswer.submitted_at.desc())
     )
     rows = []
     for answer, user, point, question, video in answer_result.all():
         rows.append({
             "name": _user_name(user),
-            "department": user.department or "",
+            "department": _user_department(user),
             "video_name": video.title,
             "quiz_point": point.trigger_second,
             "question": question.stem,
@@ -1574,10 +1710,17 @@ async def get_video_answer_details(
 @router.get("/videos/{video_id}/export-progress")
 async def export_video_progress(
     video_id: int,
+    department: str | None = None,
+    user_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> StreamingResponse:
-    rows = await get_video_stats(video_id, db, admin)
+    rows = await get_video_stats(video_id, department, user_id, db, admin)
+    video = await _get_video_or_404(db, video_id)
+    user_name = None
+    if user_id:
+        target = await db.get(User, user_id)
+        user_name = _user_name(target) if target and target.role == "user" else None
     export_rows = [
         [
             item["name"],
@@ -1596,7 +1739,7 @@ async def export_video_progress(
         for item in rows
     ]
     return _xlsx_response(
-        f"magic_video_progress_{video_id}.xlsx",
+        _build_export_filename("视频学习统计", video.title, department, user_name),
         ["姓名", "部门", "视频名称", "视频总时长", "已观看时长", "观看进度百分比", "是否完成", "完成时间", "答题是否通过", "答题次数", "最后观看时间", "是否白名单"],
         export_rows,
     )
@@ -1605,10 +1748,17 @@ async def export_video_progress(
 @router.get("/videos/{video_id}/export-answers")
 async def export_video_answers(
     video_id: int,
+    department: str | None = None,
+    user_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> StreamingResponse:
-    rows = await get_video_answer_details(video_id, db, admin)
+    rows = await get_video_answer_details(video_id, department, user_id, db, admin)
+    video = await _get_video_or_404(db, video_id)
+    user_name = None
+    if user_id:
+        target = await db.get(User, user_id)
+        user_name = _user_name(target) if target and target.role == "user" else None
     export_rows = [
         [
             item["name"],
@@ -1626,7 +1776,7 @@ async def export_video_answers(
         for item in rows
     ]
     return _xlsx_response(
-        f"magic_video_answers_{video_id}.xlsx",
+        _build_export_filename("答题详情", video.title, department, user_name),
         ["姓名", "部门", "视频名称", "答题节点", "题目", "用户答案", "正确答案", "是否正确", "得分", "提交时间", "第几次提交"],
         export_rows,
     )
@@ -1718,19 +1868,7 @@ async def list_my_audios(
         .where(MagicAudioUpload.user_id == user.id, MagicAudioUpload.is_deleted.is_(False))
         .order_by(desc(MagicAudioUpload.uploaded_on))
     )
-    return [
-        {
-            "id": item.id,
-            "file_name": item.file_name,
-            "file_size": int(item.file_size or 0),
-            "file_type": item.mime_type,
-            "remark": item.remark or "",
-            "uploaded_date": _iso(item.uploaded_date),
-            "uploaded_time": _iso(item.uploaded_on),
-            "status": "已上传",
-        }
-        for item in result.scalars().all()
-    ]
+    return [_serialize_audio_record(item) for item in result.scalars().all()]
 
 
 @router.post("/my/audios")
@@ -1789,6 +1927,31 @@ async def delete_my_audio(
     row.deleted_at = _now()
     await db.flush()
     return {"success": True}
+
+
+@router.get("/my/audios/calendar")
+async def get_my_audio_calendar(
+    month: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    month_start, _ = _parse_month(month)
+    month_last_day = _month_last_day(month_start)
+    result = await db.execute(
+        select(MagicAudioUpload)
+        .where(
+            MagicAudioUpload.user_id == user.id,
+            MagicAudioUpload.is_deleted.is_(False),
+            MagicAudioUpload.uploaded_date >= month_start,
+            MagicAudioUpload.uploaded_date <= month_last_day,
+        )
+        .order_by(MagicAudioUpload.uploaded_on.asc())
+    )
+    uploads = result.scalars().all()
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "days": _build_audio_calendar_payload(month_start, month_last_day, uploads),
+    }
 
 
 async def _build_audio_stats(
@@ -1855,6 +2018,49 @@ async def get_audio_stats(
 ) -> list[dict[str, Any]]:
     del admin
     return await _build_audio_stats(db, month, department, user_id)
+
+
+@router.get("/admin/audios/calendar")
+async def get_admin_audio_calendar(
+    month: str | None = None,
+    department: str | None = None,
+    user_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    month_start, _ = _parse_month(month)
+    month_last_day = _month_last_day(month_start)
+    user_stmt = select(User).where(User.role == "user", User.disabled.is_(False))
+    if department:
+        user_stmt = user_stmt.where(User.department == department)
+    if user_id:
+        user_stmt = user_stmt.where(User.id == user_id)
+    user_stmt = user_stmt.order_by(User.id.asc())
+    user_result = await db.execute(user_stmt)
+    users = user_result.scalars().all()
+    user_map = {item.id: item for item in users}
+    user_ids = list(user_map)
+    uploads: list[MagicAudioUpload] = []
+    if user_ids:
+        upload_result = await db.execute(
+            select(MagicAudioUpload)
+            .where(
+                MagicAudioUpload.user_id.in_(user_ids),
+                MagicAudioUpload.is_deleted.is_(False),
+                MagicAudioUpload.uploaded_date >= month_start,
+                MagicAudioUpload.uploaded_date <= month_last_day,
+            )
+            .order_by(MagicAudioUpload.uploaded_on.asc())
+        )
+        uploads = upload_result.scalars().all()
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "user_id": user_id,
+        "department": department or "",
+        "scope": "user" if user_id else "all",
+        "days": _build_audio_calendar_payload(month_start, month_last_day, uploads, user_map, aggregate_users=not user_id),
+    }
 
 
 @router.get("/admin/audio-stats/export")
