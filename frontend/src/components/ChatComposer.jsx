@@ -27,12 +27,11 @@ export default function ChatComposer({ disabled, sending, onSend }) {
 
   const insertMarker = (kind) => {
     if (disabled || sending) return;
-    const marker = `[发送:${kind}]`;
+    const marker = `[发送${kind}]`;
     setValue((prev) => {
-      const sep = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
-      return `${prev}${sep}${marker} `;
+      const separator = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
+      return `${prev}${separator}${marker} `;
     });
-    // 让 TextArea 重新聚焦
     requestAnimationFrame(() => {
       taRef.current?.focus?.();
     });
@@ -47,7 +46,7 @@ export default function ChatComposer({ disabled, sending, onSend }) {
   return (
     <div className="chat-composer-wrap">
       <div className="chat-composer">
-        <Tooltip title="模拟发送资料 / 图片 / 链接">
+        <Tooltip title="模拟发送资料、图片或链接">
           <Dropdown
             menu={{ items: menuItems }}
             placement="topLeft"
@@ -66,16 +65,16 @@ export default function ChatComposer({ disabled, sending, onSend }) {
           ref={taRef}
           className="chat-composer__textarea"
           value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onPressEnter={(e) => {
-            if (e.shiftKey) return;
-            e.preventDefault();
+          onChange={(event) => setValue(event.target.value)}
+          onPressEnter={(event) => {
+            if (event.shiftKey) return;
+            event.preventDefault();
             submit();
           }}
           placeholder={
             disabled
-              ? "本次训练已结束。"
-              : "输入回复，回车发送 · 需要给客户发资料？直接说『我这就发您』或用左侧 📎"
+              ? "当前会话已结束。"
+              : "输入你的回复，回车发送。需要给客户发送资料时，也可以用左侧附件按钮快速插入。"
           }
           autoSize={{ minRows: 1, maxRows: 6 }}
           disabled={disabled || sending}

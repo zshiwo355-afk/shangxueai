@@ -1,6 +1,6 @@
 """SQLAlchemy 异步引擎 + Session 工厂。
 
-DSN 通过 backend/.env 的 DB_DSN 注入。建表由 sql/init.sql 一次性完成（不在代码里 create_all），
+DSN 通过 backend/.env 的 DB_DSN 注入。建表由 sql/full_install.sql（或与正文等价的 sql/init.sql）一次性完成（不在代码里 create_all），
 保持"代码不碰 schema、改 schema 走 SQL 文件"的边界清晰。
 """
 from __future__ import annotations

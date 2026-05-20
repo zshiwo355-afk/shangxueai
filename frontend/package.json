@@ -17,7 +17,6 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@rolldown/binding-darwin-arm64": "^1.0.1",
     "@vitejs/plugin-react": "^6.0.1",
     "vite": "^8.0.10"
   }

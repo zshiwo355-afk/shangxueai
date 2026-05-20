@@ -1,17 +1,25 @@
 -- =====================================================================
--- ShangxueAI V2 数据库初始化脚本（与 full_install.sql 正文一致）
+-- ShangxueAI 数据库 · 一键完整安装（合并版）
 --
--- 合并说明：增量变更已汇总进本 DDL；一键安装也可使用 backend/sql/full_install.sql。
--- migrate_v2_chat_history / migrate_v2_admin_review / migrate_v3_magic_academy /
--- migrate_v4_magic_video_oss 仅用于「已有旧库」按序升级，全新库无需再执行。
+-- 本文件 = 基准 init.sql 的全量 DDL + 种子数据，并已内含以下增量脚本的最终形态：
+--   migrate_v2_chat_history.sql      （training_records / exam_attempts 对话历史）
+--   migrate_v2_admin_review.sql      （考试固定参数、管理员复核与最终分）
+--   migrate_v3_magic_academy.sql     （users 扩展字段 + 魔学院相关表）
+--   migrate_v4_magic_video_oss.sql   （magic_videos OSS / 播放与上传状态等列）
+--
+-- 全新库：只需执行本文件（或与之等价的 init.sql）即可，无需再跑 migrate_*.sql。
+-- 已有旧库升级：请仍按版本顺序单独执行 migrate_*.sql；勿对本文件重复执行（含 DROP）。
 --
 -- 使用方式：
 --   1) 先建库：CREATE DATABASE shangxueai DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
---   2) CMD（推荐）：mysql -u root -p shangxueai < "C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/init.sql"
---   3) mysql> SOURCE（Windows）：路径用正斜杠，勿用单反斜杠（会被当成转义）。例如：
---        SOURCE C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/init.sql;
+--   2) CMD（推荐）：mysql -u root -p shangxueai < "C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/full_install.sql"
+--   3) 已在 mysql> 里用 SOURCE 时（Windows）：路径必须用正斜杠或双反斜杠，否则会报 Unknown command '\U'、路径错乱：
+--        SOURCE C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/full_install.sql;
+--        或 SOURCE C:\\Users\\你的用户名\\Desktop\\project\\shangxue\\backend\\sql\\full_install.sql;
 --
 -- 初始管理员账号：admin / 123456 （md5: e10adc3949ba59abbe56e057f20f883e）
+--
+-- 说明：init.sql 与本文件正文一致时二者任选其一；后续若只维护一份，建议以本文件为准。
 -- =====================================================================
 
 SET NAMES utf8mb4;

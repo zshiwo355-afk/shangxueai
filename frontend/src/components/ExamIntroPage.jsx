@@ -1,10 +1,19 @@
-import { Button, Card, Space, Tag, Typography, App as AntdApp } from "antd";
+import { CheckCircleOutlined, ClockCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
+import { App as AntdApp, Button, Card, Empty, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMyExams, startExam } from "../lib/api.exam";
 import { saveActiveSession } from "../lib/storage";
 
-const { Title, Paragraph, Text } = Typography;
+const { Paragraph, Text } = Typography;
+
+function settingTag(label, value) {
+  return (
+    <Tag color={value === "随机" ? "default" : "blue"}>
+      {label}：{value}
+    </Tag>
+  );
+}
 
 export default function ExamIntroPage() {
   const { examId } = useParams();
@@ -20,23 +29,25 @@ export default function ExamIntroPage() {
     (async () => {
       try {
         const list = await fetchMyExams();
-        const item = (list || []).find((x) => String(x.exam?.id) === String(examId));
+        const item = (list || []).find((entry) => String(entry.exam?.id) === String(examId));
         if (!item) {
-          message.error("未找到该考试。");
-          navigate("/home", { replace: true });
+          message.error("没有找到这场考试。");
+          navigate("/workspace/training", { replace: true });
           return;
         }
         if (alive) {
           setExam(item.exam);
           setAttempts(item.attempts || []);
         }
-      } catch (err) {
-        if (alive) message.error(err?.message || "加载失败。");
+      } catch (error) {
+        if (alive) message.error(error?.message || "考试信息加载失败。");
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [examId, message, navigate]);
 
   const handleStart = async () => {
@@ -57,8 +68,8 @@ export default function ExamIntroPage() {
         chat_history: [{ role: "customer", content: data.first_customer_message }],
       });
       navigate(`/chat/${data.session_id}`);
-    } catch (err) {
-      message.error(err?.message || "开始考试失败。");
+    } catch (error) {
+      message.error(error?.message || "开始考试失败。");
     } finally {
       setStarting(false);
     }
@@ -71,91 +82,97 @@ export default function ExamIntroPage() {
 
   const remaining = Math.max(exam.max_attempts - exam.attempt_count, 0);
   const finished = exam.status === "passed" || exam.status === "failed";
-  const pendingReview = exam.status === "pending_review" || (attempts || []).some((a) => a.review_pending);
-  const hasInProgress = (attempts || []).some((a) => a.status === "in_progress");
-
-  const fixedDescriptions = [
-    `训练类型：${exam.fixed_training_type || "随机"}`,
-    `难度：${exam.fixed_difficulty || "随机"}`,
-    `客户类型：${exam.fixed_customer_type || "随机"}`,
-  ];
+  const pendingReview = exam.status === "pending_review" || attempts.some((item) => item.review_pending);
+  const hasInProgress = attempts.some((item) => item.status === "in_progress");
 
   return (
-    <div className="page-shell" style={{ maxWidth: 720 }}>
-      <div className="page-toolbar">
-        <Button onClick={() => navigate("/home")}>返回</Button>
-        <h2 style={{ margin: 0 }}>{exam.title || "陪练考试"}</h2>
-        <Space />
+    <div className="page-shell page-shell--narrow">
+      <div className="page-toolbar page-toolbar--stack">
+        <div className="page-toolbar__leading">
+          <Button onClick={() => navigate("/workspace/training")}>返回销售对练</Button>
+          <div>
+            <h2 style={{ margin: 0 }}>{exam.title || "销售考试"}</h2>
+            <Text type="secondary">开始前先确认规则、剩余次数和当前状态，避免在考试中途来回跳转。</Text>
+          </div>
+        </div>
+        <Space wrap>
+          <Button onClick={() => navigate("/training/records")}>查看训练记录</Button>
+          <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>查看结果页</Button>
+        </Space>
       </div>
 
-      <Card variant="borderless" style={{ background: "#fff", padding: 8 }}>
+      <Card className="exam-hero-card" bordered={false}>
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <div>
-            <Title level={4} style={{ margin: 0 }}>考试说明</Title>
-            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              本次考试由管理员派发。提交答题后由 AI 给出预评分，再由管理员人工复核打分，
-              最终综合分用于判定通过与否。
-            </Paragraph>
-          </div>
+          <Space size={[8, 8]} wrap>
+            {settingTag("训练类型", exam.fixed_training_type || "随机")}
+            {settingTag("难度", exam.fixed_difficulty || "随机")}
+            {settingTag("客户类型", exam.fixed_customer_type || "随机")}
+          </Space>
 
-          <div>
-            <Title level={5}>题目设置</Title>
-            <Space size={[6, 6]} wrap>
-              {fixedDescriptions.map((d, i) => (
-                <Tag key={i} color={d.endsWith("随机") ? "default" : "blue"}>{d}</Tag>
-              ))}
-            </Space>
-          </div>
-
-          <div>
-            <Title level={5}>规则</Title>
-            <ul style={{ paddingLeft: 18, lineHeight: 1.85, color: "var(--text-base)" }}>
-              <li>及格分：<strong>{exam.pass_score} 分</strong></li>
-              <li>权重：<strong>AI {Math.round(exam.ai_weight * 100)}% / 老师 {Math.round((1 - exam.ai_weight) * 100)}%</strong></li>
-              <li>最多尝试：<strong>{exam.max_attempts} 次</strong>，若上次未通过且仍有次数可重考</li>
-              <li>当前已尝试：<strong>{exam.attempt_count} / {exam.max_attempts}</strong>，剩余 <strong>{remaining}</strong> 次</li>
-              <li>提交后必须等管理员复核完成，才能开始下一次</li>
-            </ul>
-          </div>
-
-          {finished ? (
-            <Card type="inner" style={{ background: "#fafafa" }}>
-              <Text>
-                考试已 {exam.status === "passed" ? "通过 ✓" : "未通过 ✗"}，可点击下方按钮查看复盘。
-              </Text>
-              <div style={{ marginTop: 12 }}>
-                <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>查看复盘</Button>
-              </div>
-            </Card>
-          ) : pendingReview ? (
-            <Card type="inner" style={{ background: "#fffaf2" }}>
-              <Text>
-                上一次答题已提交，正在等待管理员复核。复核完成后此页会更新「再考一次」按钮（如还有次数）或最终通过结论。
-              </Text>
-              <div style={{ marginTop: 12 }}>
-                <Button onClick={() => navigate(`/exam/${examId}/result`)}>查看 AI 预评分</Button>
-              </div>
-            </Card>
-          ) : hasInProgress ? (
-            <Card type="inner" style={{ background: "#f0f8ff" }}>
-              <Text>检测到你有进行中的答题，点击下方按钮可继续。</Text>
-              <div style={{ marginTop: 12 }}>
-                <Button type="primary" onClick={handleStart} loading={starting}>继续答题</Button>
-              </div>
-            </Card>
-          ) : remaining <= 0 ? (
-            <Card type="inner" style={{ background: "#fafafa" }}>
-              <Text type="danger">已用完所有考试机会。</Text>
-            </Card>
-          ) : (
-            <div style={{ display: "flex", justifyContent: "center", paddingTop: 12 }}>
-              <Button type="primary" size="large" loading={starting} onClick={handleStart} style={{ minWidth: 220 }}>
-                {starting ? "AI 正在准备题目…" : `开始第 ${exam.attempt_count + 1} 次考试`}
-              </Button>
+          <div className="exam-metric-grid">
+            <div className="exam-metric-card">
+              <span>及格分</span>
+              <strong>{exam.pass_score}</strong>
             </div>
-          )}
+            <div className="exam-metric-card">
+              <span>剩余次数</span>
+              <strong>{remaining}</strong>
+            </div>
+            <div className="exam-metric-card">
+              <span>AI 评分权重</span>
+              <strong>{`${Math.round(exam.ai_weight * 100)}%`}</strong>
+            </div>
+          </div>
+
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            提交考试后系统会先生成 AI 预评分，再进入人工复核。建议把每一轮对话都当成正式实战完成。
+          </Paragraph>
         </Space>
       </Card>
+
+      <Card title="考试规则" variant="outlined">
+        <ul className="exam-rule-list">
+          <li>最多可参加 <strong>{exam.max_attempts}</strong> 次，当前已经使用 <strong>{exam.attempt_count}</strong> 次。</li>
+          <li>未通过且仍有剩余次数时，可以再次进入考试。</li>
+          <li>提交后需等待复核完成，才能看到最终结论。</li>
+        </ul>
+      </Card>
+
+      {finished ? (
+        <Card className="exam-state-card" bordered={false}>
+          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+            <Space><CheckCircleOutlined /><Text>{exam.status === "passed" ? "这场考试已经通过。" : "这场考试暂未通过，可以回看结果详情。"}</Text></Space>
+            <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>查看考试结果</Button>
+          </Space>
+        </Card>
+      ) : pendingReview ? (
+        <Card className="exam-state-card exam-state-card--warning" bordered={false}>
+          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+            <Space><ClockCircleOutlined /><Text>最近一次提交正在等待复核，暂时不能开启新一轮考试。</Text></Space>
+            <Button onClick={() => navigate(`/exam/${examId}/result`)}>查看当前结果</Button>
+          </Space>
+        </Card>
+      ) : hasInProgress ? (
+        <Card className="exam-state-card" bordered={false}>
+          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+            <Space><PlayCircleOutlined /><Text>检测到你有一场未完成的考试，可以直接继续作答。</Text></Space>
+            <Button type="primary" onClick={handleStart} loading={starting}>继续考试</Button>
+          </Space>
+        </Card>
+      ) : remaining <= 0 ? (
+        <Card bordered={false}>
+          <Empty description="这场考试已经没有剩余作答次数" />
+        </Card>
+      ) : (
+        <Card className="exam-state-card" bordered={false}>
+          <Space direction="vertical" size={12} style={{ width: "100%" }}>
+            <Text>当前可以开始第 <strong>{exam.attempt_count + 1}</strong> 次考试。</Text>
+            <Button type="primary" size="large" loading={starting} onClick={handleStart}>
+              {starting ? "AI 正在准备考试场景…" : `开始第 ${exam.attempt_count + 1} 次考试`}
+            </Button>
+          </Space>
+        </Card>
+      )}
     </div>
   );
 }

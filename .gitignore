@@ -19,6 +19,7 @@ backend/.env
 backend/.env.*
 !.env.example
 !backend/.env.example
+!frontend/.env.example
 
 # System
 .DS_Store

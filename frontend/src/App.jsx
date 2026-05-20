@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import LoginPage from "./components/LoginPage";
 import HomePage from "./components/HomePage";
 import AdminLayout from "./components/AdminLayout";
+import UserLayout from "./components/UserLayout";
 import PreparePage from "./components/PreparePage";
 import ChatPage from "./components/ChatPage";
 import ReviewPage from "./components/ReviewPage";
@@ -12,8 +13,10 @@ import ExamResultPage from "./components/ExamResultPage";
 import TrainingHistoryPage from "./components/TrainingHistoryPage";
 import TrainingRecordDetailPage from "./components/TrainingRecordDetailPage";
 import MagicAcademyPage from "./components/MagicAcademyPage";
+import TrainingWorkspacePage from "./components/TrainingWorkspacePage";
+import MagicWorkspacePage from "./components/MagicWorkspacePage";
 
-import { getCurrentUser, isAdmin, isAuthenticated, setUnauthorizedHandler } from "./lib/auth";
+import { isAdmin, isAuthenticated, setUnauthorizedHandler } from "./lib/auth";
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -56,48 +59,28 @@ export default function App() {
       <Route path="/" element={<HomeRedirect />} />
 
       <Route
-        path="/home"
-        element={<RequireAuth><HomePage /></RequireAuth>}
-      />
-
-      <Route
         path="/admin/*"
         element={<RequireAdmin><AdminLayout /></RequireAdmin>}
       />
 
       <Route
-        path="/train/prepare"
-        element={<RequireAuth><PreparePage /></RequireAuth>}
-      />
+        element={<RequireAuth><UserLayout /></RequireAuth>}
+      >
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/workspace/training" element={<TrainingWorkspacePage />} />
+        <Route path="/workspace/magic" element={<MagicWorkspacePage />} />
+        <Route path="/train/prepare" element={<PreparePage />} />
+        <Route path="/review/:sid" element={<ReviewPage />} />
+        <Route path="/exam/:examId/intro" element={<ExamIntroPage />} />
+        <Route path="/exam/:examId/result" element={<ExamResultPage />} />
+        <Route path="/training/records" element={<TrainingHistoryPage />} />
+        <Route path="/training/records/:id" element={<TrainingRecordDetailPage />} />
+        <Route path="/magic-academy" element={<MagicAcademyPage />} />
+      </Route>
+
       <Route
         path="/chat/:sid"
         element={<RequireAuth><ChatPage /></RequireAuth>}
-      />
-      <Route
-        path="/review/:sid"
-        element={<RequireAuth><ReviewPage /></RequireAuth>}
-      />
-
-      <Route
-        path="/exam/:examId/intro"
-        element={<RequireAuth><ExamIntroPage /></RequireAuth>}
-      />
-      <Route
-        path="/exam/:examId/result"
-        element={<RequireAuth><ExamResultPage /></RequireAuth>}
-      />
-
-      <Route
-        path="/training/records"
-        element={<RequireAuth><TrainingHistoryPage /></RequireAuth>}
-      />
-      <Route
-        path="/training/records/:id"
-        element={<RequireAuth><TrainingRecordDetailPage /></RequireAuth>}
-      />
-      <Route
-        path="/magic-academy"
-        element={<RequireAuth><MagicAcademyPage /></RequireAuth>}
       />
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -6,6 +6,7 @@ export default function ChatMessage({ role, content }) {
       </div>
     );
   }
+
   return (
     <div className="chat-row chat-row--customer">
       <div className="chat-avatar">客</div>

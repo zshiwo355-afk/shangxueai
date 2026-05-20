@@ -1,12 +1,27 @@
-import { DeleteOutlined } from "@ant-design/icons";
-import { Button, Empty, Popconfirm, Space, Table, Tag, App as AntdApp } from "antd";
-import { useEffect, useState } from "react";
+import { DeleteOutlined, FilterOutlined, TrophyOutlined } from "@ant-design/icons";
+import { App as AntdApp, Button, Card, Empty, Popconfirm, Space, Tag, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { deleteTrainingRecord, fetchMyTrainingRecords } from "../lib/api.training";
+
+const { Text, Title } = Typography;
+
+function resultColor(result) {
+  if (result === "成交") return "success";
+  if (result === "意向客户") return "processing";
+  return "default";
+}
+
+const FILTER_OPTIONS = [
+  { key: "all", label: "全部" },
+  { key: "passed", label: "已通过" },
+  { key: "pending", label: "待提升" },
+];
 
 export default function TrainingHistoryPage() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filterKey, setFilterKey] = useState("all");
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
 
@@ -22,92 +37,121 @@ export default function TrainingHistoryPage() {
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => {
+    reload();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDelete = async (row) => {
     try {
       await deleteTrainingRecord(row.id);
       message.success("已删除。");
-      setRecords((prev) => prev.filter((r) => r.id !== row.id));
+      setRecords((prev) => prev.filter((item) => item.id !== row.id));
     } catch (err) {
       message.error(err?.message || "删除失败。");
     }
   };
 
-  const columns = [
-    {
-      title: "训练时间",
-      dataIndex: "created_at",
-      key: "created_at",
-      render: (v) => v ? v.slice(0, 16).replace("T", " ") : "—",
-    },
-    { title: "训练类型", dataIndex: "training_type", render: (v) => <Tag color="blue">{v}</Tag> },
-    { title: "难度", dataIndex: "difficulty" },
-    { title: "客户类型", dataIndex: "customer_type" },
-    {
-      title: "结果",
-      dataIndex: "result",
-      render: (v, row) => (
-        <Space size={4} wrap>
-          <Tag color={v === "成交" ? "success" : v === "意向客户" ? "processing" : "default"}>
-            {v || "—"}
-          </Tag>
-          {row.is_pass != null ? (
-            <Tag color={row.is_pass ? "success" : "error"}>
-              {row.is_pass ? "合格" : "不合格"}
-            </Tag>
-          ) : null}
-        </Space>
-      ),
-    },
-    {
-      title: "分数",
-      dataIndex: "score",
-      render: (v) => <strong>{Math.round(v || 0)}</strong>,
-    },
-    {
-      title: "操作",
-      key: "action",
-      width: 180,
-      render: (_, row) => (
-        <Space size={4}>
-          <Button type="link" size="small" onClick={() => navigate(`/training/records/${row.id}`)}>
-            查看复盘
-          </Button>
-          <Popconfirm
-            title="确认删除该训练记录？"
-            description="删除后无法恢复。"
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => handleDelete(row)}
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const filteredRecords = useMemo(() => {
+    if (filterKey === "passed") return records.filter((item) => item.is_pass);
+    if (filterKey === "pending") return records.filter((item) => item.is_pass === false || !item.is_pass);
+    return records;
+  }, [filterKey, records]);
+
+  const averageScore = records.length > 0
+    ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
+    : 0;
 
   return (
-    <div className="page-shell">
-      <div className="page-toolbar">
-        <Button onClick={() => navigate("/home")}>返回</Button>
-        <h2 style={{ margin: 0 }}>我的训练记录</h2>
-        <Space />
+    <div className="page-shell page-shell--wide">
+      <div className="page-toolbar page-toolbar--stack">
+        <div className="page-toolbar__leading">
+          <Button onClick={() => navigate("/workspace/training")}>返回销售对练</Button>
+          <div>
+            <h2 style={{ margin: 0 }}>我的训练记录</h2>
+            <Text type="secondary">用更轻的卡片视图回看最近每一次训练结果和复盘。</Text>
+          </div>
+        </div>
+        <div className="history-summary">
+          <Card className="history-summary__card" bordered={false}>
+            <span>总记录数</span>
+            <strong>{records.length}</strong>
+          </Card>
+          <Card className="history-summary__card" bordered={false}>
+            <span>平均得分</span>
+            <strong>{averageScore}</strong>
+          </Card>
+        </div>
       </div>
-      {!loading && records.length === 0 ? (
-        <Empty description="还没有训练记录" />
+
+      <Card className="history-filter-card" bordered={false}>
+        <Space align="center" size={[8, 8]} wrap>
+          <FilterOutlined style={{ color: "var(--text-mute)" }} />
+          {FILTER_OPTIONS.map((option) => (
+            <Button
+              key={option.key}
+              type={filterKey === option.key ? "primary" : "default"}
+              onClick={() => setFilterKey(option.key)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </Space>
+      </Card>
+
+      {!loading && filteredRecords.length === 0 ? (
+        <Card bordered={false}>
+          <Empty description="当前筛选条件下还没有训练记录" />
+        </Card>
       ) : (
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={records}
-          columns={columns}
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-        />
+        <div className="history-card-list">
+          {filteredRecords.map((row) => (
+            <Card key={row.id} className="history-record-card" loading={loading} bordered={false}>
+              <div className="history-record-card__top">
+                <div>
+                  <Space size={[8, 8]} wrap>
+                    <Tag color="blue">{row.training_type}</Tag>
+                    <Tag>{row.difficulty}</Tag>
+                    <Tag color={resultColor(row.result)}>{row.result || "待定"}</Tag>
+                    {row.is_pass != null ? (
+                      <Tag color={row.is_pass ? "success" : "error"}>
+                        {row.is_pass ? "通过" : "待提升"}
+                      </Tag>
+                    ) : null}
+                  </Space>
+                  <Title level={5} style={{ margin: "10px 0 0" }}>
+                    {row.customer_type || "未标记客户类型"}
+                  </Title>
+                </div>
+
+                <div className="history-record-card__score">
+                  <TrophyOutlined />
+                  <strong>{Math.round(row.score || 0)}</strong>
+                  <span>训练得分</span>
+                </div>
+              </div>
+
+              <div className="history-record-card__meta">
+                <span>{row.created_at ? row.created_at.slice(0, 16).replace("T", " ") : "暂无时间"}</span>
+              </div>
+
+              <div className="history-record-card__actions">
+                <Button type="primary" onClick={() => navigate(`/training/records/${row.id}`)}>
+                  查看复盘
+                </Button>
+                <Popconfirm
+                  title="确认删除这条训练记录？"
+                  description="删除后无法恢复。"
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => handleDelete(row)}
+                >
+                  <Button danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

@@ -11,7 +11,7 @@ export default function BriefDrawer({ open, onClose, brief, trainingType, diffic
       className="brief-drawer"
     >
       {!brief ? (
-        <p style={{ color: "var(--text-mute)" }}>暂未生成。</p>
+        <p style={{ color: "var(--text-mute)" }}>暂未生成说明。</p>
       ) : (
         <>
           <div className="brief-drawer__tags">
@@ -38,7 +38,7 @@ export default function BriefDrawer({ open, onClose, brief, trainingType, diffic
             <>
               <h4>考察范围</h4>
               <ul>
-                {brief.exam_scope.map((item, idx) => <li key={idx}>{item}</li>)}
+                {brief.exam_scope.map((item, index) => <li key={index}>{item}</li>)}
               </ul>
             </>
           ) : null}
