@@ -5,9 +5,9 @@ import { logoutApi } from "../lib/api.auth";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 
 const NAV_ITEMS = [
-  { key: "home", label: "\u9996\u9875", path: "/home", icon: <HomeOutlined /> },
-  { key: "training", label: "\u9500\u552e\u5bf9\u7ec3", path: "/workspace/training", icon: <RocketOutlined /> },
-  { key: "magic", label: "\u9b54\u5b66\u9662", path: "/workspace/magic", icon: <BookOutlined /> },
+  { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
+  { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
+  { key: "magic", label: "魔学院", path: "/workspace/magic", icon: <BookOutlined /> },
 ];
 
 function resolveSection(pathname) {
@@ -19,12 +19,12 @@ function resolveSection(pathname) {
     || pathname.startsWith("/review")
     || pathname.startsWith("/chat")
   ) {
-    return "\u9500\u552e\u5bf9\u7ec3";
+    return "销售对练";
   }
   if (pathname.startsWith("/workspace/magic") || pathname.startsWith("/magic-academy")) {
-    return "\u9b54\u5b66\u9662";
+    return "魔学院";
   }
-  return "\u7528\u6237\u9996\u9875";
+  return "用户首页";
 }
 
 export default function UserLayout() {
@@ -49,18 +49,18 @@ export default function UserLayout() {
       <header className="user-layout__header">
         <div className="user-layout__header-inner">
           <button type="button" className="user-layout__brand" onClick={() => navigate("/home")}>
-            <div className="user-layout__brand-mark">\u5546</div>
+            <div className="user-layout__brand-mark">商</div>
             <div className="user-layout__brand-copy">
-              <strong>\u5546\u5b66\u9662 AI \u57f9\u8bad</strong>
+              <strong>商学院AI培训</strong>
               <span>{currentSection}</span>
             </div>
           </button>
 
-          <nav className="user-layout__nav" aria-label="\u7528\u6237\u7aef\u4e3b\u5bfc\u822a">
+          <nav className="user-layout__nav" aria-label="用户端主导航">
             {NAV_ITEMS.map((item) => {
               const active = location.pathname === item.path
-                || (item.key === "training" && resolveSection(location.pathname) === "\u9500\u552e\u5bf9\u7ec3")
-                || (item.key === "magic" && resolveSection(location.pathname) === "\u9b54\u5b66\u9662");
+                || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
+                || (item.key === "magic" && resolveSection(location.pathname) === "魔学院");
               return (
                 <button
                   key={item.key}
@@ -78,7 +78,7 @@ export default function UserLayout() {
           <div className="user-layout__actions">
             {showAdminEntry ? (
               <Button icon={<SettingOutlined />} onClick={() => navigate("/admin")}>
-                {"\u7ba1\u7406\u540e\u53f0"}
+                {"管理后台"}
               </Button>
             ) : null}
             <div className="user-layout__user-card">
@@ -86,15 +86,15 @@ export default function UserLayout() {
                 {(user?.display_name || user?.username || "U").slice(0, 1).toUpperCase()}
               </Avatar>
               <div className="user-layout__user-copy">
-                <strong>{user?.display_name || user?.username || "\u5b66\u5458"}</strong>
+                <strong>{user?.display_name || user?.username || "学员"}</strong>
                 <Space size={6} wrap>
                   {user?.department ? <Tag bordered={false}>{user.department}</Tag> : null}
-                  <span>{user?.position || "\u5b66\u4e60\u4e2d"}</span>
+                  <span>{user?.position || "学习中"}</span>
                 </Space>
               </div>
             </div>
             <Button icon={<LogoutOutlined />} onClick={handleLogout}>
-              {"\u9000\u51fa"}
+              {"退出"}
             </Button>
           </div>
         </div>

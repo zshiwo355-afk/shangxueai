@@ -896,7 +896,7 @@ body {
 }
 
 .user-layout__avatar {
-  background: linear-gradient(135deg, #1f4b99, #14b8a6);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
 }
 
 .user-layout__user-copy {
@@ -987,9 +987,9 @@ body {
 
 .portal-entry--magic {
   background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.16), transparent 34%),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.16), transparent 34%),
     linear-gradient(180deg, #ffffff 0%, #f7fbff 100%) !important;
-  border-color: rgba(20, 184, 166, 0.18) !important;
+  border-color: rgba(37, 99, 235, 0.18) !important;
 }
 
 .portal-entry__icon {
@@ -1005,8 +1005,8 @@ body {
 }
 
 .portal-entry__icon--light {
-  background: rgba(20, 184, 166, 0.12);
-  color: #0f766e;
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
 }
 
 .portal-entry__text {
@@ -1109,7 +1109,7 @@ body {
 .portal-panel--highlight,
 .workspace-card--accent {
   background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.12), transparent 32%),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.12), transparent 32%),
     linear-gradient(180deg, #ffffff 0%, #f6fbff 100%) !important;
 }
 
@@ -1164,8 +1164,8 @@ body {
 
 .workspace-hero--magic {
   background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.14), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 252, 251, 0.96));
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 255, 0.96));
 }
 
 .workspace-hero__stats {
@@ -1500,7 +1500,7 @@ body {
 .magic-user-hero {
   border-radius: 24px !important;
   background:
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.14), transparent 32%),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.14), transparent 32%),
     linear-gradient(180deg, #fff 0%, #f7fbff 100%) !important;
   border: 1px solid rgba(30, 41, 59, 0.08) !important;
 }

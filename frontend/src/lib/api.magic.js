@@ -84,6 +84,36 @@ export async function failMagicVideoUpload(payload) {
   return response.json();
 }
 
+export async function initMagicVideoReplaceUpload(videoId, payload) {
+  const response = await safeFetch(buildApiUrl(`/api/magic/videos/${videoId}/replace/init`), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, "初始化替换上传失败。");
+  if (!response.ok) await throwRequestError(response, "初始化替换上传失败。");
+  return response.json();
+}
+
+export async function completeMagicVideoReplaceUpload(videoId, payload) {
+  const response = await safeFetch(buildApiUrl(`/api/magic/videos/${videoId}/replace/complete`), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, "完成替换上传失败。");
+  if (!response.ok) await throwRequestError(response, "完成替换上传失败。");
+  return response.json();
+}
+
+export async function failMagicVideoReplaceUpload(videoId, payload) {
+  const response = await safeFetch(buildApiUrl(`/api/magic/videos/${videoId}/replace/fail`), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, "回写替换上传失败状态失败。");
+  if (!response.ok) await throwRequestError(response, "回写替换上传失败状态失败。");
+  return response.json();
+}
+
 export async function listMagicQuizPoints(videoId) {
   return getJson(`/api/magic-academy/videos/${videoId}/quiz-points`, "答题节点加载失败。");
 }
@@ -164,17 +194,8 @@ export async function fetchMyAudioCalendar(month) {
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/my/audios/calendar${suffix}`, "录音日历加载失败。");
 }
-export async function uploadMyAudio(file, remark = "") {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("remark", remark || "");
-  const response = await safeFetch(buildApiUrl("/api/magic-academy/my/audios"), {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  }, "录音上传失败。");
-  if (!response.ok) await throwRequestError(response, "录音上传失败。");
-  return response.json();
+export async function uploadMyAudio(payload) {
+  return postJson("/api/magic-academy/my/audios", payload, "录音上传失败。");
 }
 export async function deleteMyAudio(id) {
   return deleteJson(`/api/magic-academy/my/audios/${id}`, "删除录音失败。");

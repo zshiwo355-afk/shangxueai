@@ -37,6 +37,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   buildMagicVideoStreamUrl,
   completeMagicVideoUpload,
+  completeMagicVideoReplaceUpload,
   createMagicQuestion,
   createMagicQuizPoint,
   createMagicWhitelist,
@@ -48,6 +49,7 @@ import {
   disableMagicVideo,
   downloadMagicFile,
   failMagicVideoUpload,
+  failMagicVideoReplaceUpload,
   fetchAdminAudioCalendar,
   fetchMagicAudioStats,
   fetchMagicVideoAnswers,
@@ -57,6 +59,7 @@ import {
   fetchMyMagicVideoDetail,
   fetchMyMagicVideos,
   initMagicVideoUpload,
+  initMagicVideoReplaceUpload,
   listMagicQuizPoints,
   listMagicVideos,
   listMagicWhitelist,
@@ -473,38 +476,57 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
 
-  useEffect(() => {
-    if (!open) return;
+  const fillVideoForm = () => {
+    if (!editing) {
+      form.resetFields();
+      form.setFieldsValue({
+        title: "",
+        description: "",
+        category: "",
+        is_required: false,
+        is_newcomer_required: false,
+        duration_seconds: undefined,
+        status: "draft",
+        targets: [{ target_type: "all_users", target_value: "" }],
+      });
+      setUploadMeta(null);
+      setSelectedFile(null);
+      return;
+    }
+
     const currentTargets = editing?.targets || [{ target_type: "all_users", target_value: "" }];
-    form.setFieldsValue({
+    const values = {
       title: editing?.title || "",
       description: editing?.description || "",
       category: editing?.category || "",
       is_required: !!editing?.is_required,
       is_newcomer_required: !!editing?.is_newcomer_required,
-      duration_seconds: editing?.duration_seconds || 0,
+      duration_seconds: editing?.duration_seconds || editing?.duration || undefined,
       status: editing?.status || "draft",
       targets: currentTargets.length ? currentTargets : [{ target_type: "all_users", target_value: "" }],
-    });
-    setUploadMeta(editing ? {
+    };
+    console.log("edit video record:", editing);
+    console.log("set edit video form values:", values);
+    form.resetFields();
+    form.setFieldsValue(values);
+    window.setTimeout(() => {
+      console.log("video form values after set:", form.getFieldsValue());
+    }, 0);
+    setUploadMeta({
       file_name: editing.file_name,
       file_path: editing.file_path,
       mime_type: editing.mime_type,
       file_size: editing.file_size,
       duration_seconds: editing.duration_seconds || 0,
       original_filename: editing.original_filename || editing.file_name,
-    } : null);
+    });
     setSelectedFile(null);
-  }, [editing, form, open]);
+  };
 
   const handleOk = async () => {
     const values = await form.validateFields();
     if (!editing?.id && !selectedFile) {
       message.error("请先上传视频文件。");
-      return;
-    }
-    if (editing?.id && selectedFile) {
-      message.error("当前版本暂不支持在编辑时替换视频文件，请仅修改元数据或重新新建视频。");
       return;
     }
     const payload = {
@@ -558,7 +580,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
   return (
     <Modal
       open={open}
-      title={editing ? "编辑视频" : "新增视频"}
+      title={editing ? "编辑视频" : "新建视频"}
       onCancel={onCancel}
       onOk={handleOk}
       width={860}
@@ -566,9 +588,13 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
       okButtonProps={{ disabled: submitting }}
       cancelButtonProps={{ disabled: submitting }}
       confirmLoading={submitting}
-      destroyOnClose
+      afterOpenChange={(nextOpen) => {
+        if (nextOpen) fillVideoForm();
+      }}
+      destroyOnClose={false}
+      forceRender
     >
-      <Form form={form} layout="vertical" preserve={false}>
+      <Form form={form} layout="vertical">
         <Form.Item label="视频标题" name="title" rules={[{ required: true, message: "请输入视频标题" }]}>
           <Input placeholder="例如：新人必看 - 品牌介绍" />
         </Form.Item>
@@ -582,7 +608,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
           <Form.Item label="视频时长（秒）" name="duration_seconds" style={{ minWidth: 180 }}>
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item label="状态" name="status" initialValue="draft" style={{ minWidth: 180 }}>
+          <Form.Item label="状态" name="status" style={{ minWidth: 180 }}>
             <Select options={[{ value: "draft", label: "草稿" }, { value: "published", label: "已发布" }, { value: "disabled", label: "停用" }]} />
           </Form.Item>
         </Space>
@@ -605,12 +631,16 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
             disabled={submitting}
           >
             <Button icon={<UploadOutlined />} loading={submitting}>
-              {editing ? "重新选择视频（当前版本仅展示，不会替换）" : "选择视频文件"}
+              {editing
+                ? (selectedFile ? `已选择新视频：${selectedFile.name}` : "重新上传并覆盖")
+                : (selectedFile ? `已选择视频：${selectedFile.name}` : "选择视频文件")}
             </Button>
           </Upload>
           <Space direction="vertical" size={4} style={{ marginTop: 8, color: "var(--text-mute)" }}>
             <Text type="secondary">
-              {uploadMeta ? `文件名：${uploadMeta.original_filename || uploadMeta.file_name}` : "尚未选择文件"}
+              {uploadMeta
+                ? `${editing ? "当前文件" : "文件名"}：${uploadMeta.original_filename || uploadMeta.file_name}`
+                : "尚未选择文件"}
             </Text>
             {uploadMeta ? <Text type="secondary">文件大小：{formatFileSize(uploadMeta.file_size)}</Text> : null}
             {uploadMeta ? <Text type="secondary">文件类型：{uploadMeta.mime_type || "未知"}</Text> : null}
@@ -902,8 +932,15 @@ export default function MagicAcademyPage({ embedded = false }) {
   const currentUser = getCurrentUser();
   const { message } = AntdApp.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(
-    adminMode ? "video_manage" : (searchParams.get("tab") === "audio" ? "audio" : "study"),
+  const [activeTab, setActiveTab] = useState(adminMode ? "video_manage" : "video_manage");
+  const [academyView, setAcademyView] = useState(
+    adminMode
+      ? "home"
+      : (searchParams.get("tab") === "audio"
+        ? "reading"
+        : searchParams.get("tab") === "courses"
+          ? "courses"
+          : "home"),
   );
   const [users, setUsers] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -916,6 +953,7 @@ export default function MagicAcademyPage({ embedded = false }) {
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [selectedAdminVideoId, setSelectedAdminVideoId] = useState(null);
   const [videoDetail, setVideoDetail] = useState(null);
+  const [videoDetailError, setVideoDetailError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [videoModal, setVideoModal] = useState(null);
   const [videoSubmitting, setVideoSubmitting] = useState(false);
@@ -1005,17 +1043,42 @@ export default function MagicAcademyPage({ embedded = false }) {
 
   useEffect(() => {
     if (adminMode) return;
-    const tab = searchParams.get("tab") === "audio" ? "audio" : "study";
-    if (tab !== activeTab) {
-      setActiveTab(tab);
+    const nextView = searchParams.get("tab") === "audio"
+      ? "reading"
+      : searchParams.get("tab") === "courses"
+        ? "courses"
+        : "home";
+    if (nextView !== academyView) {
+      setAcademyView(nextView);
     }
-  }, [activeTab, adminMode, searchParams]);
+  }, [academyView, adminMode, searchParams]);
+
+  const openAcademyHome = () => {
+    setSelectedVideoId(null);
+    setVideoDetail(null);
+    setAcademyView("home");
+    if (!adminMode) setSearchParams({});
+  };
+
+  const openCourseCenter = (videoId = null) => {
+    setAcademyView("courses");
+    setVideoDetailError(null);
+    if (videoId) {
+      setSelectedVideoId(videoId);
+    } else {
+      setSelectedVideoId(null);
+      setVideoDetail(null);
+    }
+    if (!adminMode) setSearchParams({ tab: "courses" });
+  };
+
+  const openReadingCenter = () => {
+    setAcademyView("reading");
+    if (!adminMode) setSearchParams({ tab: "audio" });
+  };
 
   const handleTabChange = (nextTab) => {
     setActiveTab(nextTab);
-    if (!adminMode) {
-      setSearchParams(nextTab === "audio" ? { tab: "audio" } : {});
-    }
   };
   const statsEmployeeOptions = useMemo(
     () => filteredStatsEmployees.map((item) => ({
@@ -1080,24 +1143,39 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (activeTab !== "study") {
+    if (academyView !== "courses") {
       setVideoDetail(null);
+      setVideoDetailError(null);
       return;
     }
     if (!selectedVideoId) {
       setVideoDetail(null);
+      setVideoDetailError(null);
       return;
     }
     let alive = true;
     setLoadingDetail(true);
+    setVideoDetailError(null);
     fetchMyMagicVideoDetail(selectedVideoId)
       .then((data) => {
         if (!alive) return;
         setVideoDetail(data);
+        setVideoDetailError(null);
         watchedRef.current = Math.max(data?.progress?.max_watched_position || 0, 0);
       })
       .catch((error) => {
-        if (alive) message.error(error?.message || "视频详情加载失败。");
+        if (!alive) return;
+        const status = Number(error?.status || 0);
+        setVideoDetail(null);
+        setVideoDetailError({
+          status,
+          message: status === 403
+            ? "你暂无权限查看该课程"
+            : status === 404
+              ? "课程不存在或已被删除"
+              : "课程加载失败，请稍后重试",
+        });
+        message.error(error?.message || "视频详情加载失败。");
       })
       .finally(() => {
         if (alive) setLoadingDetail(false);
@@ -1105,7 +1183,7 @@ export default function MagicAcademyPage({ embedded = false }) {
     return () => {
       alive = false;
     };
-  }, [selectedVideoId, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedVideoId, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!quizVideoId || !adminMode) return;
@@ -1165,7 +1243,7 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveProgress = async (extra = {}) => {
-    if (activeTab !== "study") return;
+    if (academyView !== "courses") return;
     if (!videoDetail?.id || !videoRef.current) return;
     const element = videoRef.current;
     const safeCurrentTime = Math.min(
@@ -1281,7 +1359,7 @@ export default function MagicAcademyPage({ embedded = false }) {
   };
 
   useEffect(() => {
-    if (activeTab !== "study") return undefined;
+    if (academyView !== "courses") return undefined;
     const listener = () => {
       if (document.hidden) {
         videoRef.current?.pause();
@@ -1290,10 +1368,10 @@ export default function MagicAcademyPage({ embedded = false }) {
     };
     document.addEventListener("visibilitychange", listener);
     return () => document.removeEventListener("visibilitychange", listener);
-  }, [videoDetail, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoDetail, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (activeTab !== "study") {
+    if (academyView !== "courses") {
       clearInterval(progressTimerRef.current);
       return undefined;
     }
@@ -1301,7 +1379,7 @@ export default function MagicAcademyPage({ embedded = false }) {
     clearInterval(progressTimerRef.current);
     progressTimerRef.current = window.setInterval(() => saveProgress(), 5000);
     return () => clearInterval(progressTimerRef.current);
-  }, [videoDetail?.id, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [videoDetail?.id, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitVideo = async (payload) => {
     let uploadInitResult = null;
@@ -1309,9 +1387,81 @@ export default function MagicAcademyPage({ embedded = false }) {
     try {
       setVideoSubmitting(true);
       setVideoUploadProgress(0);
-      if (videoModal?.id) {
-        await updateMagicVideo(videoModal.id, payload);
-        message.success("视频已更新。");
+      if (videoModal?.id && !payload.selected_file) {
+        const metadataPayload = { ...payload };
+        delete metadataPayload.selected_file;
+        await updateMagicVideo(videoModal.id, metadataPayload);
+        message.success("视频元数据已更新。");
+      } else if (videoModal?.id && payload.selected_file) {
+        const file = payload.selected_file;
+        try {
+          uploadInitResult = await initMagicVideoReplaceUpload(videoModal.id, {
+            original_filename: payload.original_filename,
+            file_size: file.size,
+            mime_type: file.type || payload.mime_type || "video/mp4",
+            duration_seconds: Number(payload.duration_seconds || 0),
+          });
+        } catch (error) {
+          logMagicUploadStageError("replace init", error);
+          message.error(error?.message || "新视频替换初始化失败。");
+          return;
+        }
+
+        let parts;
+        try {
+          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress);
+        } catch (error) {
+          logMagicUploadStageError("replace oss upload", error);
+          logOssUploadError(error);
+          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key && uploadInitResult?.upload_id) {
+            try {
+              await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
+                oss_object_key: uploadInitResult.oss_object_key,
+                upload_id: uploadInitResult.upload_id,
+                reason: error?.message || "OSS 上传失败",
+              });
+            } catch (failError) {
+              logMagicUploadStageError("replace upload fail callback", failError);
+            }
+          }
+          message.error(error?.message || "新视频上传失败，原视频未被替换。");
+          return;
+        }
+
+        try {
+          await completeMagicVideoReplaceUpload(videoModal.id, {
+            oss_object_key: uploadInitResult.oss_object_key,
+            file_size: file.size,
+            upload_id: uploadInitResult.upload_id,
+            parts,
+            title: payload.title,
+            description: payload.description || "",
+            category: payload.category || "",
+            duration_seconds: Number(payload.duration_seconds || 0),
+            is_required: !!payload.is_required,
+            is_newcomer_required: !!payload.is_newcomer_required,
+            status: payload.status,
+            targets: payload.targets || [],
+          });
+          uploadCompleted = true;
+          setVideoUploadProgress(100);
+          message.success("视频已重新上传并覆盖。");
+        } catch (error) {
+          logMagicUploadStageError("replace complete", error);
+          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key && uploadInitResult?.upload_id) {
+            try {
+              await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
+                oss_object_key: uploadInitResult.oss_object_key,
+                upload_id: uploadInitResult.upload_id,
+                reason: error?.message || "完成替换上传失败。",
+              });
+            } catch (failError) {
+              logMagicUploadStageError("replace upload fail callback", failError);
+            }
+          }
+          message.error(error?.message || "新视频上传失败，原视频未被替换。");
+          return;
+        }
       } else {
         const file = payload.selected_file;
         try {
@@ -1345,6 +1495,7 @@ export default function MagicAcademyPage({ embedded = false }) {
               await failMagicVideoUpload({
                 video_id: uploadInitResult.video_id,
                 oss_object_key: uploadInitResult.oss_object_key,
+                upload_id: uploadInitResult.upload_id,
                 reason: error?.message || "OSS 上传失败",
               });
             } catch (failError) {
@@ -1373,6 +1524,7 @@ export default function MagicAcademyPage({ embedded = false }) {
               await failMagicVideoUpload({
                 video_id: uploadInitResult.video_id,
                 oss_object_key: uploadInitResult.oss_object_key,
+                upload_id: uploadInitResult.upload_id,
                 reason: error?.message || "完成视频上传失败。",
               });
             } catch (failError) {
@@ -1401,6 +1553,7 @@ export default function MagicAcademyPage({ embedded = false }) {
           await failMagicVideoUpload({
             video_id: uploadInitResult.video_id,
             oss_object_key: uploadInitResult.oss_object_key,
+            upload_id: uploadInitResult.upload_id,
             reason: error?.message || "上传失败",
           });
         } catch (failError) {
@@ -1443,10 +1596,12 @@ export default function MagicAcademyPage({ embedded = false }) {
   };
 
   const openStudyVideo = (videoId) => {
+    setVideoDetailError(null);
     setSelectedVideoId(videoId);
   };
 
   const backToStudyList = () => {
+    setVideoDetailError(null);
     setSelectedVideoId(null);
     setVideoDetail(null);
     watchedRef.current = 0;
@@ -1736,7 +1891,14 @@ export default function MagicAcademyPage({ embedded = false }) {
 
   const studyTabContent = selectedVideoId ? (
     <Card className="magic-study-detail-card" title="学习详情" loading={loadingDetail}>
-      {!videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="视频详情加载中" /> : (
+      {videoDetailError ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={videoDetailError.message}
+        >
+          <Button onClick={backToStudyList}>返回课程中心</Button>
+        </Empty>
+      ) : !videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loadingDetail ? "视频详情加载中" : "暂未选择课程"} /> : (
         <div className="magic-study-detail-layout">
           <Space direction="vertical" size={20} style={{ width: "100%" }}>
             <Button style={{ alignSelf: "flex-start" }} onClick={backToStudyList}>返回学习任务</Button>
@@ -1880,7 +2042,7 @@ export default function MagicAcademyPage({ embedded = false }) {
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <Text strong>{todayUploadedAudio ? "今天已完成上传" : "今天还没有上传录音"}</Text>
             <Text type="secondary">学习和输出连在一起，体验会更完整。</Text>
-            <Button onClick={() => handleTabChange("audio")}>
+            <Button onClick={openReadingCenter}>
               {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
             </Button>
           </Space>
@@ -1899,9 +2061,14 @@ export default function MagicAcademyPage({ embedded = false }) {
               showUploadList={false}
               customRequest={async ({ file, onSuccess, onError }) => {
                 try {
-                  await uploadMyAudio(file, audioRemark);
+                  await uploadMyAudio({
+                    file_name: file?.name || "",
+                    file_size: Number(file?.size || 0),
+                    mime_type: file?.type || "",
+                    remark: audioRemark,
+                  });
                   setAudioRemark("");
-                  message.success("录音已上传。");
+                  message.success("打卡记录已提交。");
                   await reloadMyData();
                   await reloadMyAudioCalendar();
                   onSuccess?.({});
@@ -1911,9 +2078,9 @@ export default function MagicAcademyPage({ embedded = false }) {
                 }
               }}
             >
-              <Button type="primary" icon={<UploadOutlined />}>上传录音</Button>
+              <Button type="primary" icon={<UploadOutlined />}>提交打卡记录</Button>
             </Upload>
-            <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg，单个文件不超过 50MB。</Text>
+            <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg，仅记录文件名称、时间与备注，单个文件不超过 50MB。</Text>
           </Space>
         </Card>
 
@@ -1924,9 +2091,8 @@ export default function MagicAcademyPage({ embedded = false }) {
             pagination={{ pageSize: 8 }}
             columns={[
               { title: "文件名", dataIndex: "file_name" },
-              { title: "大小", dataIndex: "file_size", render: (v) => `${(v / 1024 / 1024).toFixed(2)}MB` },
-              { title: "类型", dataIndex: "file_type" },
               { title: "备注", dataIndex: "remark", render: (v) => v || "-" },
+              { title: "状态", dataIndex: "status", render: (v) => v || "已上传" },
               { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "-" },
               {
                 title: "操作",
@@ -1971,189 +2137,12 @@ export default function MagicAcademyPage({ embedded = false }) {
         <Card className="magic-study-side-card" bordered={false} title="打卡建议">
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
             <Text type="secondary">建议把录音上传固定到每天学习结束之后，路径会更顺。</Text>
-            <Button onClick={() => handleTabChange("study")}>回到学习中心</Button>
+            <Button onClick={openAcademyHome}>返回魔学院首页</Button>
           </Space>
         </Card>
       </Space>
     </div>
   );
-
-  const userTabs = [
-    {
-      key: "study",
-      label: "我的学习",
-      children: selectedVideoId ? (
-        <Card title="学习详情" loading={loadingDetail}>
-          {!videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="视频详情加载中" /> : (
-            <Space direction="vertical" size={20} style={{ width: "100%" }}>
-              <Button style={{ alignSelf: "flex-start" }} onClick={backToStudyList}>返回学习任务</Button>
-              <div className="magic-video-detail-shell">
-                <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                  <Title level={4} style={{ margin: 0 }}>{videoDetail.title}</Title>
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>{videoDetail.description || "暂无简介"}</Paragraph>
-                  <Space wrap>
-                    <Tag>{videoDetail.category || "未分类"}</Tag>
-                    {videoDetail.is_required ? <Tag color="gold">必修</Tag> : null}
-                    <Tag color={videoDetail.progress?.is_completed ? "success" : "processing"}>
-                      {videoDetail.progress?.is_completed ? "已完成" : "学习中"}
-                    </Tag>
-                    <Tag color="blue">进度 {Math.round(videoDetail.progress?.progress_percent || 0)}%</Tag>
-                    {currentUser?.is_newcomer && videoDetail.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
-                  </Space>
-                  <ResponsiveVideoPlayer
-                    videoRef={videoRef}
-                    src={buildMagicVideoStreamUrl(videoDetail.id)}
-                    onLoadedMetadata={handleVideoLoaded}
-                    onTimeUpdate={handleTimeUpdate}
-                    onSeeking={handleSeeking}
-                    onPause={() => saveProgress()}
-                    onEnded={() => saveProgress()}
-                  />
-                  {!videoDetail.progress?.is_completed ? (
-                    <Text type="secondary">请按顺序观看视频，完成节点答题后可继续学习。已完成后支持自由回看。</Text>
-                  ) : null}
-                  <Space wrap>
-                    <Text>当前进度：{Math.round(videoDetail.progress?.progress_percent || 0)}%</Text>
-                    <Text>已观看：{formatTime(videoDetail.progress?.max_watched_position || 0)} / {formatTime(videoDetail.duration_seconds || 0)}</Text>
-                    {videoDetail.progress?.is_completed ? <Tag icon={<CheckCircleFilled />} color="success">已完成</Tag> : null}
-                  </Space>
-                  {(videoDetail.quiz_points || []).length > 0 ? (
-                    <Card size="small" title="答题节点">
-                      <Space wrap>
-                        {(videoDetail.quiz_points || []).map((point) => (
-                          <Tag key={point.id} color={answeredPointIds.has(point.id) ? "success" : "default"}>
-                            {formatTime(point.trigger_second)} / {answeredPointIds.has(point.id) ? "已通过" : "待答题"}
-                          </Tag>
-                        ))}
-                      </Space>
-                    </Card>
-                  ) : null}
-                </Space>
-              </div>
-            </Space>
-          )}
-        </Card>
-      ) : (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card title="学习任务">
-            {myVideos.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" /> : (
-              <List
-                grid={{ gutter: 16, xs: 1, sm: 1, md: 2, xl: 3 }}
-                dataSource={myVideos}
-                renderItem={(item) => {
-                  const progressPercent = Math.round(item.progress?.progress_percent || 0);
-                  const actionLabel = item.progress?.is_completed ? "重新学习" : progressPercent > 0 ? "继续学习" : "开始学习";
-                  return (
-                    <List.Item>
-                      <Card
-                        hoverable
-                        onClick={() => openStudyVideo(item.id)}
-                        actions={[
-                          <Button type="link" onClick={(event) => { event.stopPropagation(); openStudyVideo(item.id); }}>{actionLabel}</Button>,
-                        ]}
-                      >
-                        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                          <Title level={5} style={{ margin: 0 }}>{item.title}</Title>
-                          <Paragraph ellipsis={{ rows: 2 }} type="secondary" style={{ marginBottom: 0 }}>
-                            {item.description || "暂无简介"}
-                          </Paragraph>
-                          <Space wrap>
-                            {item.is_required ? <Tag color="gold">必修</Tag> : null}
-                            {item.is_whitelisted ? <Tag color="purple">白名单</Tag> : null}
-                            {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
-                            <Tag color={item.progress?.is_completed ? "success" : "processing"}>
-                              {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}
-                            </Tag>
-                          </Space>
-                          <Text type="secondary">{item.category || "未分类"}</Text>
-                          <Progress percent={progressPercent} size="small" />
-                        </Space>
-                      </Card>
-                    </List.Item>
-                  );
-                }}
-              />
-            )}
-          </Card>
-        </Space>
-      ),
-    },
-    {
-      key: "audio",
-      label: "读书打卡",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card title="上传读书录音">
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Input.TextArea rows={2} placeholder="备注（选填）" value={audioRemark} onChange={(e) => setAudioRemark(e.target.value)} />
-              <Upload
-                showUploadList={false}
-                customRequest={async ({ file, onSuccess, onError }) => {
-                  try {
-                    await uploadMyAudio(file, audioRemark);
-                    setAudioRemark("");
-                    message.success("录音已上传。");
-                    await reloadMyData();
-                    await reloadMyAudioCalendar();
-                    onSuccess?.({});
-                  } catch (error) {
-                    onError?.(error);
-                    message.error(error?.message || "上传失败。");
-                  }
-                }}
-              >
-                <Button type="primary" icon={<UploadOutlined />}>上传录音</Button>
-              </Upload>
-              <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg，单个文件不超过 50MB。</Text>
-            </Space>
-          </Card>
-          <Card title="上传日历">
-            <Space direction="vertical" style={{ width: "100%" }} size={16}>
-              <Calendar
-                fullscreen={false}
-                value={dayjs(myAudioSelectedDate)}
-                onSelect={(value) => setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
-                onPanelChange={(value) => {
-                  setMyAudioMonth(value.format("YYYY-MM"));
-                  setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
-                }}
-                cellRender={renderEmployeeAudioCell}
-              />
-              <Card
-                size="small"
-                title={`选中日期记录 · ${myAudioSelectedDate || "未选择日期"}`}
-                extra={renderAudioStatusTag(getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay), selectedMyAudioDay?.count || 0, 0)}
-              >
-                {renderAudioRecordList(selectedMyAudioDay?.records || [])}
-              </Card>
-            </Space>
-          </Card>
-          <Card title="我的上传记录">
-            <Table
-              rowKey="id"
-              dataSource={myAudios}
-              pagination={{ pageSize: 8 }}
-              columns={[
-                { title: "文件名", dataIndex: "file_name" },
-                { title: "大小", dataIndex: "file_size", render: (v) => `${(v / 1024 / 1024).toFixed(2)}MB` },
-                { title: "类型", dataIndex: "file_type" },
-                { title: "备注", dataIndex: "remark", render: (v) => v || "—" },
-                { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "—" },
-                {
-                  title: "操作",
-                  render: (_, row) => (
-                    <Popconfirm title="确认删除这条录音记录？" onConfirm={async () => { await deleteMyAudio(row.id); await reloadMyData(); await reloadMyAudioCalendar(); }}>
-                      <Button size="small" danger>删除</Button>
-                    </Popconfirm>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-        </Space>
-      ),
-    },
-  ];
 
   const adminTabs = adminMode ? [
     {
@@ -2459,14 +2448,165 @@ export default function MagicAcademyPage({ embedded = false }) {
     },
   ] : [];
 
-  const userActivePanel = !adminMode
-    ? (activeTab === "audio" ? audioTabContent : studyTabContent)
-    : null;
+  const renderMagicHome = () => (
+    <>
+      <Card className="magic-user-task-strip" bordered={false}>
+        <div className="magic-user-task-strip__header">
+          <div>
+            <Title level={5} style={{ margin: 0 }}>本周优先任务</Title>
+            <Text type="secondary">把学习和打卡拆开看，用更短的路径进入对应中心。</Text>
+          </div>
+          <Space wrap>
+            <Button onClick={() => openCourseCenter()}>课程中心</Button>
+            <Button onClick={openReadingCenter}>打卡中心</Button>
+          </Space>
+        </div>
+        <div className="magic-user-task-strip__items">
+          <div>
+            <span>待学必修</span>
+            <strong>{myRequiredVideos.length}</strong>
+          </div>
+          <div>
+            <span>继续学习</span>
+            <strong>{myLearningVideos.length}</strong>
+          </div>
+          <div>
+            <span>今日打卡</span>
+            <strong>{todayUploadedAudio ? "已完成" : "待完成"}</strong>
+          </div>
+        </div>
+      </Card>
+
+      <div className="magic-user-summary">
+        <Card className="magic-user-summary__card" bordered={false}>
+          <span>待学必修</span>
+          <strong>{myRequiredVideos.length}</strong>
+        </Card>
+        <Card className="magic-user-summary__card" bordered={false}>
+          <span>进行中课程</span>
+          <strong>{myLearningVideos.length}</strong>
+        </Card>
+        <Card className="magic-user-summary__card" bordered={false}>
+          <span>已完成课程</span>
+          <strong>{myCompletedVideos.length}</strong>
+        </Card>
+        <Card className="magic-user-summary__card" bordered={false}>
+          <span>今日打卡</span>
+          <strong>{todayUploadedAudio ? "已完成" : "未完成"}</strong>
+        </Card>
+      </div>
+
+      <div className="magic-user-workspace">
+        <Card className="magic-user-workspace__main" bordered={false}>
+          <Space direction="vertical" size={14} style={{ width: "100%" }}>
+            <Space wrap>
+              <Title level={4} style={{ margin: 0 }}>继续学习</Title>
+              {continueStudyVideo ? <Tag color="blue">推荐入口</Tag> : null}
+            </Space>
+            {continueStudyVideo ? (
+              <>
+                <Title level={5} style={{ margin: 0 }}>{continueStudyVideo.title}</Title>
+                <Text type="secondary">
+                  {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0
+                    ? "从上次停下的位置继续，优先把进行中的课程收掉。"
+                    : "从这门课程开始，优先完成必修和未开始的任务。"}
+                </Text>
+                <Space wrap>
+                  <Tag>{continueStudyVideo.category || "未分类"}</Tag>
+                  {continueStudyVideo.is_required ? <Tag color="gold">必修</Tag> : null}
+                  <Tag color={continueStudyVideo.progress?.is_completed ? "success" : "processing"}>
+                    {continueStudyVideo.progress?.is_completed ? "已完成" : "学习中"}
+                  </Tag>
+                </Space>
+                <Progress percent={Math.round(continueStudyVideo.progress?.progress_percent || 0)} size="small" />
+                <Space wrap>
+                  <Button type="primary" onClick={() => openCourseCenter(continueStudyVideo.id)}>
+                    {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0 ? "继续学习" : "开始学习"}
+                  </Button>
+                  <Button onClick={() => openCourseCenter()}>查看全部课程</Button>
+                </Space>
+              </>
+            ) : (
+              <>
+                <Text type="secondary">当前还没有可继续的课程，去课程中心看看最新内容。</Text>
+                <Button onClick={() => openCourseCenter()}>课程中心</Button>
+              </>
+            )}
+          </Space>
+        </Card>
+
+        <Space direction="vertical" size={16} className="magic-user-workspace__side">
+          <Card className="magic-user-workspace__side-card" bordered={false}>
+            <Space direction="vertical" size={10} style={{ width: "100%" }}>
+              <Title level={5} style={{ margin: 0 }}>读书打卡</Title>
+              <Text type="secondary">
+                {todayUploadedAudio ? "今天已经完成上传，可以继续保持节奏。" : "今天还没有上传录音，建议学习结束后顺手完成打卡。"}
+              </Text>
+              <Button onClick={openReadingCenter}>
+                {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
+              </Button>
+            </Space>
+          </Card>
+
+          <Card className="magic-user-workspace__side-card" bordered={false}>
+            <Space direction="vertical" size={10} style={{ width: "100%" }}>
+              <Title level={5} style={{ margin: 0 }}>最近上传</Title>
+              {latestAudioRecord ? (
+                <>
+                  <Text strong>{latestAudioRecord.file_name || "未命名录音"}</Text>
+                  <Text type="secondary">{latestAudioRecord.uploaded_time?.replace("T", " ").slice(0, 19) || "-"}</Text>
+                  <Text type="secondary">{latestAudioRecord.remark || "暂无备注"}</Text>
+                  <Button onClick={openReadingCenter}>进入打卡中心</Button>
+                </>
+              ) : (
+                <>
+                  <Text type="secondary">你还没有上传过读书录音。</Text>
+                  <Button onClick={openReadingCenter}>打卡中心</Button>
+                </>
+              )}
+            </Space>
+          </Card>
+        </Space>
+      </div>
+    </>
+  );
+
+  const renderCourseCenter = () => (
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Card className="magic-study-side-card" bordered={false}>
+        <Space direction="vertical" size={10} style={{ width: "100%" }}>
+          <Button style={{ alignSelf: "flex-start" }} onClick={openAcademyHome}>返回魔学院首页</Button>
+          <Space wrap>
+            <Title level={4} style={{ margin: 0 }}>课程中心</Title>
+            <Tag color="blue">我的学习</Tag>
+          </Space>
+          <Text type="secondary">这里集中查看课程任务、学习详情、视频播放和节点答题。</Text>
+        </Space>
+      </Card>
+      {studyTabContent}
+    </Space>
+  );
+
+  const renderReadingCheckin = () => (
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Card className="magic-study-side-card" bordered={false}>
+        <Space direction="vertical" size={10} style={{ width: "100%" }}>
+          <Button style={{ alignSelf: "flex-start" }} onClick={openAcademyHome}>返回魔学院首页</Button>
+          <Space wrap>
+            <Title level={4} style={{ margin: 0 }}>读书打卡</Title>
+            <Tag color="blue">打卡中心</Tag>
+          </Space>
+          <Text type="secondary">这里集中处理录音上传、上传日历和历史记录，不再和首页内容混在一起。</Text>
+        </Space>
+      </Card>
+      {audioTabContent}
+    </Space>
+  );
 
   return (
     <div style={{ padding: embedded ? 0 : 24 }}>
       <Space direction="vertical" size={20} style={{ width: "100%" }}>
-        <Card variant="borderless" style={{ background: "linear-gradient(135deg, #0f766e, #155e75)", color: "#fff" }}>
+        <Card variant="borderless" style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff" }}>
           <Space direction="vertical" size={6}>
             <Space>
               <Title level={3} style={{ margin: 0, color: "#fff" }}>魔学院</Title>
@@ -2479,151 +2619,25 @@ export default function MagicAcademyPage({ embedded = false }) {
         </Card>
 
         {!adminMode ? (
-          <>
-            <Card className="magic-user-hero" variant="borderless">
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                <Space wrap>
-                  <Title level={3} style={{ margin: 0 }}>魔学院学习中心</Title>
-                  <Tag color="blue">员工视图</Tag>
-                </Space>
-                <Text type="secondary">
-                  在这里先看待学任务，再继续课程学习，最后完成每日读书打卡，避免在复杂模块里找入口。
-                </Text>
-              </Space>
-            </Card>
-
-            <div className="magic-user-summary">
-              <Card className="magic-user-summary__card" bordered={false}>
-                <span>待学必修</span>
-                <strong>{myRequiredVideos.length}</strong>
-              </Card>
-              <Card className="magic-user-summary__card" bordered={false}>
-                <span>进行中课程</span>
-                <strong>{myLearningVideos.length}</strong>
-              </Card>
-              <Card className="magic-user-summary__card" bordered={false}>
-                <span>已完成课程</span>
-                <strong>{myCompletedVideos.length}</strong>
-              </Card>
-              <Card className="magic-user-summary__card" bordered={false}>
-                <span>今日打卡</span>
-                <strong>{todayUploadedAudio ? "已完成" : "未完成"}</strong>
-              </Card>
-            </div>
-
-            <div className="magic-user-workspace">
-              <Card className="magic-user-workspace__main" bordered={false}>
-                <Space direction="vertical" size={14} style={{ width: "100%" }}>
-                  <Space wrap>
-                    <Title level={4} style={{ margin: 0 }}>继续学习</Title>
-                    {continueStudyVideo ? <Tag color="blue">推荐入口</Tag> : null}
-                  </Space>
-                  {continueStudyVideo ? (
-                    <>
-                      <Title level={5} style={{ margin: 0 }}>{continueStudyVideo.title}</Title>
-                      <Text type="secondary">
-                        {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0
-                          ? "从上次停下的位置继续，优先把进行中的课程收掉。"
-                          : "从这门课程开始，优先完成必修和未开始的任务。"}
-                      </Text>
-                      <Space wrap>
-                        <Tag>{continueStudyVideo.category || "未分类"}</Tag>
-                        {continueStudyVideo.is_required ? <Tag color="gold">必修</Tag> : null}
-                        <Tag color={continueStudyVideo.progress?.is_completed ? "success" : "processing"}>
-                          {continueStudyVideo.progress?.is_completed ? "已完成" : "学习中"}
-                        </Tag>
-                      </Space>
-                      <Progress percent={Math.round(continueStudyVideo.progress?.progress_percent || 0)} size="small" />
-                      <Space wrap>
-                        <Button type="primary" onClick={() => openStudyVideo(continueStudyVideo.id)}>
-                          {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0 ? "继续学习" : "开始学习"}
-                        </Button>
-                        <Button onClick={() => handleTabChange("study")}>查看全部课程</Button>
-                      </Space>
-                    </>
-                  ) : (
-                    <>
-                      <Text type="secondary">当前还没有可继续的课程，去学习任务里看看最新内容。</Text>
-                      <Button onClick={() => handleTabChange("study")}>打开学习任务</Button>
-                    </>
-                  )}
-                </Space>
-              </Card>
-
-              <Space direction="vertical" size={16} className="magic-user-workspace__side">
-                <Card className="magic-user-workspace__side-card" bordered={false}>
-                  <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                    <Title level={5} style={{ margin: 0 }}>读书打卡</Title>
-                    <Text type="secondary">
-                      {todayUploadedAudio ? "今天已经完成上传，可以继续保持节奏。" : "今天还没有上传录音，建议学习结束后顺手完成打卡。"}
-                    </Text>
-                    <Button onClick={() => handleTabChange("audio")}>
-                      {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
-                    </Button>
-                  </Space>
-                </Card>
-
-                <Card className="magic-user-workspace__side-card" bordered={false}>
-                  <Space direction="vertical" size={10} style={{ width: "100%" }}>
-                    <Title level={5} style={{ margin: 0 }}>最近上传</Title>
-                    {latestAudioRecord ? (
-                      <>
-                        <Text strong>{latestAudioRecord.file_name || "未命名录音"}</Text>
-                        <Text type="secondary">{latestAudioRecord.uploaded_time?.replace("T", " ").slice(0, 19) || "-"}</Text>
-                        <Text type="secondary">{latestAudioRecord.remark || "暂无备注"}</Text>
-                      </>
-                    ) : (
-                      <Text type="secondary">你还没有上传过读书录音。</Text>
-                    )}
-                  </Space>
-                </Card>
-              </Space>
-            </div>
-
-            <Card className="magic-user-task-strip" bordered={false}>
-              <div className="magic-user-task-strip__header">
-                <div>
-                  <Title level={5} style={{ margin: 0 }}>本周优先任务</Title>
-                  <Text type="secondary">把学习和打卡拆开看，但入口仍然保持在同一套学习中心里。</Text>
-                </div>
-                <Space wrap>
-                  <Button onClick={() => handleTabChange("study")}>课程中心</Button>
-                  <Button onClick={() => handleTabChange("audio")}>打卡中心</Button>
-                </Space>
-              </div>
-              <div className="magic-user-task-strip__items">
-                <div>
-                  <span>待学必修</span>
-                  <strong>{myRequiredVideos.length}</strong>
-                </div>
-                <div>
-                  <span>继续学习</span>
-                  <strong>{myLearningVideos.length}</strong>
-                </div>
-                <div>
-                  <span>今日打卡</span>
-                  <strong>{todayUploadedAudio ? "已完成" : "待完成"}</strong>
-                </div>
-              </div>
-            </Card>
-          </>
+          academyView === "courses"
+            ? renderCourseCenter()
+            : academyView === "reading"
+              ? renderReadingCheckin()
+              : renderMagicHome()
         ) : null}
 
-        <Tabs
-          className={!adminMode ? "magic-user-tabs magic-user-tabs--external" : undefined}
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={[
-            ...userTabs,
-            ...adminTabs,
-          ]}
-        />
-        {!adminMode ? userActivePanel : null}
+        {adminMode ? (
+          <Tabs
+            activeKey={activeTab}
+            onChange={handleTabChange}
+            items={adminTabs}
+          />
+        ) : null}
       </Space>
 
       <VideoFormModal
         open={!!videoModal}
-        editing={videoModal && videoModal.id ? videos.find((item) => item.id === videoModal.id) : null}
+        editing={videoModal && videoModal.id ? videoModal : null}
         users={users}
         submitting={videoSubmitting}
         uploadProgress={videoUploadProgress}

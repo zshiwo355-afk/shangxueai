@@ -5,6 +5,9 @@ import { deleteJson, getJson, postJson, putJson } from "./http";
 export async function adminListUsers() {
   return getJson("/api/admin/users", "用户列表加载失败。");
 }
+export async function adminGetUserDetail(id) {
+  return getJson(`/api/admin/users/${id}`, "用户详情加载失败。");
+}
 export async function adminCreateUser(payload) {
   return postJson("/api/admin/users", payload, "新建用户失败。");
 }

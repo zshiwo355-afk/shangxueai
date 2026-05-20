@@ -27,7 +27,7 @@ export async function throwRequestError(response, fallbackMessage) {
   } catch {
     data = null;
   }
-  throw new Error(parseErrorPayload(data, fallbackMessage));
+  throw Object.assign(new Error(parseErrorPayload(data, fallbackMessage)), { status: response.status });
 }
 
 export async function getJson(path, fallbackMessage) {

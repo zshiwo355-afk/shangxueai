@@ -99,7 +99,7 @@ def _to_dto(user: User) -> UserDTO:
     return UserDTO(
         id=user.id,
         username=user.username,
-        display_name=user.real_name or user.display_name or user.username,
+        display_name=user.display_name or "",
         real_name=user.real_name or "",
         department=user.department or "",
         position=user.position or "",
@@ -120,6 +120,19 @@ async def list_users(
     del admin
     result = await db.execute(select(User).order_by(User.id.asc()))
     return [_to_dto(u) for u in result.scalars().all()]
+
+
+@router.get("/{user_id}", response_model=UserDTO)
+async def get_user_detail(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> UserDTO:
+    del admin
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在。")
+    return _to_dto(user)
 
 
 @router.post("", response_model=UserDTO)

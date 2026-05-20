@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import mimetypes
 import uuid
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, delete as sql_delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 
 from .auth import get_current_user, require_admin
 from .config import get_settings
@@ -43,7 +45,6 @@ magic_video_router = APIRouter(prefix="/api/magic", tags=["magic-videos"])
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_ROOT = BASE_DIR / "uploads" / "magic_academy"
 VIDEO_DIR = UPLOAD_ROOT / "videos"
-AUDIO_DIR = UPLOAD_ROOT / "audios"
 MAX_AUDIO_SIZE = 50 * 1024 * 1024
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".wav", ".aac", ".amr", ".webm", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
@@ -62,9 +63,9 @@ MIN_MULTIPART_PART_SIZE = 8 * 1024 * 1024
 MAX_MULTIPART_PARTS = 1000
 UNASSIGNED_DEPARTMENT_FILTER = "__UNASSIGNED__"
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _now() -> datetime:
@@ -280,7 +281,18 @@ def _complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict
 
 def _build_signed_stream_url(object_key: str) -> str:
     bucket = _build_oss_bucket()
-    return bucket.sign_url("GET", object_key, STREAM_URL_EXPIRE_SECONDS, slash_safe=True)
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
+
+
+def _abort_multipart_upload(object_key: str, upload_id: str) -> None:
+    bucket = _build_oss_bucket()
+    bucket.abort_multipart_upload(object_key, upload_id)
+
+
+def _delete_oss_object(object_key: str) -> None:
+    bucket = _build_oss_bucket()
+    bucket.delete_object(object_key)
 
 
 def _normalize_upload_status(value: str) -> str:
@@ -481,7 +493,7 @@ def _xlsx_response(filename: str, headers: list[str], rows: list[list[Any]]) -> 
 
 async def _get_video_or_404(db: AsyncSession, video_id: int) -> MagicVideo:
     video = await db.get(MagicVideo, video_id)
-    if not video:
+    if not video or video.deleted_at:
         raise HTTPException(status_code=404, detail="视频不存在。")
     return video
 
@@ -505,6 +517,45 @@ async def _get_progress(
     db.add(progress)
     await db.flush()
     return progress
+
+
+def _reset_progress_for_quiz_version(progress: MagicVideoProgress, video: MagicVideo) -> None:
+    progress.current_position = 0
+    progress.max_watched_position = 0
+    progress.progress_percent = 0
+    progress.is_completed = False
+    progress.completed_at = None
+    progress.last_watched_at = None
+    progress.total_duration = float(video.duration_seconds or progress.total_duration or 0)
+    progress.quiz_passed = False
+    progress.answered_point_ids_json = "[]"
+    progress.quiz_version = int(video.quiz_version or 1)
+    progress.answer_attempt_count = 0
+
+
+async def _ensure_progress_quiz_version(
+    db: AsyncSession,
+    progress: MagicVideoProgress | None,
+    video: MagicVideo,
+) -> MagicVideoProgress | None:
+    if not progress:
+        return None
+    current_version = int(video.quiz_version or 1)
+    if int(progress.quiz_version or 0) <= 0:
+        progress.quiz_version = current_version
+        await db.flush()
+        return progress
+    if int(progress.quiz_version or 1) != current_version:
+        _reset_progress_for_quiz_version(progress, video)
+        await db.flush()
+    return progress
+
+
+async def _bump_video_quiz_version(db: AsyncSession, video_id: int) -> MagicVideo:
+    video = await _get_video_or_404(db, video_id)
+    video.quiz_version = int(video.quiz_version or 1) + 1
+    await db.flush()
+    return video
 
 
 async def _get_video_targets(db: AsyncSession, video_ids: list[int]) -> dict[int, list[MagicVideoTarget]]:
@@ -782,7 +833,42 @@ class MagicVideoUploadCompletePayload(BaseModel):
 class MagicVideoUploadFailPayload(BaseModel):
     video_id: int = Field(..., ge=1)
     oss_object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=255)
     reason: str = Field(default="上传失败", max_length=5000)
+
+
+class MagicVideoReplaceInitPayload(BaseModel):
+    original_filename: str = Field(..., min_length=1, max_length=255)
+    file_size: int = Field(..., gt=0)
+    mime_type: str = Field(default="video/mp4", max_length=128)
+    duration_seconds: int = Field(default=0, ge=0)
+
+
+class MagicVideoReplaceCompletePayload(BaseModel):
+    oss_object_key: str = Field(..., min_length=1, max_length=1024)
+    file_size: int = Field(..., gt=0)
+    upload_id: str = Field(..., min_length=1, max_length=255)
+    parts: list[MagicVideoUploadPartPayload] = Field(default_factory=list)
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+    category: str = Field(default="", max_length=128)
+    duration_seconds: int = Field(default=0, ge=0)
+    is_required: bool = False
+    is_newcomer_required: bool = False
+    deadline_at: datetime | None = None
+    status: str = "draft"
+    targets: list[VideoTargetInput] = Field(default_factory=list)
+
+    @field_validator("status")
+    @classmethod
+    def _replace_complete_status(cls, value: str) -> str:
+        return _ensure_status(value)
+
+
+class MagicVideoReplaceFailPayload(BaseModel):
+    oss_object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=255)
+    reason: str = Field(default="替换上传失败", max_length=5000)
 
 
 class QuizPointPayload(BaseModel):
@@ -831,6 +917,13 @@ class VideoWhitelistCreatePayload(BaseModel):
     note: str = Field(default="", max_length=255)
 
 
+class MagicAudioUploadPayload(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=255)
+    file_size: int = Field(default=0, ge=0)
+    mime_type: str = Field(default="", max_length=128)
+    remark: str = Field(default="", max_length=255)
+
+
 @magic_video_router.post("/videos/upload/init")
 async def init_magic_video_upload(
     payload: MagicVideoUploadInitPayload,
@@ -867,6 +960,7 @@ async def init_magic_video_upload(
         deadline_at=payload.deadline_at,
         status=payload.status,
         upload_status="pending",
+        upload_id=upload_plan["upload_id"],
         upload_error="",
         transcode_status="none",
         created_by=admin.id,
@@ -907,6 +1001,8 @@ async def complete_magic_video_upload(
     expected_key = (video.oss_object_key or "").strip()
     if not expected_key or expected_key != payload.oss_object_key.strip():
         raise HTTPException(status_code=400, detail="oss_object_key 与上传任务不匹配。")
+    if (video.upload_id or "").strip() != payload.upload_id.strip():
+        raise HTTPException(status_code=400, detail="upload_id 与上传任务不匹配。")
     if (video.upload_status or "pending") == "completed":
         targets_map = await _get_video_targets(db, [video.id])
         return _video_to_dict(video, targets_map.get(video.id, []))
@@ -926,6 +1022,7 @@ async def complete_magic_video_upload(
     video.play_url = object_url
     video.file_size = object_size
     video.upload_status = "completed"
+    video.upload_id = ""
     video.upload_error = ""
     await db.commit()
     await db.refresh(video)
@@ -943,11 +1040,18 @@ async def fail_magic_video_upload(
     video = await _get_video_or_404(db, payload.video_id)
     if (video.oss_object_key or "").strip() != payload.oss_object_key.strip():
         raise HTTPException(status_code=400, detail="oss_object_key 与上传任务不匹配。")
+    if (video.upload_id or "").strip() != payload.upload_id.strip():
+        raise HTTPException(status_code=400, detail="upload_id 与上传任务不匹配。")
     if (video.upload_status or "").strip().lower() == "completed":
         return {"ignored": True, "reason": "video already completed"}
     if (video.upload_status or "pending").strip().lower() not in {"pending", "uploading"}:
         return {"ignored": True, "reason": f"video status is {video.upload_status or 'unknown'}"}
+    try:
+        await asyncio.to_thread(_abort_multipart_upload, payload.oss_object_key.strip(), payload.upload_id.strip())
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to abort multipart upload for video %s", video.id)
     video.upload_status = "failed"
+    video.upload_id = ""
     video.upload_error = payload.reason.strip() or "上传失败"
     await db.commit()
     return {
@@ -957,13 +1061,185 @@ async def fail_magic_video_upload(
     }
 
 
+@magic_video_router.post("/videos/{video_id}/replace/init")
+async def init_magic_video_replace_upload(
+    video_id: int,
+    payload: MagicVideoReplaceInitPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    video = await _get_video_or_404(db, video_id)
+    extension = _validate_video_payload(payload.original_filename, payload.file_size, payload.mime_type)
+    object_key, _stored_filename = _build_object_key_and_name(payload.original_filename, extension)
+    oss_settings = _ensure_oss_settings()
+    upload_plan = await asyncio.to_thread(
+        _start_multipart_upload,
+        object_key,
+        payload.mime_type.strip() or "video/mp4",
+        int(payload.file_size or 0),
+    )
+    video.replacement_upload_id = upload_plan["upload_id"]
+    video.replacement_object_key = object_key
+    video.replacement_original_filename = _safe_filename(payload.original_filename)
+    video.replacement_mime_type = payload.mime_type.strip() or "video/mp4"
+    video.replacement_file_size = int(payload.file_size or 0)
+    video.replacement_duration_seconds = int(payload.duration_seconds or 0)
+    await db.commit()
+    return {
+        "video_id": video.id,
+        "oss_object_key": object_key,
+        "bucket": oss_settings["bucket"],
+        "endpoint": oss_settings["endpoint"],
+        "public_base_url": oss_settings["public_base_url"],
+        "upload_id": upload_plan["upload_id"],
+        "part_size": upload_plan["part_size"],
+        "part_count": upload_plan["part_count"],
+        "part_urls": upload_plan["part_urls"],
+        "expires_in_seconds": MULTIPART_URL_EXPIRE_SECONDS,
+    }
+
+
+@magic_video_router.post("/videos/{video_id}/replace/complete")
+async def complete_magic_video_replace_upload(
+    video_id: int,
+    payload: MagicVideoReplaceCompletePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    video = await _get_video_or_404(db, video_id)
+    if (video.replacement_object_key or "").strip() != payload.oss_object_key.strip():
+        raise HTTPException(status_code=400, detail="替换任务 object_key 不匹配。")
+    if (video.replacement_upload_id or "").strip() != payload.upload_id.strip():
+        raise HTTPException(status_code=400, detail="替换任务 upload_id 不匹配。")
+
+    object_size = await asyncio.to_thread(
+        _complete_multipart_upload,
+        payload.oss_object_key.strip(),
+        payload.upload_id.strip(),
+        [item.model_dump() for item in payload.parts],
+    )
+    if object_size != int(payload.file_size or 0):
+        raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
+
+    old_object_key = (video.oss_object_key or "").strip()
+    public_base_url = _build_public_base_url(
+        video.oss_bucket or settings.oss_bucket,
+        video.oss_endpoint or settings.oss_endpoint,
+        settings.oss_public_base_url,
+    )
+    object_url = _build_oss_object_url(public_base_url, payload.oss_object_key.strip())
+    video.quiz_version = int(video.quiz_version or 1) + 1
+
+    video.title = payload.title.strip()
+    video.description = payload.description.strip()
+    video.category = payload.category.strip()
+    video.file_name = video.replacement_original_filename or _safe_filename(payload.oss_object_key.strip())
+    video.file_path = payload.oss_object_key.strip()
+    video.original_filename = video.replacement_original_filename or video.file_name
+    video.stored_filename = Path(payload.oss_object_key.strip()).name
+    video.storage_type = "oss"
+    video.mime_type = video.replacement_mime_type or "video/mp4"
+    video.file_size = object_size
+    video.duration_seconds = int(payload.duration_seconds or video.replacement_duration_seconds or 0)
+    video.duration = int(payload.duration_seconds or video.replacement_duration_seconds or 0)
+    video.is_required = payload.is_required
+    video.is_newcomer_required = payload.is_newcomer_required
+    video.deadline_at = payload.deadline_at
+    video.status = payload.status
+    video.oss_url = object_url
+    video.cdn_url = object_url
+    video.play_url = object_url
+    video.oss_object_key = payload.oss_object_key.strip()
+    video.upload_status = "completed"
+    video.upload_error = ""
+    video.replacement_upload_id = ""
+    video.replacement_object_key = ""
+    video.replacement_original_filename = ""
+    video.replacement_mime_type = ""
+    video.replacement_file_size = 0
+    video.replacement_duration_seconds = 0
+
+    await db.execute(sql_delete(MagicVideoTarget).where(MagicVideoTarget.video_id == video_id))
+    for target in payload.targets:
+        db.add(
+            MagicVideoTarget(
+                video_id=video.id,
+                target_type=target.target_type,
+                target_value=target.target_value,
+            )
+        )
+
+    await db.execute(
+        update(MagicVideoProgress)
+        .where(MagicVideoProgress.video_id == video_id)
+        .values(
+            current_position=0,
+            max_watched_position=0,
+            progress_percent=0,
+            is_completed=False,
+            completed_at=None,
+            last_watched_at=None,
+            total_duration=float(video.duration_seconds or 0),
+            answered_point_ids_json="[]",
+            quiz_passed=False,
+            quiz_version=int(video.quiz_version or 1),
+            answer_attempt_count=0,
+        )
+    )
+
+    await db.commit()
+    await db.refresh(video)
+    if old_object_key and old_object_key != video.oss_object_key:
+        try:
+            await asyncio.to_thread(_delete_oss_object, old_object_key)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to delete old OSS object after replacement: %s", old_object_key)
+    targets_map = await _get_video_targets(db, [video.id])
+    return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+@magic_video_router.post("/videos/{video_id}/replace/fail")
+async def fail_magic_video_replace_upload(
+    video_id: int,
+    payload: MagicVideoReplaceFailPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    video = await _get_video_or_404(db, video_id)
+    if (video.replacement_object_key or "").strip() != payload.oss_object_key.strip():
+        raise HTTPException(status_code=400, detail="替换任务 object_key 不匹配。")
+    if (video.replacement_upload_id or "").strip() != payload.upload_id.strip():
+        raise HTTPException(status_code=400, detail="替换任务 upload_id 不匹配。")
+    try:
+        await asyncio.to_thread(_abort_multipart_upload, payload.oss_object_key.strip(), payload.upload_id.strip())
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to abort replacement multipart upload for video %s", video_id)
+    video.replacement_upload_id = ""
+    video.replacement_object_key = ""
+    video.replacement_original_filename = ""
+    video.replacement_mime_type = ""
+    video.replacement_file_size = 0
+    video.replacement_duration_seconds = 0
+    await db.commit()
+    return {
+        "video_id": video.id,
+        "kept_current_video": True,
+        "reason": payload.reason.strip() or "替换上传失败",
+    }
+
+
 @magic_video_router.get("/videos")
 async def list_magic_video_uploads(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
     del admin
-    result = await db.execute(select(MagicVideo).order_by(desc(MagicVideo.created_at)))
+    result = await db.execute(
+        select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
+    )
     videos = result.scalars().all()
     targets_map = await _get_video_targets(db, [item.id for item in videos])
     return [_video_to_dict(video, targets_map.get(video.id, [])) for video in videos]
@@ -998,7 +1274,9 @@ async def list_videos(
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
     del admin
-    result = await db.execute(select(MagicVideo).order_by(desc(MagicVideo.created_at)))
+    result = await db.execute(
+        select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
+    )
     videos = result.scalars().all()
     targets_map = await _get_video_targets(db, [item.id for item in videos])
     return [_video_to_dict(video, targets_map.get(video.id, [])) for video in videos]
@@ -1083,6 +1361,8 @@ async def update_video(
     video.is_required = payload.is_required
     video.is_newcomer_required = payload.is_newcomer_required
     video.deadline_at = payload.deadline_at
+    if payload.status == "published" and not _is_video_upload_ready(video):
+        raise HTTPException(status_code=400, detail="视频尚未上传完成，不能通过编辑直接发布。")
     video.status = payload.status
     await db.execute(sql_delete(MagicVideoTarget).where(MagicVideoTarget.video_id == video_id))
     for target in payload.targets:
@@ -1106,17 +1386,39 @@ async def delete_video(
 ) -> dict[str, bool]:
     del admin
     video = await _get_video_or_404(db, video_id)
-    point_result = await db.execute(select(MagicVideoQuizPoint.id).where(MagicVideoQuizPoint.video_id == video_id))
-    point_ids = [item[0] for item in point_result.all()]
-    if point_ids:
-        await db.execute(sql_delete(MagicQuestion).where(MagicQuestion.quiz_point_id.in_(point_ids)))
-    await db.execute(sql_delete(MagicVideoTarget).where(MagicVideoTarget.video_id == video_id))
-    await db.execute(sql_delete(MagicVideoQuizPoint).where(MagicVideoQuizPoint.video_id == video_id))
+    current_upload_status = (video.upload_status or "").strip().lower()
+    if (video.storage_type or "local").strip().lower() == "oss":
+        if current_upload_status in {"pending", "uploading"} and video.upload_id and video.oss_object_key:
+            try:
+                await asyncio.to_thread(_abort_multipart_upload, video.oss_object_key.strip(), video.upload_id.strip())
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to abort OSS multipart upload while deleting video %s", video.id)
+        if video.replacement_upload_id and video.replacement_object_key:
+            try:
+                await asyncio.to_thread(
+                    _abort_multipart_upload,
+                    video.replacement_object_key.strip(),
+                    video.replacement_upload_id.strip(),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to abort replacement multipart upload while deleting video %s", video.id)
+        if video.oss_object_key:
+            try:
+                await asyncio.to_thread(_delete_oss_object, video.oss_object_key.strip())
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to delete OSS object while deleting video %s", video.id)
     await db.execute(sql_delete(MagicVideoWhitelist).where(MagicVideoWhitelist.video_id == video_id))
-    await db.execute(sql_delete(MagicVideoProgress).where(MagicVideoProgress.video_id == video_id))
-    await db.execute(sql_delete(MagicQuizPointPassRecord).where(MagicQuizPointPassRecord.video_id == video_id))
-    await db.execute(sql_delete(MagicQuizAnswer).where(MagicQuizAnswer.video_id == video_id))
-    await db.delete(video)
+    video.deleted_at = _now()
+    video.status = "disabled"
+    video.upload_status = "deleted"
+    video.upload_id = ""
+    video.upload_error = "已删除"
+    video.replacement_upload_id = ""
+    video.replacement_object_key = ""
+    video.replacement_original_filename = ""
+    video.replacement_mime_type = ""
+    video.replacement_file_size = 0
+    video.replacement_duration_seconds = 0
     await db.flush()
     return {"success": True}
 
@@ -1209,6 +1511,7 @@ async def create_quiz_point(
     )
     db.add(point)
     await db.flush()
+    await _bump_video_quiz_version(db, video_id)
     return {
         "id": point.id,
         "video_id": point.video_id,
@@ -1235,6 +1538,7 @@ async def update_quiz_point(
     point.pass_score = payload.pass_score
     point.enabled = payload.enabled
     await db.flush()
+    await _bump_video_quiz_version(db, point.video_id)
     return {
         "id": point.id,
         "video_id": point.video_id,
@@ -1255,11 +1559,13 @@ async def delete_quiz_point(
     point = await db.get(MagicVideoQuizPoint, point_id)
     if not point:
         raise HTTPException(status_code=404, detail="答题节点不存在。")
+    video_id = point.video_id
     await db.execute(sql_delete(MagicQuestion).where(MagicQuestion.quiz_point_id == point_id))
     await db.execute(sql_delete(MagicQuizAnswer).where(MagicQuizAnswer.quiz_point_id == point_id))
     await db.execute(sql_delete(MagicQuizPointPassRecord).where(MagicQuizPointPassRecord.quiz_point_id == point_id))
     await db.delete(point)
     await db.flush()
+    await _bump_video_quiz_version(db, video_id)
     return {"success": True}
 
 
@@ -1320,6 +1626,7 @@ async def create_question(
     result = await db.execute(select(func.count(MagicQuestion.id)).where(MagicQuestion.quiz_point_id == point_id))
     point.question_count = int(result.scalar_one() or 0)
     await db.flush()
+    await _bump_video_quiz_version(db, point.video_id)
     return {
         "id": question.id,
         "quiz_point_id": question.quiz_point_id,
@@ -1352,6 +1659,9 @@ async def update_question(
     question.sort_order = payload.sort_order or question.sort_order or 0
     question.is_required = payload.is_required
     await db.flush()
+    point = await db.get(MagicVideoQuizPoint, question.quiz_point_id)
+    if point:
+        await _bump_video_quiz_version(db, point.video_id)
     return {
         "id": question.id,
         "quiz_point_id": question.quiz_point_id,
@@ -1385,6 +1695,7 @@ async def delete_question(
         )
         point.question_count = int(result.scalar_one() or 0)
         await db.flush()
+        await _bump_video_quiz_version(db, point.video_id)
     return {"success": True}
 
 
@@ -1393,7 +1704,9 @@ async def list_my_videos(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    result = await db.execute(select(MagicVideo).order_by(desc(MagicVideo.created_at)))
+    result = await db.execute(
+        select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
+    )
     videos = result.scalars().all()
     targets_map = await _get_video_targets(db, [item.id for item in videos])
     progress_result = await db.execute(
@@ -1419,6 +1732,7 @@ async def get_my_video_detail(
     video = await _get_video_or_404(db, video_id)
     targets, whitelisted = await _ensure_video_access(db, video, user)
     progress = await _get_progress(db, user.id, video_id, create=False)
+    progress = await _ensure_progress_quiz_version(db, progress, video)
     points_map = await _get_quiz_points_map(db, [video_id])
     points = points_map.get(video_id, [])
     questions_map = await _get_questions_map(db, [item.id for item in points])
@@ -1476,6 +1790,7 @@ async def save_my_video_progress(
     video = await _get_video_or_404(db, video_id)
     targets, whitelisted = await _ensure_video_access(db, video, user)
     progress = await _get_progress(db, user.id, video_id, create=True)
+    progress = await _ensure_progress_quiz_version(db, progress, video)
     duration = max(float(payload.duration_seconds or video.duration_seconds or progress.total_duration or 0), 0)
     progress.total_duration = duration
     progress.current_position = min(max(float(payload.current_position or 0), 0), duration or float(payload.current_position or 0))
@@ -1519,6 +1834,7 @@ async def submit_my_video_quiz(
     questions_map = await _get_questions_map(db, [point.id])
     questions = questions_map.get(point.id, [])
     progress = await _get_progress(db, user.id, video_id, create=True)
+    progress = await _ensure_progress_quiz_version(db, progress, video)
     attempt_result = await db.execute(
         select(func.count(MagicQuizPointPassRecord.id)).where(
             MagicQuizPointPassRecord.user_id == user.id,
@@ -1873,29 +2189,24 @@ async def list_my_audios(
 
 @router.post("/my/audios")
 async def upload_my_audio(
-    file: UploadFile = File(...),
-    remark: str = Form(default=""),
+    payload: MagicAudioUploadPayload,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    suffix = Path(file.filename or "").suffix.lower()
+    suffix = Path(payload.file_name or "").suffix.lower()
     if suffix not in AUDIO_EXTENSIONS:
         raise HTTPException(status_code=400, detail="音频格式不支持。")
-    content = await file.read()
-    if len(content) > MAX_AUDIO_SIZE:
+    if int(payload.file_size or 0) > MAX_AUDIO_SIZE:
         raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
-    safe_name = _safe_filename(file.filename or f"audio{suffix}")
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    stored_path = AUDIO_DIR / stored_name
-    stored_path.write_bytes(content)
+    safe_name = _safe_filename(payload.file_name or f"audio{suffix}")
     now = _now()
     row = MagicAudioUpload(
         user_id=user.id,
         file_name=safe_name,
-        file_path=str(stored_path.relative_to(UPLOAD_ROOT)),
-        file_size=len(content),
-        mime_type=file.content_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip("."),
-        remark=(remark or "").strip(),
+        file_path="",
+        file_size=int(payload.file_size or 0),
+        mime_type=(payload.mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip(),
+        remark=(payload.remark or "").strip(),
         uploaded_on=now,
         uploaded_date=now.date(),
         is_deleted=False,
