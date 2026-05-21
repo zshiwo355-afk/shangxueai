@@ -1,6 +1,6 @@
 import {
+  ArrowRightOutlined,
   CalendarOutlined,
-  CheckCircleFilled,
   ClockCircleOutlined,
   HistoryOutlined,
   PlayCircleFilled,
@@ -8,7 +8,7 @@ import {
   RocketOutlined,
   TrophyOutlined,
 } from "@ant-design/icons";
-import { App as AntdApp, Button, Card, Empty, List, Progress, Space, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Empty, Progress, Space, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -20,19 +20,30 @@ import { loadActiveSession } from "../lib/storage";
 
 const { Paragraph, Text, Title } = Typography;
 
-function statusTag(status) {
-  if (status === "passed") return <Tag color="success" icon={<CheckCircleFilled />}>已通过</Tag>;
-  if (status === "failed") return <Tag color="error">未通过</Tag>;
-  if (status === "in_progress") return <Tag color="processing" icon={<PlayCircleFilled />}>进行中</Tag>;
-  if (status === "pending_review") return <Tag color="gold" icon={<ClockCircleOutlined />}>等待复核</Tag>;
-  return <Tag color="warning" icon={<ClockCircleOutlined />}>待考试</Tag>;
+function examStatusLabel(status) {
+  if (status === "passed") return "已通过";
+  if (status === "failed") return "未通过";
+  if (status === "in_progress") return "进行中";
+  if (status === "pending_review") return "待复核";
+  return "待开始";
+}
+
+function resultColor(result) {
+  if (result === "成交") return "success";
+  if (result === "意向客户") return "processing";
+  return "default";
+}
+
+function formatTime(value) {
+  if (!value) return "暂无时间";
+  return String(value).slice(0, 16).replace("T", " ");
 }
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const user = getCurrentUser();
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [exams, setExams] = useState([]);
   const [records, setRecords] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -41,6 +52,7 @@ export default function HomePage() {
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         const [examData, recordData, videoData, audioData] = await Promise.all([
@@ -60,295 +72,377 @@ export default function HomePage() {
         if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
   }, [message]);
 
-  const todoExams = exams.filter((item) => ["pending", "in_progress", "pending_review"].includes(item.exam?.status));
+  const todoExams = exams.filter((item) =>
+    ["pending", "in_progress", "pending_review"].includes(item.exam?.status),
+  );
   const doneExams = exams.filter((item) => ["passed", "failed"].includes(item.exam?.status));
   const pendingVideos = videos.filter((item) => item.is_required && !item.progress?.is_completed);
-  const inProgressVideos = videos.filter((item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0);
+  const inProgressVideos = videos.filter(
+    (item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0,
+  );
   const continueVideo = inProgressVideos[0] || pendingVideos[0] || videos[0] || null;
-  const monthAudioCount = audios.filter((item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM")).length;
-  const todayUploaded = audios.some((item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"));
+  const monthAudioCount = audios.filter(
+    (item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM"),
+  ).length;
+  const todayUploaded = audios.some(
+    (item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
+  );
 
-  const todoItems = [
-    activeSession?.session_id ? {
-      key: "active-session",
-      title: activeSession.mode === "exam" ? "上次考试还没结束" : "上次训练还没结束",
-      description: activeSession.training_type
-        ? `${activeSession.training_type} / ${activeSession.difficulty || "未标记难度"} / ${activeSession.customer_type || "未标记客户类型"}`
-        : "可以直接回到刚才的会话继续进行。",
-      action: "继续会话",
-      onClick: () => navigate(`/chat/${activeSession.session_id}`),
-      icon: <PlayCircleFilled />,
-    } : null,
-    todoExams[0]?.exam ? {
-      key: `exam-${todoExams[0].exam.id}`,
-      title: todoExams[0].exam.status === "pending_review" ? "有考试在等待复核" : "有考试待处理",
-      description: `${todoExams[0].exam.title || "陪练考试"} · 已尝试 ${todoExams[0].exam.attempt_count}/${todoExams[0].exam.max_attempts}`,
-      action: todoExams[0].exam.status === "pending_review" ? "查看结果" : "进入考试",
-      onClick: () => navigate(todoExams[0].exam.status === "pending_review" ? `/exam/${todoExams[0].exam.id}/result` : `/exam/${todoExams[0].exam.id}/intro`),
-      icon: <ClockCircleOutlined />,
-    } : null,
-    continueVideo ? {
-      key: `video-${continueVideo.id}`,
-      title: "魔学院里有课程可继续",
-      description: `${continueVideo.title} · 进度 ${Math.round(continueVideo.progress?.progress_percent || 0)}%`,
-      action: "继续学习",
-      onClick: () => navigate("/magic-academy"),
-      icon: <ReadOutlined />,
-    } : null,
-    {
-      key: "audio",
-      title: todayUploaded ? "今日读书打卡已完成" : "今日还未完成读书打卡",
-      description: `本月累计上传 ${monthAudioCount} 次录音`,
-      action: "打开打卡中心",
-      onClick: () => navigate("/magic-academy?tab=audio"),
-      icon: <CalendarOutlined />,
-    },
-  ].filter(Boolean);
+  const recentTraining = records.slice(0, 3);
+  const recentLearning = videos.slice(0, 3);
 
-  const averageScore = records.length > 0
-    ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
-    : 0;
-  const completedVideoRate = videos.length > 0 ? Math.round((videos.filter((item) => item.progress?.is_completed).length / videos.length) * 100) : 0;
+  const nextActions = [
+    activeSession?.session_id
+      ? {
+          key: "session",
+          icon: <PlayCircleFilled />,
+          title: activeSession.mode === "exam" ? "继续上次考试" : "继续上次训练",
+          description: activeSession.training_type
+            ? `${activeSession.training_type} · ${activeSession.difficulty || "未标记难度"}`
+            : "回到上次会话。",
+          action: "继续",
+          onClick: () => navigate(`/chat/${activeSession.session_id}`),
+        }
+      : null,
+    todoExams[0]?.exam
+      ? {
+          key: "exam",
+          icon: <ClockCircleOutlined />,
+          title: todoExams[0].exam.status === "pending_review" ? "查看考试结果" : "处理待办考试",
+          description: `${todoExams[0].exam.title || "销售考试"} · ${examStatusLabel(
+            todoExams[0].exam.status,
+          )}`,
+          action: todoExams[0].exam.status === "pending_review" ? "查看" : "进入",
+          onClick: () =>
+            navigate(
+              todoExams[0].exam.status === "pending_review"
+                ? `/exam/${todoExams[0].exam.id}/result`
+                : `/exam/${todoExams[0].exam.id}/intro`,
+            ),
+        }
+      : null,
+    continueVideo
+      ? {
+          key: "video",
+          icon: <ReadOutlined />,
+          title: "继续最近课程",
+          description: `${continueVideo.title} · ${Math.round(
+            continueVideo.progress?.progress_percent || 0,
+          )}%`,
+          action: "去学习",
+          onClick: () => navigate("/workspace/magic"),
+        }
+      : null,
+  ]
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const averageScore =
+    records.length > 0
+      ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
+      : 0;
+  const completedVideoRate =
+    videos.length > 0
+      ? Math.round(
+          (videos.filter((item) => item.progress?.is_completed).length / videos.length) * 100,
+        )
+      : 0;
+
+  const yearText = dayjs().format("YYYY");
 
   return (
-    <div className="portal-home">
-      <section className="portal-home__hero">
-        <div className="portal-home__hero-copy">
-          <Tag bordered={false} className="portal-home__eyebrow">用户门户首页</Tag>
-          <Title level={1} className="portal-home__title">
-            欢迎回来，{user?.display_name || user?.username || "学员"}
-          </Title>
-          <Paragraph className="portal-home__subtitle">
-            今天的学习与训练，从这里开始。销售对练负责模拟实战、考试与复盘，魔学院负责课程学习、节点答题与日常打卡。
-          </Paragraph>
-          <Space size={10} wrap>
-            <Tag color="blue">待处理考试 {todoExams.length}</Tag>
-            <Tag color="cyan">待学课程 {pendingVideos.length}</Tag>
-            <Tag color={todayUploaded ? "success" : "warning"}>{todayUploaded ? "今日已打卡" : "今日未打卡"}</Tag>
-          </Space>
+    <div className="portal-home portal-home--editorial portal-home--minimal">
+      <section className="showcase-hero">
+        <span className="showcase-hero__year" aria-hidden="true">{yearText}</span>
+        <div className="showcase-hero__inner">
+          <div className="showcase-hero__intro">
+            <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>
+              Personal Workspace
+            </span>
+            <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
+              今天，做点什么
+            </Title>
+            <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
+              SHANGXUE AI · TRAIN · LEARN · GROW
+            </p>
+            <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
+              欢迎回来，{user?.display_name || user?.username || "学员"}。
+              从这里出发，进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术，
+              或走进<strong style={{ color: "var(--accent-deep)" }}>魔学院</strong>沉淀知识。
+            </Paragraph>
+            <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
+              <button
+                type="button"
+                className="cta-arrow-btn"
+                onClick={() => navigate("/workspace/training")}
+              >
+                <RocketOutlined />
+                <span>开启销售对练</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+              <button
+                type="button"
+                className="cta-arrow-btn cta-arrow-btn--ghost"
+                onClick={() => navigate("/workspace/magic")}
+              >
+                <ReadOutlined />
+                <span>进入魔学院</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+            </div>
+          </div>
+          <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
+            <span className="showcase-hero__side-eyebrow">Today at a glance</span>
+            <ul className="showcase-hero__side-list">
+              <li className="showcase-hero__side-item">
+                <span>待办考试</span>
+                <strong>{todoExams.length}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>平均得分</span>
+                <strong>{averageScore}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>完课率</span>
+                <strong>{completedVideoRate}%</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>本月打卡</span>
+                <strong>{monthAudioCount}</strong>
+              </li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+
+      <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
+        <div className="showcase-section__header">
+          <span className="showcase-eyebrow">Modules</span>
+          <Title level={2} className="showcase-title">两大功能区</Title>
+          <p className="showcase-lead">把对练与学习清晰拆分，按需进入对应空间。</p>
         </div>
 
-        <div className="portal-home__entry-grid">
-          <Card className="portal-entry portal-entry--training" loading={loading}>
-            <Space direction="vertical" size={14} style={{ width: "100%" }}>
-              <div className="portal-entry__icon"><RocketOutlined /></div>
-              <div>
-                <Title level={3} style={{ marginBottom: 6, color: "#fff" }}>销售对练</Title>
-                <Text className="portal-entry__text">
-                  模拟对话、考试评估、复盘提升，适合快速进入实战训练状态。
-                </Text>
-              </div>
-              <Space size={10} wrap>
-                <Button size="large" className="portal-entry__primary" onClick={() => navigate("/workspace/training")}>
-                  进入工作台
-                </Button>
-                {activeSession?.session_id ? (
-                  <Button size="large" ghost className="portal-entry__ghost" onClick={() => navigate(`/chat/${activeSession.session_id}`)}>
-                    继续上次
-                  </Button>
-                ) : null}
-              </Space>
-            </Space>
-          </Card>
+        <div className="entry-grid entry-grid--two">
+          <button
+            type="button"
+            className="entry-card entry-card--feature fade-in-up"
+            style={{ "--fade-delay": "180ms" }}
+            onClick={() => navigate("/workspace/training")}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">01</span>
+              <span className="entry-card__tag">SALES TRAINING</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">销售对练</h3>
+              <p className="entry-card__subtitle">模拟 · 考核 · 复盘</p>
+            </div>
+            <p className="entry-card__desc">
+              通过 AI 对练还原真实客户场景，结合考试与复盘形成"练-评-改"的闭环。
+            </p>
+            <span className="entry-card__cta">
+              {activeSession?.session_id ? "继续上次会话" : "进入训练空间"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
 
-          <Card className="portal-entry portal-entry--magic" loading={loading}>
-            <Space direction="vertical" size={14} style={{ width: "100%" }}>
-              <div className="portal-entry__icon portal-entry__icon--light"><ReadOutlined /></div>
-              <div>
-                <Title level={3} style={{ marginBottom: 6 }}>魔学院</Title>
-                <Text className="portal-entry__text portal-entry__text--dark">
-                  课程学习、节点答题、进度跟踪和读书打卡都从这里进入。
-                </Text>
-              </div>
-              <Space size={10} wrap>
-                <Button type="primary" size="large" onClick={() => navigate("/workspace/magic")}>
-                  进入学习中心
-                </Button>
-                {continueVideo ? (
-                  <Button size="large" onClick={() => navigate("/magic-academy")}>
-                    继续学习
-                  </Button>
-                ) : null}
-              </Space>
-            </Space>
-          </Card>
+          <button
+            type="button"
+            className="entry-card fade-in-up"
+            style={{ "--fade-delay": "260ms" }}
+            onClick={() => navigate("/workspace/magic")}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">02</span>
+              <span className="entry-card__tag">MAGIC ACADEMY</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">魔学院</h3>
+              <p className="entry-card__subtitle">课程 · 答题 · 打卡</p>
+            </div>
+            <p className="entry-card__desc">
+              视频课程配合节点答题，搭配每日读书录音打卡，让知识沉淀变成习惯。
+            </p>
+            <span className="entry-card__cta">
+              {continueVideo ? "继续学习" : "浏览课程"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
         </div>
       </section>
 
-      <section className="portal-home__metrics">
-        <Card className="portal-metric" loading={loading}>
-          <RocketOutlined />
-          <span>训练记录</span>
-          <strong>{records.length}</strong>
-        </Card>
-        <Card className="portal-metric" loading={loading}>
-          <TrophyOutlined />
-          <span>平均得分</span>
-          <strong>{averageScore}</strong>
-        </Card>
-        <Card className="portal-metric" loading={loading}>
-          <CheckCircleFilled />
-          <span>考试完成</span>
-          <strong>{doneExams.length}</strong>
-        </Card>
-        <Card className="portal-metric" loading={loading}>
-          <ReadOutlined />
-          <span>课程完成率</span>
-          <strong>{`${completedVideoRate}%`}</strong>
-        </Card>
-      </section>
+      <section className="showcase-section">
+        <div className="showcase-section__header">
+          <span className="showcase-eyebrow">Next up</span>
+          <Title level={3} className="showcase-title" style={{ fontSize: 26 }}>下一步</Title>
+        </div>
 
-      <section className="portal-home__panel-grid">
-        <Card className="portal-panel" title="我的待办" loading={loading}>
-          {todoItems.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有待处理事项，保持这个节奏就很好。" />
-          ) : (
-            <List
-              dataSource={todoItems}
-              renderItem={(item) => (
-                <List.Item
-                  key={item.key}
-                  actions={[
-                    <Button key="go" type="link" onClick={item.onClick}>
-                      {item.action}
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    avatar={<div className="portal-todo__icon">{item.icon}</div>}
-                    title={item.title}
-                    description={item.description}
-                  />
-                </List.Item>
-              )}
-            />
-          )}
-        </Card>
-
-        <Card
-          className="portal-panel"
-          title={<Space><HistoryOutlined />最近训练</Space>}
-          extra={<Button type="link" onClick={() => navigate("/training/records")}>全部记录</Button>}
-          loading={loading}
-        >
-          {records.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有训练记录，先开始一轮销售对练吧。" />
-          ) : (
-            <List
-              dataSource={records.slice(0, 4)}
-              renderItem={(item) => (
-                <List.Item
-                  key={item.id}
-                  actions={[
-                    <Button key="view" type="link" onClick={() => navigate(`/training/records/${item.id}`)}>
-                      查看复盘
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={(
-                      <Space size={[8, 8]} wrap>
-                        <Tag color="blue">{item.training_type}</Tag>
-                        <Tag>{item.difficulty}</Tag>
-                        <Tag color={item.result === "成交" ? "success" : item.result === "意向客户" ? "processing" : "default"}>
-                          {item.result || "待定"}
-                        </Tag>
-                      </Space>
-                    )}
-                    description={`得分 ${Math.round(item.score || 0)} · ${item.created_at?.slice(0, 16).replace("T", " ") || "暂无时间"}`}
-                  />
-                </List.Item>
-              )}
-            />
-          )}
-        </Card>
-      </section>
-
-      <section className="portal-home__panel-grid portal-home__panel-grid--secondary">
-        <Card
-          className="portal-panel"
-          title="最近学习"
-          extra={<Button type="link" onClick={() => navigate("/magic-academy")}>进入魔学院</Button>}
-          loading={loading}
-        >
-          {videos.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有课程任务，可先进入魔学院查看。" />
-          ) : (
-            <Space direction="vertical" size={16} style={{ width: "100%" }}>
-              {videos.slice(0, 3).map((item) => (
-                <div key={item.id} className="portal-course">
-                  <div className="portal-course__header">
-                    <Space size={[8, 8]} wrap>
-                      <Text strong>{item.title}</Text>
-                      {item.is_required ? <Tag color="gold">必修</Tag> : null}
-                    </Space>
-                    <Text type="secondary">{Math.round(item.progress?.progress_percent || 0)}%</Text>
-                  </div>
-                  <Progress percent={Math.round(item.progress?.progress_percent || 0)} size="small" />
+        {nextActions.length === 0 ? (
+          <div className="portal-editorial-empty">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有待处理事项。" />
+          </div>
+        ) : (
+          <div className="portal-editorial-next">
+            {nextActions.map((item, idx) => (
+              <div
+                key={item.key}
+                className="portal-editorial-next__item fade-in-up"
+                style={{ "--fade-delay": `${120 + idx * 80}ms` }}
+              >
+                <div className="portal-editorial-next__icon">{item.icon}</div>
+                <div className="portal-editorial-next__content">
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
                 </div>
-              ))}
-            </Space>
-          )}
-        </Card>
-
-        <Card className="portal-panel portal-panel--highlight" loading={loading}>
-          <Space direction="vertical" size={14} style={{ width: "100%" }}>
-            <Title level={4} style={{ marginBottom: 0 }}>下一步建议</Title>
-            {activeSession?.session_id ? (
-              <Paragraph style={{ marginBottom: 0 }}>
-                你有一个未结束的{activeSession.mode === "exam" ? "考试会话" : "训练会话"}，建议先把它完成，再开启新的内容。
-              </Paragraph>
-            ) : continueVideo ? (
-              <Paragraph style={{ marginBottom: 0 }}>
-                优先继续《{continueVideo.title}》，保持学习连续性，然后再处理新的训练任务。
-              </Paragraph>
-            ) : (
-              <Paragraph style={{ marginBottom: 0 }}>
-                当前适合先做一轮新的销售对练，或者进入魔学院完成今天的学习与打卡。
-              </Paragraph>
-            )}
-            <Space size={10} wrap>
-              <Button type="primary" onClick={() => navigate(activeSession?.session_id ? `/chat/${activeSession.session_id}` : "/workspace/training")}>
-                {activeSession?.session_id ? "继续当前会话" : "去销售对练"}
-              </Button>
-              <Button onClick={() => navigate("/workspace/magic")}>去魔学院</Button>
-            </Space>
-          </Space>
-        </Card>
+                <Button type="link" onClick={item.onClick}>
+                  {item.action}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      {doneExams.length > 0 ? (
-        <section className="portal-home__done">
-          <Card className="portal-panel" title="已完成考试" loading={loading}>
-            <List
-              dataSource={doneExams.slice(0, 3)}
-              renderItem={(item) => {
-                const exam = item.exam || {};
-                return (
-                  <List.Item
-                    key={exam.id}
-                    actions={[
-                      <Button key="view" type="link" onClick={() => navigate(`/exam/${exam.id}/result`)}>
-                        查看结果
-                      </Button>,
-                    ]}
+      <section className="showcase-section">
+        <div className="showcase-section__header">
+          <span className="showcase-eyebrow">Recent traces</span>
+          <Title level={3} className="showcase-title" style={{ fontSize: 26 }}>最近记录</Title>
+        </div>
+
+        <div className="portal-editorial-traces__surface">
+          <div className="portal-editorial-traces__column">
+            <div className="portal-editorial-traces__head">
+              <Space>
+                <HistoryOutlined />
+                <strong>训练</strong>
+              </Space>
+              <Button type="link" onClick={() => navigate("/training/records")}>
+                全部
+              </Button>
+            </div>
+
+            {recentTraining.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有训练记录。" />
+            ) : (
+              <div className="portal-editorial-traces__list">
+                {recentTraining.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="portal-editorial-trace fade-in-up"
+                    style={{ "--fade-delay": `${idx * 80}ms` }}
                   >
-                    <List.Item.Meta
-                      title={<Space>{exam.title || "陪练考试"} {statusTag(exam.status)}</Space>}
-                      description={exam.completed_at?.slice(0, 16).replace("T", " ") || "暂无完成时间"}
+                    <div className="portal-editorial-trace__main">
+                      <Space size={[8, 8]} wrap>
+                        <strong>{item.training_type}</strong>
+                        <Tag color={resultColor(item.result)}>{item.result || "待定"}</Tag>
+                      </Space>
+                      <span>{item.customer_type || "未标记客户类型"}</span>
+                    </div>
+                    <div className="portal-editorial-trace__side">
+                      <span>得分 {Math.round(item.score || 0)}</span>
+                      <span>{formatTime(item.created_at)}</span>
+                      <Button type="link" onClick={() => navigate(`/training/records/${item.id}`)}>
+                        查看
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="portal-editorial-traces__divider" />
+
+          <div className="portal-editorial-traces__column">
+            <div className="portal-editorial-traces__head">
+              <Space>
+                <ReadOutlined />
+                <strong>学习</strong>
+              </Space>
+              <Button type="link" onClick={() => navigate("/workspace/magic")}>
+                全部
+              </Button>
+            </div>
+
+            {recentLearning.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有学习记录。" />
+            ) : (
+              <div className="portal-editorial-traces__list">
+                {recentLearning.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className="portal-editorial-learning fade-in-up"
+                    style={{ "--fade-delay": `${idx * 80}ms` }}
+                  >
+                    <div className="portal-editorial-learning__head">
+                      <Space size={[8, 8]} wrap>
+                        <strong>{item.title}</strong>
+                        {item.is_required ? <Tag color="gold">必修</Tag> : null}
+                      </Space>
+                      <span>{Math.round(item.progress?.progress_percent || 0)}%</span>
+                    </div>
+                    <Progress
+                      percent={Math.round(item.progress?.progress_percent || 0)}
+                      size="small"
+                      showInfo={false}
                     />
-                  </List.Item>
-                );
-              }}
-            />
-          </Card>
-        </section>
-      ) : null}
+                  </div>
+                ))}
+
+                <div className="portal-editorial-learning__note">
+                  <CalendarOutlined />
+                  <span>
+                    本月打卡 {monthAudioCount} 次 · {todayUploaded ? "今日已打卡" : "今日未打卡"}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="showcase-section">
+        <div className="stats-row fade-in-up">
+          <div className="stats-row__item">
+            <span className="stats-row__value">{records.length}</span>
+            <span className="stats-row__label">训练次数</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{doneExams.length}</span>
+            <span className="stats-row__label">完成考试</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{completedVideoRate}%</span>
+            <span className="stats-row__label">完课率</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{monthAudioCount}</span>
+            <span className="stats-row__label">本月打卡</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="portal-editorial-footer portal-editorial-footer--lined">
+        <div className="portal-editorial-footer__bottom">
+          <span>
+            <TrophyOutlined /> Shangxue AI · 数据持续沉淀
+          </span>
+          <span>{yearText} · 用心练习，每天进步一点</span>
+        </div>
+      </section>
     </div>
   );
 }

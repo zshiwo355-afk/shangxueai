@@ -1888,7 +1888,8 @@ async def submit_my_video_quiz(
             )
         )
     final_score = round((total_score / total_possible) * 100, 2) if total_possible > 0 else 100.0
-    passed = bool(whitelisted and payload.skip_by_whitelist) or final_score >= float(point.pass_score or 60)
+    all_correct = bool(rows) and all(bool(item["is_correct"]) for item in rows)
+    passed = bool(whitelisted and payload.skip_by_whitelist) or all_correct
     db.add(
         MagicQuizPointPassRecord(
             user_id=user.id,
@@ -1922,7 +1923,7 @@ async def submit_my_video_quiz(
         "attempt_no": attempt_no,
         "score": final_score,
         "passed": passed,
-        "required_score": point.pass_score,
+        "required_score": 100,
         "details": rows,
     }
 

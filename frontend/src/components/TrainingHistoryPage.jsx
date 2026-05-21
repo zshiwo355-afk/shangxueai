@@ -12,6 +12,14 @@ function resultColor(result) {
   return "default";
 }
 
+function scoreTone(score) {
+  const value = Number(score || 0);
+  if (value >= 85) return { color: "var(--accent-deep, #426f9f)", label: "优" };
+  if (value >= 70) return { color: "#16a34a", label: "良" };
+  if (value >= 60) return { color: "#f59e0b", label: "中" };
+  return { color: "#dc2626", label: "待提升" };
+}
+
 const FILTER_OPTIONS = [
   { key: "all", label: "全部" },
   { key: "passed", label: "已通过" },
@@ -30,8 +38,8 @@ export default function TrainingHistoryPage() {
     try {
       const data = await fetchMyTrainingRecords();
       setRecords(Array.isArray(data) ? data : []);
-    } catch (err) {
-      message.error(err?.message || "训练记录加载失败。");
+    } catch (error) {
+      message.error(error?.message || "训练记录加载失败。");
     } finally {
       setLoading(false);
     }
@@ -44,10 +52,10 @@ export default function TrainingHistoryPage() {
   const handleDelete = async (row) => {
     try {
       await deleteTrainingRecord(row.id);
-      message.success("已删除。");
+      message.success("记录已删除。");
       setRecords((prev) => prev.filter((item) => item.id !== row.id));
-    } catch (err) {
-      message.error(err?.message || "删除失败。");
+    } catch (error) {
+      message.error(error?.message || "删除失败。");
     }
   };
 
@@ -57,100 +65,126 @@ export default function TrainingHistoryPage() {
     return records;
   }, [filterKey, records]);
 
-  const averageScore = records.length > 0
-    ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
-    : 0;
+  const averageScore =
+    records.length > 0
+      ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
+      : 0;
 
   return (
-    <div className="page-shell page-shell--wide">
-      <div className="page-toolbar page-toolbar--stack">
+    <div className="page-shell page-shell--wide page-shell--minimal">
+      <div className="page-toolbar page-toolbar--stack page-toolbar--minimal">
         <div className="page-toolbar__leading">
-          <Button onClick={() => navigate("/workspace/training")}>返回销售对练</Button>
+          <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
           <div>
-            <h2 style={{ margin: 0 }}>我的训练记录</h2>
-            <Text type="secondary">用更轻的卡片视图回看最近每一次训练结果和复盘。</Text>
+            <h2 style={{ margin: 0 }}>训练记录</h2>
+            <Text type="secondary">查看最近结果。</Text>
           </div>
         </div>
-        <div className="history-summary">
-          <Card className="history-summary__card" bordered={false}>
-            <span>总记录数</span>
-            <strong>{records.length}</strong>
-          </Card>
-          <Card className="history-summary__card" bordered={false}>
-            <span>平均得分</span>
-            <strong>{averageScore}</strong>
-          </Card>
+
+        <div className="page-toolbar__actions">
+          <Button onClick={() => navigate("/workspace/training")}>工作台</Button>
+          <Button type="primary" onClick={() => navigate("/train/prepare")}>
+            新训练
+          </Button>
         </div>
       </div>
 
-      <Card className="history-filter-card" bordered={false}>
-        <Space align="center" size={[8, 8]} wrap>
-          <FilterOutlined style={{ color: "var(--text-mute)" }} />
-          {FILTER_OPTIONS.map((option) => (
-            <Button
-              key={option.key}
-              type={filterKey === option.key ? "primary" : "default"}
-              onClick={() => setFilterKey(option.key)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </Space>
+      <div className="history-summary history-summary--minimal">
+        <Card className="history-summary__card" bordered={false}>
+          <span>总数</span>
+          <strong>{records.length}</strong>
+        </Card>
+        <Card className="history-summary__card" bordered={false}>
+          <span>平均分</span>
+          <strong style={{ color: scoreTone(averageScore).color }}>{averageScore}</strong>
+        </Card>
+      </div>
+
+      <Card className="history-filter-card history-filter-card--minimal" bordered={false}>
+        <div className="history-filter-card__content">
+          <Space align="center" size={[8, 8]} wrap>
+            <FilterOutlined style={{ color: "var(--text-mute)" }} />
+            {FILTER_OPTIONS.map((option) => (
+              <Button
+                key={option.key}
+                type={filterKey === option.key ? "primary" : "default"}
+                onClick={() => setFilterKey(option.key)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </Space>
+          <Text type="secondary">{filteredRecords.length} 条</Text>
+        </div>
       </Card>
 
       {!loading && filteredRecords.length === 0 ? (
         <Card bordered={false}>
-          <Empty description="当前筛选条件下还没有训练记录" />
+          <Empty description="当前没有记录。" />
         </Card>
       ) : (
-        <div className="history-card-list">
-          {filteredRecords.map((row) => (
-            <Card key={row.id} className="history-record-card" loading={loading} bordered={false}>
-              <div className="history-record-card__top">
-                <div>
-                  <Space size={[8, 8]} wrap>
-                    <Tag color="blue">{row.training_type}</Tag>
-                    <Tag>{row.difficulty}</Tag>
-                    <Tag color={resultColor(row.result)}>{row.result || "待定"}</Tag>
-                    {row.is_pass != null ? (
-                      <Tag color={row.is_pass ? "success" : "error"}>
-                        {row.is_pass ? "通过" : "待提升"}
-                      </Tag>
-                    ) : null}
+        <div className="history-card-list history-card-list--minimal">
+          {filteredRecords.map((row) => {
+            const tone = scoreTone(row.score);
+            const score = Math.round(row.score || 0);
+            return (
+              <Card
+                key={row.id}
+                className="history-record-card history-record-card--minimal"
+                loading={loading}
+                bordered={false}
+              >
+                <div className="history-record-card__top">
+                  <div className="history-record-card__content">
+                    <Space size={[8, 8]} wrap>
+                      <Tag bordered={false} color="blue">{row.training_type}</Tag>
+                      <Tag bordered={false}>{row.difficulty}</Tag>
+                      <Tag bordered={false} color={resultColor(row.result)}>{row.result || "待定"}</Tag>
+                      {row.is_pass != null ? (
+                        <Tag bordered={false} color={row.is_pass ? "success" : "default"}>
+                          {row.is_pass ? "已通过" : "待提升"}
+                        </Tag>
+                      ) : null}
+                    </Space>
+                    <Title level={5} style={{ margin: "10px 0 0", color: "var(--accent-deep, #426f9f)" }}>
+                      {row.customer_type || "未标记客户类型"}
+                    </Title>
+                  </div>
+
+                  <div className="history-record-card__score" style={{ color: tone.color }}>
+                    <TrophyOutlined />
+                    <strong style={{ color: tone.color }}>{score}</strong>
+                    <span style={{ color: tone.color, opacity: 0.78 }}>{tone.label}</span>
+                  </div>
+                </div>
+
+                <div className="history-record-card__meta">
+                  <span>{row.created_at ? row.created_at.slice(0, 16).replace("T", " ") : "暂无时间"}</span>
+                </div>
+
+                <div className="history-record-card__actions">
+                  <Space size={10} wrap>
+                    <Button type="primary" onClick={() => navigate(`/training/records/${row.id}`)}>
+                      查看复盘
+                    </Button>
+                    <Button onClick={() => navigate("/train/prepare")}>再练一轮</Button>
                   </Space>
-                  <Title level={5} style={{ margin: "10px 0 0" }}>
-                    {row.customer_type || "未标记客户类型"}
-                  </Title>
+                  <Popconfirm
+                    title="确认删除这条记录？"
+                    description="删除后无法恢复。"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => handleDelete(row)}
+                  >
+                    <Button danger type="text" icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
                 </div>
-
-                <div className="history-record-card__score">
-                  <TrophyOutlined />
-                  <strong>{Math.round(row.score || 0)}</strong>
-                  <span>训练得分</span>
-                </div>
-              </div>
-
-              <div className="history-record-card__meta">
-                <span>{row.created_at ? row.created_at.slice(0, 16).replace("T", " ") : "暂无时间"}</span>
-              </div>
-
-              <div className="history-record-card__actions">
-                <Button type="primary" onClick={() => navigate(`/training/records/${row.id}`)}>
-                  查看复盘
-                </Button>
-                <Popconfirm
-                  title="确认删除这条训练记录？"
-                  description="删除后无法恢复。"
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => handleDelete(row)}
-                >
-                  <Button danger icon={<DeleteOutlined />}>删除</Button>
-                </Popconfirm>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,4 +1,10 @@
-import { BookOutlined, HomeOutlined, LogoutOutlined, RocketOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  BookOutlined,
+  HomeOutlined,
+  LogoutOutlined,
+  RocketOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { Avatar, Button, Space, Tag } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
@@ -51,7 +57,7 @@ export default function UserLayout() {
           <button type="button" className="user-layout__brand" onClick={() => navigate("/home")}>
             <div className="user-layout__brand-mark">商</div>
             <div className="user-layout__brand-copy">
-              <strong>商学院AI培训</strong>
+              <strong>商学院 AI 培训</strong>
               <span>{currentSection}</span>
             </div>
           </button>
@@ -61,6 +67,7 @@ export default function UserLayout() {
               const active = location.pathname === item.path
                 || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
                 || (item.key === "magic" && resolveSection(location.pathname) === "魔学院");
+
               return (
                 <button
                   key={item.key}
@@ -78,9 +85,10 @@ export default function UserLayout() {
           <div className="user-layout__actions">
             {showAdminEntry ? (
               <Button icon={<SettingOutlined />} onClick={() => navigate("/admin")}>
-                {"管理后台"}
+                管理后台
               </Button>
             ) : null}
+
             <div className="user-layout__user-card">
               <Avatar className="user-layout__avatar">
                 {(user?.display_name || user?.username || "U").slice(0, 1).toUpperCase()}
@@ -93,8 +101,9 @@ export default function UserLayout() {
                 </Space>
               </div>
             </div>
+
             <Button icon={<LogoutOutlined />} onClick={handleLogout}>
-              {"退出"}
+              退出
             </Button>
           </div>
         </div>

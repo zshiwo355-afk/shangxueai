@@ -5,7 +5,7 @@ import {
   ReloadOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import { Button, Dropdown, Modal, Space, Spin, App as AntdApp, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Dropdown, Modal, Space, Spin, Tag, Typography } from "antd";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { finishExam } from "../lib/api.exam";
@@ -18,14 +18,14 @@ import ChatMessage, { TypingIndicator } from "./ChatMessage";
 const { Text, Title } = Typography;
 
 const STAGE_LABELS = {
-  opening: "开场破冰",
-  need_probe: "需求探询",
-  brand_trust: "品牌信任",
-  product_intro: "产品介绍",
-  price_discuss: "价格沟通",
-  objection: "异议处理",
-  closing: "促成成交",
-  after_sale: "售后跟进",
+  opening: "开场",
+  need_probe: "探需",
+  brand_trust: "建信任",
+  product_intro: "讲产品",
+  price_discuss: "谈价格",
+  objection: "处理异议",
+  closing: "促成交",
+  after_sale: "跟进",
   finished: "已结束",
 };
 
@@ -52,7 +52,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!active) {
-      message.warning("当前会话已失效，请重新进入训练或考试。");
+      message.warning("当前会话已失效，请重新进入。");
       navigate("/workspace/training", { replace: true });
     }
   }, [active, message, navigate]);
@@ -71,14 +71,13 @@ export default function ChatPage() {
 
   const state = active?.state || {
     round_count: 0,
-    min_rounds: 10,
     current_stage: "opening",
     emotion_label: "平稳",
-    can_finish: false,
+    can_finish: true,
   };
 
   const stageLabel = STAGE_LABELS[state.current_stage] || state.current_stage || "进行中";
-  const sessionTitle = isExam ? "考试作答中" : "销售对练进行中";
+  const sessionTitle = isExam ? "考试中" : "训练中";
   const sessionSubtitle = [active?.training_type, active?.difficulty, active?.customer_type]
     .filter(Boolean)
     .join(" · ");
@@ -128,36 +127,20 @@ export default function ChatPage() {
         navigate(`/review/${sid}`, { state: { review, chatHistory } });
       }
     } catch (error) {
-      message.error(error?.message || "结束失败。");
+      message.error(error?.message || "操作失败。");
     } finally {
       setFinishing(false);
     }
   };
 
   const handleFinish = () => {
-    if (!state.can_finish) {
-      modal.confirm({
-        title: "尚未达到最少轮次",
-        content: `当前 ${state.round_count || 0} 轮，未满 ${state.min_rounds || 10} 轮。${isExam ? "现在提交通常会影响考试结果。" : "现在结束会直接进入训练复盘。"} 是否继续？`,
-        okText: isExam ? "继续提交" : "继续结束",
-        cancelText: "再练几轮",
-        onOk: doFinish,
-      });
-      return;
-    }
-
-    if (isExam) {
-      modal.confirm({
-        title: "确认提交考试？",
-        content: "提交后将无法继续作答，系统会基于当前对话生成考试复盘和分数。",
-        okText: "确认提交",
-        cancelText: "再想想",
-        onOk: doFinish,
-      });
-      return;
-    }
-
-    doFinish();
+    modal.confirm({
+      title: isExam ? "提交考试？" : "结束训练？",
+      content: isExam ? "提交后生成结果。" : "结束后生成复盘。",
+      okText: isExam ? "提交" : "结束",
+      cancelText: "继续",
+      onOk: doFinish,
+    });
   };
 
   const handleReset = async () => {
@@ -174,11 +157,11 @@ export default function ChatPage() {
           round_count: 0,
           current_stage: "opening",
           emotion_label: "平稳",
-          can_finish: false,
+          can_finish: true,
         },
       };
       persist(next);
-      message.success("已重置到开场阶段。");
+      message.success("已重置。");
     } catch (error) {
       message.error(error?.message || "重置失败。");
     } finally {
@@ -188,12 +171,10 @@ export default function ChatPage() {
 
   const handleAbort = () => {
     Modal.confirm({
-      title: isExam ? "返回销售对练？" : "退出当前训练？",
-      content: isExam
-        ? "退出后本次考试进度仍会保留，下次进入时可以继续作答。"
-        : "退出后当前会话不会自动生成复盘，未提交内容将不会进入训练记录。",
-      okText: isExam ? "返回工作台" : "确认退出",
-      cancelText: "继续当前会话",
+      title: "返回工作台？",
+      content: isExam ? "当前进度会保留。" : "未结束前不会生成复盘。",
+      okText: "返回",
+      cancelText: "继续",
       onOk: () => {
         clearActiveSession();
         navigate("/workspace/training", { replace: true });
@@ -218,24 +199,24 @@ export default function ChatPage() {
   ].filter(Boolean);
 
   let overlayTip = "";
-  if (finishing) overlayTip = isExam ? "AI 正在生成考试复盘…" : "AI 正在生成训练复盘…";
-  else if (resetting) overlayTip = "正在重置当前训练…";
+  if (finishing) overlayTip = isExam ? "提交中..." : "生成复盘中...";
+  else if (resetting) overlayTip = "重置中...";
 
   return (
-    <div className="chat-screen">
-      <div className="chat-session-header">
+    <div className="chat-screen chat-screen--minimal">
+      <div className="chat-session-header chat-session-header--minimal">
         <div className="chat-session-header__main">
           <Button icon={<ArrowLeftOutlined />} onClick={handleAbort}>
-            返回销售对练
+            销售对练
           </Button>
           <div>
             <Space size={[8, 8]} wrap>
-              <Title level={3} style={{ margin: 0 }}>{sessionTitle}</Title>
-              {isExam ? <Tag color="error">考试模式</Tag> : <Tag color="blue">训练模式</Tag>}
+              <Title level={3} style={{ margin: 0 }}>
+                {sessionTitle}
+              </Title>
+              {isExam ? <Tag color="error">考试</Tag> : <Tag color="blue">训练</Tag>}
             </Space>
-            <Text type="secondary">
-              {sessionSubtitle || "根据当前场景持续对话，直到完成训练目标。"}
-            </Text>
+            <Text type="secondary">{sessionSubtitle || "继续对话"}</Text>
           </div>
         </div>
 
@@ -256,22 +237,17 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="chat-topbar">
+      <div className="chat-topbar chat-topbar--minimal">
         <div className="chat-topbar__chips">
           <span className="chip chip--blue">
             <span className="chip__label">轮次</span>
-            {state.round_count}/{state.min_rounds}
+            {state.round_count}
           </span>
           <span className="chip">{stageLabel}</span>
           <span className={`chip ${emotionTone(state.emotion_label)}`}>
             <span className="chip__label">情绪</span>
             {state.emotion_label || "平稳"}
           </span>
-          {state.can_finish ? (
-            <span className="chip chip--blue">已满足结束条件</span>
-          ) : (
-            <span className="chip chip--mute">未满 {state.min_rounds} 轮</span>
-          )}
           {isFinished ? <span className="chip chip--gold">已结束</span> : null}
         </div>
       </div>
@@ -279,7 +255,7 @@ export default function ChatPage() {
       <div className="chat-stream" ref={streamRef}>
         <div className="chat-stream__inner">
           {(active.chat_history || []).length === 0 ? (
-            <div className="chat-empty-hint">客户即将开始对话…</div>
+            <div className="chat-empty-hint">客户即将开始对话...</div>
           ) : null}
           {(active.chat_history || []).map((entry, index) => (
             <ChatMessage key={index} role={entry.role} content={entry.content} />

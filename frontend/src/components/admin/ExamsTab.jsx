@@ -28,7 +28,7 @@ const RANDOM_SENTINEL = "__random__";
 
 function statusTag(status) {
   const cfg = STATUS_TAGS[status] || { color: "default", text: status };
-  return <Tag color={cfg.color}>{cfg.text}</Tag>;
+  return <Tag bordered={false} color={cfg.color}>{cfg.text}</Tag>;
 }
 
 export default function ExamsTab() {
@@ -175,13 +175,13 @@ export default function ExamsTab() {
       key: "fixed",
       render: (_, row) => (
         <Space size={4} wrap>
-          <Tag color={row.fixed_training_type ? "blue" : "default"}>
+          <Tag bordered={false} color={row.fixed_training_type ? "blue" : "default"}>
             类型：{row.fixed_training_type || "随机"}
           </Tag>
-          <Tag color={row.fixed_difficulty ? "blue" : "default"}>
+          <Tag bordered={false} color={row.fixed_difficulty ? "blue" : "default"}>
             难度：{row.fixed_difficulty || "随机"}
           </Tag>
-          <Tag color={row.fixed_customer_type ? "blue" : "default"}>
+          <Tag bordered={false} color={row.fixed_customer_type ? "blue" : "default"}>
             客户：{row.fixed_customer_type || "随机"}
           </Tag>
         </Space>
@@ -221,7 +221,7 @@ export default function ExamsTab() {
           <span style={{ color: "var(--text-mute)" }}>共 {exams.length} 个考试</span>
           {pendingCount > 0 ? (
             <Badge count={pendingCount} style={{ backgroundColor: "#f59e0b" }}>
-              <Tag icon={<FileSearchOutlined />} color="gold" style={{ margin: 0 }}>
+              <Tag bordered={false} icon={<FileSearchOutlined />} color="gold" style={{ margin: 0 }}>
                 {pendingCount} 个待复核
               </Tag>
             </Badge>
@@ -243,7 +243,7 @@ export default function ExamsTab() {
         okText="派发"
         cancelText="取消"
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical" preserve={false} initialValues={{ ai_weight: 0.5 }}>
           <Form.Item label="应试用户" name="user_id" rules={[{ required: true, message: "请选择" }]}>
@@ -326,20 +326,20 @@ export default function ExamsTab() {
                     <Space direction="vertical" size={12} style={{ width: "100%" }}>
                       <Space size={[8, 8]} wrap>
                         {a.status === "in_progress" ? (
-                          <Tag color="processing">进行中</Tag>
+                          <Tag bordered={false} color="processing">进行中</Tag>
                         ) : a.review_pending ? (
-                          <Tag color="gold">待复核</Tag>
+                          <Tag bordered={false} color="gold">待复核</Tag>
                         ) : a.final_is_pass ? (
-                          <Tag color="success">合格</Tag>
+                          <Tag bordered={false} color="success">合格</Tag>
                         ) : (
-                          <Tag color="error">不合格</Tag>
+                          <Tag bordered={false} color="error">不合格</Tag>
                         )}
                         {a.score != null ? <span>AI 分 <strong>{Math.round(a.score)}</strong></span> : null}
                         {a.admin_score != null ? <span>老师分 <strong>{Math.round(a.admin_score)}</strong></span> : null}
                         {a.final_score != null ? <span>综合 <strong style={{ color: "var(--accent-deep)" }}>{Math.round(a.final_score)}</strong></span> : null}
-                        <Tag>{a.training_type}</Tag>
-                        <Tag>{a.customer_type}</Tag>
-                        <Tag>{a.difficulty}</Tag>
+                        <Tag bordered={false}>{a.training_type}</Tag>
+                        <Tag bordered={false}>{a.customer_type}</Tag>
+                        <Tag bordered={false}>{a.difficulty}</Tag>
                       </Space>
 
                       {a.review_pending ? (
@@ -378,7 +378,7 @@ export default function ExamsTab() {
         okText="提交复核"
         cancelText="取消"
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={reviewForm} layout="vertical" preserve={false}>
           <Form.Item

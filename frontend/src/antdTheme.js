@@ -1,17 +1,13 @@
-/**
- * Ant Design theme: academy deep blue.
- * The goal is to keep the portal, training pages, and learning pages in one brand system.
- */
-const ACCENT_PRIMARY = "#1f4b99";
-const ACCENT_DEEP = "#163b7a";
-const ACCENT_LIGHT = "#4f7cc8";
-const ACCENT_SOFT_BG = "#eef4ff";
-const TEXT_BASE = "#1e293b";
-const TEXT_MUTE = "#64748b";
-const LINE = "rgba(30, 41, 59, 0.10)";
-const LINE_SOFT = "rgba(30, 41, 59, 0.06)";
+const ACCENT_PRIMARY = "#588bc8";
+const ACCENT_DEEP = "#426f9f";
+const ACCENT_LIGHT = "#7da5d4";
+const ACCENT_SOFT_BG = "#edf4fb";
+const TEXT_BASE = "#1f2933";
+const TEXT_MUTE = "#697586";
+const LINE = "rgba(31, 41, 51, 0.12)";
+const LINE_SOFT = "rgba(31, 41, 51, 0.07)";
 const PANEL_BG = "#ffffff";
-const PANEL_BG_SOFT = "#f5f7fb";
+const PANEL_BG_SOFT = "#f6f5f2";
 
 export const antdTheme = {
   token: {
@@ -34,8 +30,8 @@ export const antdTheme = {
     controlHeight: 36,
     controlHeightLG: 44,
     controlHeightSM: 28,
-    boxShadow: "0 2px 8px rgba(15, 23, 42, 0.05), 0 16px 32px rgba(15, 23, 42, 0.06)",
-    boxShadowSecondary: "0 4px 12px rgba(15, 23, 42, 0.06), 0 20px 40px rgba(15, 23, 42, 0.08)",
+    boxShadow: "0 4px 10px rgba(15, 23, 42, 0.04)",
+    boxShadowSecondary: "0 10px 24px rgba(15, 23, 42, 0.05)",
     wireframe: false,
     fontFamily:
       '"PingFang SC", "Microsoft YaHei", "Segoe UI", "Noto Sans SC", sans-serif',
@@ -60,7 +56,7 @@ export const antdTheme = {
     Input: {
       borderRadius: 10,
       controlHeight: 36,
-      activeShadow: "0 0 0 3px rgba(31, 75, 153, 0.14)",
+      activeShadow: "0 0 0 3px rgba(88, 139, 200, 0.16)",
     },
     Button: {
       borderRadius: 10,

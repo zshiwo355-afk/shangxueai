@@ -71,9 +71,9 @@ export function installAuthFetch() {
 
     const isApi = /\/api\//.test(url) || url.startsWith("/api/");
     if (isApi) {
+      init = { cache: "no-store", ...init };
       const token = getToken();
       if (token) {
-        init = { ...init };
         const headers = new Headers(init.headers || {});
         if (!headers.has("Authorization")) {
           headers.set("Authorization", `Bearer ${token}`);

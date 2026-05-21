@@ -1,4 +1,5 @@
 import {
+  ArrowRightOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
   PlayCircleOutlined,
@@ -6,23 +7,23 @@ import {
   RightOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
-import { App as AntdApp, Button, Card, Empty, List, Progress, Space, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Empty, Progress, Space, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchMyAudios, fetchMyMagicVideos } from "../lib/api.magic";
 
-const { Paragraph, Text, Title } = Typography;
+const { Paragraph, Title } = Typography;
 
 export default function MagicWorkspacePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
-  const [loading, setLoading] = useState(true);
   const [videos, setVideos] = useState([]);
   const [audios, setAudios] = useState([]);
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
         const [videoData, audioData] = await Promise.all([
@@ -34,173 +35,274 @@ export default function MagicWorkspacePage() {
         setAudios(Array.isArray(audioData) ? audioData : []);
       } catch (error) {
         if (alive) message.error(error?.message || "魔学院学习中心加载失败。");
-      } finally {
-        if (alive) setLoading(false);
       }
     })();
+
     return () => {
       alive = false;
     };
   }, [message]);
 
   const requiredPending = videos.filter((item) => item.is_required && !item.progress?.is_completed);
-  const inProgress = videos.filter((item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0);
+  const inProgress = videos.filter(
+    (item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0,
+  );
   const completed = videos.filter((item) => item.progress?.is_completed);
   const continueVideo = inProgress[0] || requiredPending[0] || videos[0] || null;
-  const monthAudioCount = audios.filter((item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM")).length;
-  const todayUploaded = audios.some((item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"));
+  const monthAudioCount = audios.filter(
+    (item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM"),
+  ).length;
+  const todayUploaded = audios.some(
+    (item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
+  );
   const recentVideos = useMemo(() => {
-    const ordered = [...videos].sort((a, b) => (b.progress?.progress_percent || 0) - (a.progress?.progress_percent || 0));
+    const ordered = [...videos].sort(
+      (a, b) => (b.progress?.progress_percent || 0) - (a.progress?.progress_percent || 0),
+    );
     return ordered.slice(0, 4);
   }, [videos]);
 
   return (
-    <div className="workspace-shell">
-      <section className="workspace-hero workspace-hero--magic">
-        <div>
-          <Tag bordered={false} className="workspace-hero__eyebrow">魔学院学习中心</Tag>
-          <Title level={2} className="workspace-hero__title">把课程学习、节点答题和读书打卡收进一个清晰入口</Title>
-          <Paragraph className="workspace-hero__desc">
-            先看到最该完成的任务，再继续上次学习进度，最后处理每日打卡，不再在复杂页签里找入口。
-          </Paragraph>
-          <Space size={12} wrap>
-            <Button type="primary" size="large" onClick={() => navigate("/magic-academy")}>
-              进入学习中心
-            </Button>
-            <Button size="large" onClick={() => navigate("/magic-academy?tab=audio")}>
-              打开读书打卡
-            </Button>
-          </Space>
-        </div>
-        <div className="workspace-hero__stats">
-          <div className="workspace-stat">
-            <span>待学必修</span>
-            <strong>{requiredPending.length}</strong>
+    <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
+      <section className="showcase-hero">
+        <span className="showcase-hero__year" aria-hidden="true">魔</span>
+        <div className="showcase-hero__inner">
+          <div className="showcase-hero__intro">
+            <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>
+              Magic Academy
+            </span>
+            <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
+              课程 · 答题 · 打卡
+            </Title>
+            <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
+              KEEP LEARNING · KEEP GROWING
+            </p>
+            <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
+              视频课程帮你建立知识框架，节点答题确认理解深度，
+              读书打卡让每天的学习沉淀下来。
+            </Paragraph>
+            <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
+              <button
+                type="button"
+                className="cta-arrow-btn"
+                onClick={() => navigate("/magic-academy")}
+              >
+                <ReadOutlined />
+                <span>进入学习中心</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+              <button
+                type="button"
+                className="cta-arrow-btn cta-arrow-btn--ghost"
+                onClick={() => navigate("/magic-academy?tab=audio")}
+              >
+                <CalendarOutlined />
+                <span>{todayUploaded ? "查看打卡记录" : "去完成打卡"}</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+            </div>
           </div>
-          <div className="workspace-stat">
-            <span>本月打卡</span>
-            <strong>{monthAudioCount}</strong>
-          </div>
+          <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
+            <span className="showcase-hero__side-eyebrow">Learning at a glance</span>
+            <ul className="showcase-hero__side-list">
+              <li className="showcase-hero__side-item">
+                <span>待学必修</span>
+                <strong>{requiredPending.length}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>进行中</span>
+                <strong>{inProgress.length}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>已完成</span>
+                <strong>{completed.length}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>本月打卡</span>
+                <strong>{monthAudioCount}</strong>
+              </li>
+            </ul>
+          </aside>
         </div>
       </section>
 
-      <section className="workspace-grid workspace-grid--4">
-        <Card className="workspace-card workspace-metric" loading={loading}>
-          <ReadOutlined />
-          <span>待学课程</span>
-          <strong>{requiredPending.length}</strong>
-        </Card>
-        <Card className="workspace-card workspace-metric" loading={loading}>
-          <PlayCircleOutlined />
-          <span>进行中课程</span>
-          <strong>{inProgress.length}</strong>
-        </Card>
-        <Card className="workspace-card workspace-metric" loading={loading}>
-          <CheckCircleOutlined />
-          <span>已完成课程</span>
-          <strong>{completed.length}</strong>
-        </Card>
-        <Card className="workspace-card workspace-metric" loading={loading}>
-          <CalendarOutlined />
-          <span>今日打卡</span>
-          <strong>{todayUploaded ? "已完成" : "未完成"}</strong>
-        </Card>
+      <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
+        <div className="showcase-section__header">
+          <span className="showcase-eyebrow">Quick entry</span>
+          <Title level={2} className="showcase-title">从这里开始</Title>
+          <p className="showcase-lead">两条清晰的路径，按需进入对应的学习空间。</p>
+        </div>
+
+        <div className="entry-grid entry-grid--two">
+          <button
+            type="button"
+            className="entry-card entry-card--feature fade-in-up"
+            style={{ "--fade-delay": "160ms" }}
+            onClick={() => navigate("/magic-academy")}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">01</span>
+              <span className="entry-card__tag">VIDEO COURSES</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">课程中心</h3>
+              <p className="entry-card__subtitle">学知识 · 答题节点 · 持续进度</p>
+            </div>
+            <p className="entry-card__desc">
+              从这里继续未完的课程，或翻阅整套课程库。学习过程中按节点答题，确认每段内容都真正吸收。
+            </p>
+            <span className="entry-card__cta">
+              {continueVideo ? `继续学习：${continueVideo.title}` : "浏览课程"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
+
+          <button
+            type="button"
+            className="entry-card fade-in-up"
+            style={{ "--fade-delay": "240ms" }}
+            onClick={() => navigate("/magic-academy?tab=audio")}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">02</span>
+              <span className="entry-card__tag">DAILY READING</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">读书打卡</h3>
+              <p className="entry-card__subtitle">每日上传 · 月度统计</p>
+            </div>
+            <p className="entry-card__desc">
+              记录每天的读书录音，配合上传日历养成习惯。本月已上传 {monthAudioCount} 次
+              {todayUploaded ? "，今天已经打过卡了。" : "，今天还没有打卡。"}
+            </p>
+            <span className="entry-card__cta">
+              {todayUploaded ? "查看打卡记录" : "去完成今日打卡"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
+        </div>
       </section>
 
-      <section className="workspace-grid workspace-grid--aside">
-        <div className="workspace-column">
-          <Card className="workspace-card" loading={loading}>
-            <div className="workspace-section__header">
-              <div>
-                <Title level={3} style={{ marginBottom: 4 }}>我的学习任务</Title>
-                <Text type="secondary">把需要优先完成的课程先展示出来。</Text>
-              </div>
-              <Button type="link" icon={<RightOutlined />} onClick={() => navigate("/magic-academy")}>
-                查看全部
-              </Button>
+      <section className="workspace-dual workspace-dual--lined">
+        <div className="workspace-panel">
+          <div className="workspace-panel__head">
+            <Space>
+              <VideoCameraOutlined />
+              <strong>学习任务</strong>
+            </Space>
+            <Button type="link" icon={<RightOutlined />} onClick={() => navigate("/magic-academy")}>
+              全部
+            </Button>
+          </div>
+
+          {recentVideos.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有学习任务。" />
+          ) : (
+            <div className="workspace-line-list">
+              {recentVideos.map((item, idx) => {
+                const percent = Math.round(item.progress?.progress_percent || 0);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="workspace-line-item workspace-line-item--stack fade-in-up"
+                    style={{ "--fade-delay": `${idx * 70}ms` }}
+                  >
+                    <div className="workspace-line-item__content">
+                      <Space size={[8, 8]} wrap>
+                        <strong>{item.title}</strong>
+                        {item.is_required ? <Tag color="gold">必修</Tag> : null}
+                        {item.progress?.is_completed ? <Tag color="success">已完成</Tag> : null}
+                      </Space>
+                      <span>{item.category || "未分类课程"}</span>
+                      <Progress percent={percent} size="small" showInfo={false} />
+                    </div>
+                    <Button type="link" onClick={() => navigate("/magic-academy")}>
+                      {item.progress?.is_completed ? "查看" : "继续"}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="workspace-panel workspace-panel--aside">
+          <div className="workspace-panel">
+            <div className="workspace-panel__head">
+              <Space>
+                <PlayCircleOutlined />
+                <strong>继续学习</strong>
+              </Space>
             </div>
 
-            {recentVideos.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有学习任务" />
-            ) : (
-              <List
-                dataSource={recentVideos}
-                renderItem={(item) => {
-                  const percent = Math.round(item.progress?.progress_percent || 0);
-                  return (
-                    <List.Item
-                      key={item.id}
-                      actions={[
-                        <Button key="go" type="link" onClick={() => navigate("/magic-academy")}>
-                          {item.progress?.is_completed ? "查看" : "继续学习"}
-                        </Button>,
-                      ]}
-                    >
-                      <List.Item.Meta
-                        avatar={<VideoCameraOutlined className="workspace-list-icon" />}
-                        title={(
-                          <Space size={[8, 8]} wrap>
-                            <span>{item.title}</span>
-                            {item.is_required ? <Tag color="gold">必修</Tag> : null}
-                            {item.progress?.is_completed ? <Tag color="success">已完成</Tag> : null}
-                          </Space>
-                        )}
-                        description={(
-                          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                            <Text type="secondary">{item.category || "未分类课程"}</Text>
-                            <Progress percent={percent} size="small" />
-                          </Space>
-                        )}
-                      />
-                    </List.Item>
-                  );
-                }}
-              />
-            )}
-          </Card>
-        </div>
-
-        <div className="workspace-column workspace-column--aside">
-          <Card className="workspace-card workspace-card--accent" loading={loading}>
-            <Space direction="vertical" size={14} style={{ width: "100%" }}>
-              <Space align="center">
-                <PlayCircleOutlined />
-                <Title level={4} style={{ margin: 0 }}>继续学习</Title>
-              </Space>
-              {continueVideo ? (
-                <>
-                  <Title level={5} style={{ margin: 0 }}>{continueVideo.title}</Title>
-                  <Text type="secondary">{continueVideo.description || continueVideo.category || "继续你上次的学习进度"}</Text>
-                  <Progress percent={Math.round(continueVideo.progress?.progress_percent || 0)} size="small" />
-                  <Button type="primary" onClick={() => navigate("/magic-academy")}>
+            {continueVideo ? (
+              <div className="workspace-note-block">
+                <strong>{continueVideo.title}</strong>
+                <div className="workspace-note-block__actions">
+                  <Button type="primary" block onClick={() => navigate("/magic-academy")}>
                     进入继续学习
                   </Button>
-                </>
-              ) : (
-                <>
-                  <Text type="secondary">当前没有进行中的课程，去学习中心挑一门开始吧。</Text>
-                  <Button onClick={() => navigate("/magic-academy")}>浏览课程</Button>
-                </>
-              )}
-            </Space>
-          </Card>
+                </div>
+              </div>
+            ) : (
+              <div className="workspace-note-block">
+                <div className="workspace-note-block__actions">
+                  <Button type="primary" block onClick={() => navigate("/magic-academy")}>
+                    浏览课程
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
 
-          <Card className="workspace-card" loading={loading}>
-            <Space direction="vertical" size={14} style={{ width: "100%" }}>
-              <Space align="center">
-                <CalendarOutlined />
-                <Title level={4} style={{ margin: 0 }}>读书打卡</Title>
+          <div className="workspace-panel">
+            <div className="workspace-panel__head">
+              <Space>
+                <CheckCircleOutlined />
+                <strong>学习概览</strong>
               </Space>
-              <Text type="secondary">
-                {todayUploaded ? "今天已经完成打卡，可以继续上传补充内容。" : "今天还没有上传读书录音，记得完成每日打卡。"}
-              </Text>
-              <Space size={[8, 8]} wrap>
-                <Tag color={todayUploaded ? "success" : "warning"}>{todayUploaded ? "今日已打卡" : "今日未打卡"}</Tag>
-                <Tag>{`本月 ${monthAudioCount} 次上传`}</Tag>
-              </Space>
-              <Button onClick={() => navigate("/magic-academy?tab=audio")}>打开打卡中心</Button>
-            </Space>
-          </Card>
+            </div>
+
+            <div className="workspace-mini-grid">
+              <div>
+                <span>进行中</span>
+                <strong>{inProgress.length}</strong>
+              </div>
+              <div>
+                <span>已完成</span>
+                <strong>{completed.length}</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section className="showcase-section">
+        <div className="stats-row fade-in-up">
+          <div className="stats-row__item">
+            <span className="stats-row__value">{videos.length}</span>
+            <span className="stats-row__label">总课程</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{completed.length}</span>
+            <span className="stats-row__label">已完成</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{audios.length}</span>
+            <span className="stats-row__label">累计打卡</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{monthAudioCount}</span>
+            <span className="stats-row__label">本月打卡</span>
+          </div>
         </div>
       </section>
     </div>

@@ -123,7 +123,7 @@ function CategoryTable({ category }) {
         onOk={submit}
         okText="保存"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" preserve={false}>
           <Form.Item label="选项值" name="value" rules={[{ required: true, message: "请输入" }]}>

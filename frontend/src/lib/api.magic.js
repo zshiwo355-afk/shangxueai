@@ -1,6 +1,6 @@
 import { buildApiUrl } from "./runtimeConfig";
 import { getToken } from "./auth";
-import { deleteJson, getJson, postJson, putJson, safeFetch, throwRequestError } from "./http";
+import { deleteJson, getJson, parseJsonResponse, postJson, putJson, safeFetch, throwRequestError } from "./http";
 
 function authHeaders(extra = {}) {
   const headers = new Headers(extra);
@@ -28,7 +28,7 @@ export async function uploadMagicVideoFile(file, durationSeconds = 0) {
     body: formData,
   }, "视频上传失败。");
   if (!response.ok) await throwRequestError(response, "视频上传失败。");
-  return response.json();
+  return parseJsonResponse(response, "视频上传失败。");
 }
 
 export async function listMagicVideos() {
@@ -36,7 +36,7 @@ export async function listMagicVideos() {
     headers: authHeaders(),
   }, "视频列表加载失败。");
   if (!response.ok) await throwRequestError(response, "视频列表加载失败。");
-  return response.json();
+  return parseJsonResponse(response, "视频列表加载失败。");
 }
 export async function createMagicVideo(payload) {
   return postJson("/api/magic-academy/videos", payload, "新建视频失败。");
@@ -61,7 +61,7 @@ export async function initMagicVideoUpload(payload) {
     body: JSON.stringify(payload || {}),
   }, "初始化视频上传失败。");
   if (!response.ok) await throwRequestError(response, "初始化视频上传失败。");
-  return response.json();
+  return parseJsonResponse(response, "初始化视频上传失败。");
 }
 
 export async function completeMagicVideoUpload(payload) {
@@ -71,7 +71,7 @@ export async function completeMagicVideoUpload(payload) {
     body: JSON.stringify(payload || {}),
   }, "完成视频上传失败。");
   if (!response.ok) await throwRequestError(response, "完成视频上传失败。");
-  return response.json();
+  return parseJsonResponse(response, "完成视频上传失败。");
 }
 
 export async function failMagicVideoUpload(payload) {
@@ -81,7 +81,7 @@ export async function failMagicVideoUpload(payload) {
     body: JSON.stringify(payload || {}),
   }, "回写上传失败状态失败。");
   if (!response.ok) await throwRequestError(response, "回写上传失败状态失败。");
-  return response.json();
+  return parseJsonResponse(response, "回写上传失败状态失败。");
 }
 
 export async function initMagicVideoReplaceUpload(videoId, payload) {
@@ -91,7 +91,7 @@ export async function initMagicVideoReplaceUpload(videoId, payload) {
     body: JSON.stringify(payload || {}),
   }, "初始化替换上传失败。");
   if (!response.ok) await throwRequestError(response, "初始化替换上传失败。");
-  return response.json();
+  return parseJsonResponse(response, "初始化替换上传失败。");
 }
 
 export async function completeMagicVideoReplaceUpload(videoId, payload) {
@@ -101,7 +101,7 @@ export async function completeMagicVideoReplaceUpload(videoId, payload) {
     body: JSON.stringify(payload || {}),
   }, "完成替换上传失败。");
   if (!response.ok) await throwRequestError(response, "完成替换上传失败。");
-  return response.json();
+  return parseJsonResponse(response, "完成替换上传失败。");
 }
 
 export async function failMagicVideoReplaceUpload(videoId, payload) {
@@ -111,7 +111,7 @@ export async function failMagicVideoReplaceUpload(videoId, payload) {
     body: JSON.stringify(payload || {}),
   }, "回写替换上传失败状态失败。");
   if (!response.ok) await throwRequestError(response, "回写替换上传失败状态失败。");
-  return response.json();
+  return parseJsonResponse(response, "回写替换上传失败状态失败。");
 }
 
 export async function listMagicQuizPoints(videoId) {

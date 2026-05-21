@@ -1,40 +1,44 @@
-import { Card, Empty, Tag } from "antd";
+import { Empty, Tag } from "antd";
 import ChatMessage from "./ChatMessage";
 
 const STAGE_LABELS = {
-  opening: "开场破冰",
-  need_probe: "需求探询",
-  brand_trust: "品牌信任",
-  product_intro: "产品介绍",
-  price_discuss: "价格沟通",
-  objection: "异议处理",
-  closing: "促成成交",
-  after_sale: "售后跟进",
-  finished: "已结束",
+  opening: "开场",
+  need_probe: "探需",
+  brand_trust: "信任",
+  product_intro: "产品",
+  price_discuss: "价格",
+  objection: "异议",
+  closing: "促成",
+  after_sale: "跟进",
+  finished: "结束",
 };
 
 export default function ChatHistoryView({ messages }) {
   const list = Array.isArray(messages) ? messages : [];
 
-  if (list.length === 0) {
+  if (!list.length) {
     return (
-      <Card title="对话回放" variant="outlined">
-        <Empty description="这次记录里还没有保存对话内容" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-      </Card>
+      <section className="review-section review-section--minimal review-section--history">
+        <div className="review-section__header review-section__header--compact">
+          <h3>对话回放</h3>
+        </div>
+        <Empty
+          description="暂无对话内容。"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        />
+      </section>
     );
   }
 
   let lastStage = null;
   const items = [];
 
-  list.forEach((message, index) => {
-    const stage = message.stage || "";
+  list.forEach((entry, index) => {
+    const stage = entry.stage || "";
     if (stage && stage !== lastStage) {
       items.push(
-        <div key={`stage-${index}`} style={{ display: "flex", justifyContent: "center", margin: "12px 0 4px" }}>
-          <Tag color="blue" style={{ borderRadius: 999, fontSize: 12 }}>
-            {STAGE_LABELS[stage] || stage}
-          </Tag>
+        <div key={`stage-${index}`} className="history-stage-sep">
+          <Tag>{STAGE_LABELS[stage] || stage}</Tag>
         </div>,
       );
       lastStage = stage;
@@ -43,19 +47,19 @@ export default function ChatHistoryView({ messages }) {
     items.push(
       <ChatMessage
         key={`msg-${index}`}
-        role={message.role}
-        content={message.content}
+        role={entry.role}
+        content={entry.content}
       />,
     );
   });
 
   return (
-    <Card
-      title={`对话回放（共 ${list.length} 条）`}
-      variant="outlined"
-      styles={{ body: { padding: 16 } }}
-    >
-      <div className="history-stream">{items}</div>
-    </Card>
+    <section className="review-section review-section--minimal review-section--history">
+      <div className="review-section__header review-section__header--compact">
+        <h3>对话回放</h3>
+        <span>{list.length} 条</span>
+      </div>
+      <div className="history-stream history-stream--lined">{items}</div>
+    </section>
   );
 }

@@ -1,11 +1,16 @@
 import {
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  BookOutlined,
+  CalendarOutlined,
   DeleteOutlined,
-  EditOutlined,
-  PlusOutlined,
-  UploadOutlined,
-  VideoCameraOutlined,
   DownloadOutlined,
-  CheckCircleFilled,
+  EditOutlined,
+  PlayCircleFilled,
+  PlusOutlined,
+  ReadOutlined,
+  RightOutlined,
+  UploadOutlined,
 } from "@ant-design/icons";
 import {
   App as AntdApp,
@@ -591,7 +596,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
       afterOpenChange={(nextOpen) => {
         if (nextOpen) fillVideoForm();
       }}
-      destroyOnClose={false}
+      destroyOnHidden={false}
       forceRender
     >
       <Form form={form} layout="vertical">
@@ -602,13 +607,10 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
           <Input.TextArea rows={3} placeholder="选填" />
         </Form.Item>
         <Space style={{ display: "flex" }} align="start">
-          <Form.Item label="视频分类" name="category" style={{ minWidth: 180 }}>
+          <Form.Item label="视频分类" name="category" style={{ minWidth: 220 }}>
             <Input placeholder="例如：新人培训" />
           </Form.Item>
-          <Form.Item label="视频时长（秒）" name="duration_seconds" style={{ minWidth: 180 }}>
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="状态" name="status" style={{ minWidth: 180 }}>
+          <Form.Item label="状态" name="status" style={{ minWidth: 220 }}>
             <Select options={[{ value: "draft", label: "草稿" }, { value: "published", label: "已发布" }, { value: "disabled", label: "停用" }]} />
           </Form.Item>
         </Space>
@@ -872,7 +874,7 @@ function QuestionFormModal({ open, editing, pointId, onCancel, onSubmit }) {
   };
 
   return (
-    <Modal open={open} title={editing ? "编辑题目" : "新增题目"} onCancel={onCancel} onOk={handleOk} destroyOnClose>
+    <Modal open={open} title={editing ? "编辑题目" : "新增题目"} onCancel={onCancel} onOk={handleOk} destroyOnHidden>
       <Form form={form} layout="vertical" preserve={false}>
         <Form.Item label="题型" name="question_type" rules={[{ required: true, message: "请选择题型" }]}>
           <Select options={QUESTION_TYPE_OPTIONS} />
@@ -1660,7 +1662,7 @@ export default function MagicAcademyPage({ embedded = false }) {
         skip_by_whitelist: false,
       });
       if (!result.passed) {
-        message.warning(`本次得分 ${result.score}，未达到 ${result.required_score} 分，请重新作答。`);
+        message.warning("答错或漏答，需要全部答对才能继续，请重新作答。");
         lockedQuizPointIdRef.current = point?.id || null;
         return;
       }
@@ -1890,210 +1892,222 @@ export default function MagicAcademyPage({ embedded = false }) {
   );
 
   const studyTabContent = selectedVideoId ? (
-    <Card className="magic-study-detail-card" title="学习详情" loading={loadingDetail}>
+    <div className="magic-academy-detail">
       {videoDetailError ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={videoDetailError.message}
         >
-          <Button onClick={backToStudyList}>返回课程中心</Button>
+          <Button onClick={backToStudyList}>返回课程列表</Button>
         </Empty>
-      ) : !videoDetail ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loadingDetail ? "视频详情加载中" : "暂未选择课程"} /> : (
-        <div className="magic-study-detail-layout">
-          <Space direction="vertical" size={20} style={{ width: "100%" }}>
-            <Button style={{ alignSelf: "flex-start" }} onClick={backToStudyList}>返回学习任务</Button>
-            <div className="magic-video-detail-shell">
-              <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                <Title level={4} style={{ margin: 0 }}>{videoDetail.title}</Title>
-                <Paragraph type="secondary" style={{ marginBottom: 0 }}>{videoDetail.description || "暂无简介"}</Paragraph>
-                <Space wrap>
-                  <Tag>{videoDetail.category || "未分类"}</Tag>
-                  {videoDetail.is_required ? <Tag color="gold">必修</Tag> : null}
-                  <Tag color={videoDetail.progress?.is_completed ? "success" : "processing"}>
-                    {videoDetail.progress?.is_completed ? "已完成" : "学习中"}
-                  </Tag>
-                  <Tag color="blue">进度 {Math.round(videoDetail.progress?.progress_percent || 0)}%</Tag>
-                  {currentUser?.is_newcomer && videoDetail.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
-                </Space>
-                <ResponsiveVideoPlayer
-                  videoRef={videoRef}
-                  src={buildMagicVideoStreamUrl(videoDetail.id)}
-                  onLoadedMetadata={handleVideoLoaded}
-                  onTimeUpdate={handleTimeUpdate}
-                  onSeeking={handleSeeking}
-                  onPause={() => saveProgress()}
-                  onEnded={() => saveProgress()}
-                />
-                {!videoDetail.progress?.is_completed ? (
-                  <Text type="secondary">请按顺序观看视频，并完成节点答题后继续学习。完成后支持自由回看。</Text>
-                ) : null}
-                <Space wrap>
-                  <Text>当前进度：{Math.round(videoDetail.progress?.progress_percent || 0)}%</Text>
-                  <Text>已观看：{formatTime(videoDetail.progress?.max_watched_position || 0)} / {formatTime(videoDetail.duration_seconds || 0)}</Text>
-                  {videoDetail.progress?.is_completed ? <Tag icon={<CheckCircleFilled />} color="success">已完成</Tag> : null}
-                </Space>
-                {(videoDetail.quiz_points || []).length > 0 ? (
-                  <Card size="small" title="答题节点">
-                    <Space wrap>
-                      {(videoDetail.quiz_points || []).map((point) => (
-                        <Tag key={point.id} color={answeredPointIds.has(point.id) ? "success" : "default"}>
-                          {formatTime(point.trigger_second)} / {answeredPointIds.has(point.id) ? "已通过" : "待答题"}
-                        </Tag>
-                      ))}
-                    </Space>
-                  </Card>
-                ) : null}
+      ) : !videoDetail ? (
+        <div className="workspace-panel">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loadingDetail ? "视频详情加载中" : "暂未选择课程"} />
+        </div>
+      ) : (
+        <div className="workspace-dual workspace-dual--lined">
+          <div className="workspace-panel">
+            <div className="workspace-panel__head">
+              <Space size={8} wrap>
+                <strong>{videoDetail.title}</strong>
+                {videoDetail.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
+                <Tag bordered={false} color={videoDetail.progress?.is_completed ? "success" : "processing"}>
+                  {videoDetail.progress?.is_completed ? "已完成" : "学习中"}
+                </Tag>
               </Space>
             </div>
-          </Space>
+            <Space direction="vertical" size={14} style={{ width: "100%" }}>
+              {videoDetail.description ? (
+                <Paragraph type="secondary" style={{ marginBottom: 0 }}>{videoDetail.description}</Paragraph>
+              ) : null}
+              <ResponsiveVideoPlayer
+                videoRef={videoRef}
+                src={buildMagicVideoStreamUrl(videoDetail.id)}
+                onLoadedMetadata={handleVideoLoaded}
+                onTimeUpdate={handleTimeUpdate}
+                onSeeking={handleSeeking}
+                onPause={() => saveProgress()}
+                onEnded={() => saveProgress()}
+              />
+              <Progress
+                percent={Math.round(videoDetail.progress?.progress_percent || 0)}
+                size="small"
+                showInfo={false}
+              />
+              <Space wrap size={[12, 8]}>
+                <Text type="secondary">分类：{videoDetail.category || "未分类"}</Text>
+                <Text type="secondary">已观看：{formatTime(videoDetail.progress?.max_watched_position || 0)} / {formatTime(videoDetail.duration_seconds || 0)}</Text>
+                <Text type="secondary">当前进度：{Math.round(videoDetail.progress?.progress_percent || 0)}%</Text>
+              </Space>
+              {!videoDetail.progress?.is_completed ? (
+                <Text type="secondary">请按顺序观看，节点答题需全部答对方可继续；完成后支持自由回看。</Text>
+              ) : null}
+              {(videoDetail.quiz_points || []).length > 0 ? (
+                <Space wrap size={[8, 8]}>
+                  <Text type="secondary" style={{ marginRight: 4 }}>节点答题</Text>
+                  {(videoDetail.quiz_points || []).map((point) => (
+                    <Tag bordered={false} key={point.id} color={answeredPointIds.has(point.id) ? "success" : "default"}>
+                      {formatTime(point.trigger_second)} · {answeredPointIds.has(point.id) ? "已通过" : "待答题"}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
+            </Space>
+          </div>
 
-          <Space direction="vertical" size={16} className="magic-study-sidebar">
-            <Card className="magic-study-side-card" bordered={false}>
-              <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                <Text type="secondary">学习总览</Text>
-                <Text strong>总课程 {myVideos.length} 门</Text>
-                <Text strong>已完成 {myCompletedVideos.length} 门</Text>
-                <Text strong>完成率 {studyCompletionRate}%</Text>
-              </Space>
-            </Card>
-            <Card className="magic-study-side-card" bordered={false} title="下一步建议">
-              <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                {continueStudyVideo ? (
-                  <>
-                    <Text strong>{continueStudyVideo.title}</Text>
-                    <Text type="secondary">建议优先处理待学必修和未完成课程，把学习节奏连起来。</Text>
-                    {continueStudyVideo.id !== videoDetail.id ? (
-                      <Button type="link" style={{ padding: 0 }} onClick={() => openStudyVideo(continueStudyVideo.id)}>
-                        切到推荐课程
-                      </Button>
-                    ) : null}
-                  </>
-                ) : (
-                  <Text type="secondary">当前没有新的推荐课程。</Text>
-                )}
-              </Space>
-            </Card>
-          </Space>
+          <aside className="workspace-panel workspace-panel--aside">
+            <div className="workspace-panel">
+              <div className="workspace-panel__head">
+                <Space>
+                  <BookOutlined />
+                  <strong>学习总览</strong>
+                </Space>
+              </div>
+              <div className="workspace-mini-grid">
+                <div>
+                  <span>总课程</span>
+                  <strong>{myVideos.length}</strong>
+                </div>
+                <div>
+                  <span>已完成</span>
+                  <strong>{myCompletedVideos.length}</strong>
+                </div>
+                <div>
+                  <span>完成率</span>
+                  <strong>{studyCompletionRate}%</strong>
+                </div>
+                <div>
+                  <span>待学必修</span>
+                  <strong>{myRequiredVideos.length}</strong>
+                </div>
+              </div>
+            </div>
+
+            {continueStudyVideo && continueStudyVideo.id !== videoDetail.id ? (
+              <div className="workspace-panel">
+                <div className="workspace-panel__head">
+                  <Space>
+                    <PlayCircleFilled />
+                    <strong>下一步建议</strong>
+                  </Space>
+                </div>
+                <div className="workspace-note-block">
+                  <strong>{continueStudyVideo.title}</strong>
+                  <p>建议优先处理待学必修和未完成课程，把节奏连起来。</p>
+                  <div className="workspace-note-block__actions">
+                    <Button type="primary" block onClick={() => openStudyVideo(continueStudyVideo.id)}>
+                      切到推荐课程
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </aside>
         </div>
       )}
-    </Card>
-  ) : (
-    <div className="magic-study-layout">
-      <Card className="magic-study-main-card" title="课程任务">
-        {myVideos.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" /> : (
-          <List
-            grid={{ gutter: 16, xs: 1, sm: 1, md: 2, xl: 2 }}
-            dataSource={myVideos}
-            renderItem={(item) => {
-              const progressPercent = Math.round(item.progress?.progress_percent || 0);
-              const actionLabel = item.progress?.is_completed ? "重新学习" : progressPercent > 0 ? "继续学习" : "开始学习";
-              return (
-                <List.Item>
-                  <Card
-                    className="magic-course-card"
-                    hoverable
-                    onClick={() => openStudyVideo(item.id)}
-                    actions={[
-                      <Button type="link" onClick={(event) => { event.stopPropagation(); openStudyVideo(item.id); }}>{actionLabel}</Button>,
-                    ]}
-                  >
-                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                      <Title level={5} style={{ margin: 0 }}>{item.title}</Title>
-                      <Paragraph ellipsis={{ rows: 2 }} type="secondary" style={{ marginBottom: 0 }}>
-                        {item.description || "暂无简介"}
-                      </Paragraph>
-                      <Space wrap>
-                        {item.is_required ? <Tag color="gold">必修</Tag> : null}
-                        {item.is_whitelisted ? <Tag color="purple">白名单</Tag> : null}
-                        {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag color="gold">新人必看</Tag> : null}
-                        <Tag color={item.progress?.is_completed ? "success" : "processing"}>
-                          {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}
-                        </Tag>
-                      </Space>
-                      <Text type="secondary">{item.category || "未分类"}</Text>
-                      <Progress percent={progressPercent} size="small" />
-                    </Space>
-                  </Card>
-                </List.Item>
-              );
-            }}
-          />
-        )}
-      </Card>
-
-      <Space direction="vertical" size={16} className="magic-study-sidebar">
-        <Card className="magic-study-side-card" bordered={false} title="继续学习">
-          {continueStudyVideo ? (
-            <Space direction="vertical" size={8} style={{ width: "100%" }}>
-              <Text strong>{continueStudyVideo.title}</Text>
-              <Text type="secondary">
-                {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0 ? "从上次进度继续，最省心。" : "从这门推荐课程开始，先把主线任务跑起来。"}
-              </Text>
-              <Button type="primary" onClick={() => openStudyVideo(continueStudyVideo.id)}>
-                {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0 ? "继续学习" : "开始学习"}
-              </Button>
-            </Space>
-          ) : (
-            <Text type="secondary">当前还没有可继续的课程。</Text>
-          )}
-        </Card>
-
-        <Card className="magic-study-side-card" bordered={false} title="今日读书打卡">
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <Text strong>{todayUploadedAudio ? "今天已完成上传" : "今天还没有上传录音"}</Text>
-            <Text type="secondary">学习和输出连在一起，体验会更完整。</Text>
-            <Button onClick={openReadingCenter}>
-              {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
-            </Button>
-          </Space>
-        </Card>
-      </Space>
     </div>
+  ) : (
+    myVideos.length === 0 ? (
+      <div className="workspace-panel">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" />
+      </div>
+    ) : (
+      <div className="workspace-line-list">
+        {myVideos.map((item, idx) => {
+          const progressPercent = Math.round(item.progress?.progress_percent || 0);
+          const actionLabel = item.progress?.is_completed ? "重新学习" : progressPercent > 0 ? "继续学习" : "开始学习";
+          return (
+            <div
+              key={item.id}
+              className="workspace-line-item workspace-line-item--stack fade-in-up"
+              style={{ "--fade-delay": `${idx * 60}ms` }}
+            >
+              <div className="workspace-line-item__content">
+                <Space size={[8, 8]} wrap>
+                  <strong>{item.title}</strong>
+                  {item.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
+                  {item.is_whitelisted ? <Tag bordered={false} color="purple">白名单</Tag> : null}
+                  {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag bordered={false} color="gold">新人必看</Tag> : null}
+                  <Tag bordered={false} color={item.progress?.is_completed ? "success" : "processing"}>
+                    {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}
+                  </Tag>
+                </Space>
+                <span>{item.category || "未分类课程"}{item.description ? ` · ${item.description.slice(0, 40)}` : ""}</span>
+                <Progress percent={progressPercent} size="small" showInfo={false} />
+              </div>
+              <Button type="link" onClick={() => openStudyVideo(item.id)}>
+                {actionLabel}
+                <ArrowRightOutlined />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    )
   );
 
   const audioTabContent = (
-    <div className="magic-audio-layout">
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Card title="上传读书录音">
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <Input.TextArea rows={2} placeholder="备注（选填）" value={audioRemark} onChange={(e) => setAudioRemark(e.target.value)} />
-            <Upload
-              showUploadList={false}
-              customRequest={async ({ file, onSuccess, onError }) => {
-                try {
-                  await uploadMyAudio({
-                    file_name: file?.name || "",
-                    file_size: Number(file?.size || 0),
-                    mime_type: file?.type || "",
-                    remark: audioRemark,
-                  });
-                  setAudioRemark("");
-                  message.success("打卡记录已提交。");
-                  await reloadMyData();
-                  await reloadMyAudioCalendar();
-                  onSuccess?.({});
-                } catch (error) {
-                  onError?.(error);
-                  message.error(error?.message || "上传失败。");
-                }
-              }}
-            >
-              <Button type="primary" icon={<UploadOutlined />}>提交打卡记录</Button>
-            </Upload>
-            <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg，仅记录文件名称、时间与备注，单个文件不超过 50MB。</Text>
+    <div className="workspace-dual workspace-dual--lined">
+      <div className="workspace-panel">
+        <div className="workspace-panel__head">
+          <Space>
+            <UploadOutlined />
+            <strong>提交今日打卡</strong>
           </Space>
-        </Card>
+          <Tag bordered={false} color={todayUploadedAudio ? "success" : "default"}>
+            {todayUploadedAudio ? "今日已上传" : "今日待上传"}
+          </Tag>
+        </div>
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Input.TextArea
+            rows={2}
+            placeholder="备注（选填）"
+            value={audioRemark}
+            onChange={(e) => setAudioRemark(e.target.value)}
+          />
+          <Upload
+            showUploadList={false}
+            customRequest={async ({ file, onSuccess, onError }) => {
+              try {
+                await uploadMyAudio({
+                  file_name: file?.name || "",
+                  file_size: Number(file?.size || 0),
+                  mime_type: file?.type || "",
+                  remark: audioRemark,
+                });
+                setAudioRemark("");
+                message.success("打卡记录已提交。");
+                await reloadMyData();
+                await reloadMyAudioCalendar();
+                onSuccess?.({});
+              } catch (error) {
+                onError?.(error);
+                message.error(error?.message || "上传失败。");
+              }
+            }}
+          >
+            <Button type="primary" icon={<UploadOutlined />}>提交打卡记录</Button>
+          </Upload>
+          <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg；仅记录文件名、时间与备注，单文件不超过 50MB。</Text>
+        </Space>
 
-        <Card title="我的上传记录">
+        <div className="workspace-panel" style={{ marginTop: 16 }}>
+          <div className="workspace-panel__head">
+            <Space>
+              <CalendarOutlined />
+              <strong>我的上传记录</strong>
+            </Space>
+          </div>
           <Table
             rowKey="id"
+            size="middle"
             dataSource={myAudios}
             pagination={{ pageSize: 8 }}
             columns={[
               { title: "文件名", dataIndex: "file_name" },
-              { title: "备注", dataIndex: "remark", render: (v) => v || "-" },
-              { title: "状态", dataIndex: "status", render: (v) => v || "已上传" },
-              { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "-" },
+              { title: "备注", dataIndex: "remark", render: (v) => v || "—" },
+              { title: "状态", dataIndex: "status", render: (v) => <Tag bordered={false} color="success">{v || "已上传"}</Tag> },
+              { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "—" },
               {
                 title: "操作",
                 render: (_, row) => (
@@ -2108,39 +2122,40 @@ export default function MagicAcademyPage({ embedded = false }) {
               },
             ]}
           />
-        </Card>
-      </Space>
+        </div>
+      </div>
 
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
-        <Card title="上传日历">
-          <Space direction="vertical" style={{ width: "100%" }} size={16}>
-            <Calendar
-              fullscreen={false}
-              value={dayjs(myAudioSelectedDate)}
-              onSelect={(value) => setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
-              onPanelChange={(value) => {
-                setMyAudioMonth(value.format("YYYY-MM"));
-                setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
-              }}
-              cellRender={renderEmployeeAudioCell}
-            />
-            <Card
-              size="small"
-              title={`选中日期记录 · ${myAudioSelectedDate || "未选择日期"}`}
-              extra={renderAudioStatusTag(getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay), selectedMyAudioDay?.count || 0, 0)}
-            >
-              {renderAudioRecordList(selectedMyAudioDay?.records || [])}
-            </Card>
-          </Space>
-        </Card>
+      <aside className="workspace-panel workspace-panel--aside">
+        <div className="workspace-panel">
+          <div className="workspace-panel__head">
+            <Space>
+              <CalendarOutlined />
+              <strong>上传日历</strong>
+            </Space>
+          </div>
+          <Calendar
+            fullscreen={false}
+            value={dayjs(myAudioSelectedDate)}
+            onSelect={(value) => setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
+            onPanelChange={(value) => {
+              setMyAudioMonth(value.format("YYYY-MM"));
+              setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
+            }}
+            cellRender={renderEmployeeAudioCell}
+          />
+        </div>
 
-        <Card className="magic-study-side-card" bordered={false} title="打卡建议">
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <Text type="secondary">建议把录音上传固定到每天学习结束之后，路径会更顺。</Text>
-            <Button onClick={openAcademyHome}>返回魔学院首页</Button>
-          </Space>
-        </Card>
-      </Space>
+        <div className="workspace-panel">
+          <div className="workspace-panel__head">
+            <Space>
+              <BookOutlined />
+              <strong>{myAudioSelectedDate || "选中日期"} 的记录</strong>
+            </Space>
+            {renderAudioStatusTag(getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay), selectedMyAudioDay?.count || 0, 0)}
+          </div>
+          {renderAudioRecordList(selectedMyAudioDay?.records || [])}
+        </div>
+      </aside>
     </div>
   );
 
@@ -2150,19 +2165,22 @@ export default function MagicAcademyPage({ embedded = false }) {
       label: "视频管理",
       children: selectedAdminVideo ? (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <button type="button" className="magic-academy-crumb__back" onClick={backToAdminVideoList}>
+            <ArrowLeftOutlined />
+            <span>返回视频列表</span>
+          </button>
           <Card>
             <Space direction="vertical" size={16} style={{ width: "100%" }}>
-              <Button style={{ alignSelf: "flex-start" }} onClick={backToAdminVideoList}>返回视频列表</Button>
               <div className="magic-video-detail-shell">
                 <Space direction="vertical" size={16} style={{ width: "100%" }}>
                   <Space wrap style={{ justifyContent: "space-between", width: "100%" }}>
                     <Title level={4} style={{ margin: 0 }}>{selectedAdminVideo.title}</Title>
                     <Space wrap>
-                      <Tag color={getVideoStatusMeta(selectedAdminVideo).color}>{getVideoStatusMeta(selectedAdminVideo).label}</Tag>
-                      <Tag color={selectedAdminVideo.upload_status === "completed" ? "success" : selectedAdminVideo.upload_status === "failed" ? "error" : "processing"}>
+                      <Tag bordered={false} color={getVideoStatusMeta(selectedAdminVideo).color}>{getVideoStatusMeta(selectedAdminVideo).label}</Tag>
+                      <Tag bordered={false} color={selectedAdminVideo.upload_status === "completed" ? "success" : selectedAdminVideo.upload_status === "failed" ? "error" : "processing"}>
                         上传 {selectedAdminVideo.upload_status || "completed"}
                       </Tag>
-                      {selectedAdminVideo.is_required ? <Tag color="gold">必修</Tag> : null}
+                      {selectedAdminVideo.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
                     </Space>
                   </Space>
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>{selectedAdminVideo.description || "暂无简介"}</Paragraph>
@@ -2211,7 +2229,7 @@ export default function MagicAcademyPage({ embedded = false }) {
                   <Space wrap style={{ marginBottom: 12 }}>
                     <Tag>题目数 {point.question_count}</Tag>
                     <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
-                    <Tag>通过分 {point.pass_score}</Tag>
+                    <Tag color="blue">需全部答对</Tag>
                   </Space>
                   <List
                     dataSource={point.questions || []}
@@ -2242,9 +2260,13 @@ export default function MagicAcademyPage({ embedded = false }) {
           />
         </Space>
       ) : (
-        <Card extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>}>
+        <>
+          <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>
+          </div>
           <Table rowKey="id" dataSource={videos} columns={adminVideoColumns} pagination={{ pageSize: 8 }} />
-        </Card>
+        </>
       ),
     },
     {
@@ -2271,7 +2293,7 @@ export default function MagicAcademyPage({ embedded = false }) {
                   <Space wrap style={{ marginBottom: 12 }}>
                     <Tag>题目数 {point.question_count}</Tag>
                     <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
-                    <Tag>通过分 {point.pass_score}</Tag>
+                    <Tag color="blue">需全部答对</Tag>
                   </Space>
                   <List
                     dataSource={point.questions || []}
@@ -2450,190 +2472,246 @@ export default function MagicAcademyPage({ embedded = false }) {
 
   const renderMagicHome = () => (
     <>
-      <Card className="magic-user-task-strip" bordered={false}>
-        <div className="magic-user-task-strip__header">
-          <div>
-            <Title level={5} style={{ margin: 0 }}>本周优先任务</Title>
-            <Text type="secondary">把学习和打卡拆开看，用更短的路径进入对应中心。</Text>
-          </div>
-          <Space wrap>
-            <Button onClick={() => openCourseCenter()}>课程中心</Button>
-            <Button onClick={openReadingCenter}>打卡中心</Button>
-          </Space>
+      <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
+        <div className="showcase-section__header">
+          <span className="showcase-eyebrow">Modules</span>
+          <Title level={2} className="showcase-title">两条主线</Title>
+          <p className="showcase-lead">课程学习与读书打卡分开管理，路径更短、信息不混。</p>
         </div>
-        <div className="magic-user-task-strip__items">
-          <div>
-            <span>待学必修</span>
-            <strong>{myRequiredVideos.length}</strong>
+
+        <div className="entry-grid entry-grid--two">
+          <button
+            type="button"
+            className="entry-card entry-card--feature fade-in-up"
+            style={{ "--fade-delay": "180ms" }}
+            onClick={() => openCourseCenter()}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">01</span>
+              <span className="entry-card__tag">VIDEO COURSES</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">课程学习</h3>
+              <p className="entry-card__subtitle">视频 · 节点答题 · 学习进度</p>
+            </div>
+            <p className="entry-card__desc">
+              {continueStudyVideo
+                ? `推荐继续：${continueStudyVideo.title}`
+                : "进入课程列表，按推荐顺序逐个完成。"}
+            </p>
+            <span className="entry-card__cta">
+              {continueStudyVideo ? "继续学习" : "浏览课程"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
+
+          <button
+            type="button"
+            className="entry-card fade-in-up"
+            style={{ "--fade-delay": "260ms" }}
+            onClick={openReadingCenter}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">02</span>
+              <span className="entry-card__tag">DAILY READING</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">读书打卡</h3>
+              <p className="entry-card__subtitle">每日上传 · 月度统计</p>
+            </div>
+            <p className="entry-card__desc">
+              {todayUploadedAudio
+                ? "今天已经完成打卡，可以继续保持节奏。"
+                : "今天还没有上传录音，建议学习结束后顺手完成。"}
+            </p>
+            <span className="entry-card__cta">
+              {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
+        </div>
+      </section>
+
+      <section className="showcase-section">
+        <div className="stats-row fade-in-up">
+          <div className="stats-row__item">
+            <span className="stats-row__value">{myRequiredVideos.length}</span>
+            <span className="stats-row__label">待学必修</span>
           </div>
-          <div>
-            <span>继续学习</span>
-            <strong>{myLearningVideos.length}</strong>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{myLearningVideos.length}</span>
+            <span className="stats-row__label">进行中</span>
           </div>
-          <div>
-            <span>今日打卡</span>
-            <strong>{todayUploadedAudio ? "已完成" : "待完成"}</strong>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{myCompletedVideos.length}</span>
+            <span className="stats-row__label">已完成</span>
+          </div>
+          <span className="stats-row__sep">/</span>
+          <div className="stats-row__item">
+            <span className="stats-row__value">{todayUploadedAudio ? "✓" : "—"}</span>
+            <span className="stats-row__label">今日打卡</span>
           </div>
         </div>
-      </Card>
+      </section>
 
-      <div className="magic-user-summary">
-        <Card className="magic-user-summary__card" bordered={false}>
-          <span>待学必修</span>
-          <strong>{myRequiredVideos.length}</strong>
-        </Card>
-        <Card className="magic-user-summary__card" bordered={false}>
-          <span>进行中课程</span>
-          <strong>{myLearningVideos.length}</strong>
-        </Card>
-        <Card className="magic-user-summary__card" bordered={false}>
-          <span>已完成课程</span>
-          <strong>{myCompletedVideos.length}</strong>
-        </Card>
-        <Card className="magic-user-summary__card" bordered={false}>
-          <span>今日打卡</span>
-          <strong>{todayUploadedAudio ? "已完成" : "未完成"}</strong>
-        </Card>
-      </div>
-
-      <div className="magic-user-workspace">
-        <Card className="magic-user-workspace__main" bordered={false}>
-          <Space direction="vertical" size={14} style={{ width: "100%" }}>
-            <Space wrap>
-              <Title level={4} style={{ margin: 0 }}>继续学习</Title>
-              {continueStudyVideo ? <Tag color="blue">推荐入口</Tag> : null}
-            </Space>
-            {continueStudyVideo ? (
-              <>
-                <Title level={5} style={{ margin: 0 }}>{continueStudyVideo.title}</Title>
-                <Text type="secondary">
-                  {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0
-                    ? "从上次停下的位置继续，优先把进行中的课程收掉。"
-                    : "从这门课程开始，优先完成必修和未开始的任务。"}
-                </Text>
-                <Space wrap>
-                  <Tag>{continueStudyVideo.category || "未分类"}</Tag>
-                  {continueStudyVideo.is_required ? <Tag color="gold">必修</Tag> : null}
-                  <Tag color={continueStudyVideo.progress?.is_completed ? "success" : "processing"}>
-                    {continueStudyVideo.progress?.is_completed ? "已完成" : "学习中"}
-                  </Tag>
-                </Space>
-                <Progress percent={Math.round(continueStudyVideo.progress?.progress_percent || 0)} size="small" />
-                <Space wrap>
-                  <Button type="primary" onClick={() => openCourseCenter(continueStudyVideo.id)}>
-                    {Math.round(continueStudyVideo.progress?.progress_percent || 0) > 0 ? "继续学习" : "开始学习"}
-                  </Button>
-                  <Button onClick={() => openCourseCenter()}>查看全部课程</Button>
-                </Space>
-              </>
-            ) : (
-              <>
-                <Text type="secondary">当前还没有可继续的课程，去课程中心看看最新内容。</Text>
-                <Button onClick={() => openCourseCenter()}>课程中心</Button>
-              </>
-            )}
-          </Space>
-        </Card>
-
-        <Space direction="vertical" size={16} className="magic-user-workspace__side">
-          <Card className="magic-user-workspace__side-card" bordered={false}>
-            <Space direction="vertical" size={10} style={{ width: "100%" }}>
-              <Title level={5} style={{ margin: 0 }}>读书打卡</Title>
-              <Text type="secondary">
-                {todayUploadedAudio ? "今天已经完成上传，可以继续保持节奏。" : "今天还没有上传录音，建议学习结束后顺手完成打卡。"}
-              </Text>
-              <Button onClick={openReadingCenter}>
-                {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
-              </Button>
-            </Space>
-          </Card>
-
-          <Card className="magic-user-workspace__side-card" bordered={false}>
-            <Space direction="vertical" size={10} style={{ width: "100%" }}>
-              <Title level={5} style={{ margin: 0 }}>最近上传</Title>
-              {latestAudioRecord ? (
-                <>
-                  <Text strong>{latestAudioRecord.file_name || "未命名录音"}</Text>
-                  <Text type="secondary">{latestAudioRecord.uploaded_time?.replace("T", " ").slice(0, 19) || "-"}</Text>
-                  <Text type="secondary">{latestAudioRecord.remark || "暂无备注"}</Text>
-                  <Button onClick={openReadingCenter}>进入打卡中心</Button>
-                </>
-              ) : (
-                <>
-                  <Text type="secondary">你还没有上传过读书录音。</Text>
-                  <Button onClick={openReadingCenter}>打卡中心</Button>
-                </>
-              )}
-            </Space>
-          </Card>
-        </Space>
-      </div>
+      {latestAudioRecord ? (
+        <section className="showcase-section">
+          <div className="workspace-panel">
+            <div className="workspace-panel__head">
+              <Space>
+                <BookOutlined />
+                <strong>最近上传</strong>
+              </Space>
+              <Button type="link" icon={<RightOutlined />} onClick={openReadingCenter}>打卡中心</Button>
+            </div>
+            <div className="workspace-note-block">
+              <strong>{latestAudioRecord.file_name || "未命名录音"}</strong>
+              <p>{latestAudioRecord.remark || "暂无备注"}</p>
+              <span className="workspace-note-block__meta">
+                {latestAudioRecord.uploaded_time?.replace("T", " ").slice(0, 19) || "-"}
+              </span>
+            </div>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 
+  const renderBreadcrumb = ({ title, subtitle, onBack, backText = "返回魔学院" }) => (
+    <div className="magic-academy-crumb fade-in-up">
+      <button type="button" className="magic-academy-crumb__back" onClick={onBack}>
+        <ArrowLeftOutlined />
+        <span>{backText}</span>
+      </button>
+      <div className="magic-academy-crumb__title">
+        <Title level={2} className="showcase-title" style={{ margin: 0, fontSize: 26 }}>{title}</Title>
+        {subtitle ? <p className="showcase-lead" style={{ margin: 0 }}>{subtitle}</p> : null}
+      </div>
+    </div>
+  );
+
   const renderCourseCenter = () => (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card className="magic-study-side-card" bordered={false}>
-        <Space direction="vertical" size={10} style={{ width: "100%" }}>
-          <Button style={{ alignSelf: "flex-start" }} onClick={openAcademyHome}>返回魔学院首页</Button>
-          <Space wrap>
-            <Title level={4} style={{ margin: 0 }}>课程中心</Title>
-            <Tag color="blue">我的学习</Tag>
-          </Space>
-          <Text type="secondary">这里集中查看课程任务、学习详情、视频播放和节点答题。</Text>
-        </Space>
-      </Card>
+    <>
+      {selectedVideoId
+        ? renderBreadcrumb({
+            title: videoDetail?.title || "课程详情",
+            subtitle: "按节点答题完成视频学习",
+            onBack: backToStudyList,
+            backText: "返回课程列表",
+          })
+        : renderBreadcrumb({
+            title: "课程学习",
+            subtitle: "按推荐顺序学习视频，节点答题需全部答对方可继续。",
+            onBack: openAcademyHome,
+            backText: "返回魔学院",
+          })}
       {studyTabContent}
-    </Space>
+    </>
   );
 
   const renderReadingCheckin = () => (
-    <Space direction="vertical" size={16} style={{ width: "100%" }}>
-      <Card className="magic-study-side-card" bordered={false}>
-        <Space direction="vertical" size={10} style={{ width: "100%" }}>
-          <Button style={{ alignSelf: "flex-start" }} onClick={openAcademyHome}>返回魔学院首页</Button>
-          <Space wrap>
-            <Title level={4} style={{ margin: 0 }}>读书打卡</Title>
-            <Tag color="blue">打卡中心</Tag>
-          </Space>
-          <Text type="secondary">这里集中处理录音上传、上传日历和历史记录，不再和首页内容混在一起。</Text>
-        </Space>
-      </Card>
+    <>
+      {renderBreadcrumb({
+        title: "读书打卡",
+        subtitle: "录音上传、上传日历与历史记录，集中在这里。",
+        onBack: openAcademyHome,
+        backText: "返回魔学院",
+      })}
       {audioTabContent}
-    </Space>
+    </>
   );
 
+  const userViewContent = !adminMode
+    ? (academyView === "courses"
+        ? renderCourseCenter()
+        : academyView === "reading"
+          ? renderReadingCheckin()
+          : renderMagicHome())
+    : null;
+
+  const yearMark = "魔";
+
   return (
-    <div style={{ padding: embedded ? 0 : 24 }}>
-      <Space direction="vertical" size={20} style={{ width: "100%" }}>
-        <Card variant="borderless" style={{ background: "linear-gradient(135deg, #2563eb, #1d4ed8)", color: "#fff" }}>
-          <Space direction="vertical" size={6}>
-            <Space>
-              <Title level={3} style={{ margin: 0, color: "#fff" }}>魔学院</Title>
-              {adminMode ? <Tag color="gold">管理员视图</Tag> : <Tag color="blue">员工视图</Tag>}
-            </Space>
-            <Text style={{ color: "rgba(255,255,255,0.88)" }}>
-              覆盖视频学习、节点答题、学习统计、白名单，以及读书录音上传和月度统计。
-            </Text>
-          </Space>
-        </Card>
+    <div className={adminMode ? undefined : "workspace-shell workspace-shell--editorial workspace-shell--minimal"}>
+      {!adminMode && academyView === "home" ? (
+        <section className="showcase-hero">
+          <span className="showcase-hero__year" aria-hidden="true">{yearMark}</span>
+          <div className="showcase-hero__inner">
+            <div className="showcase-hero__intro">
+              <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>
+                Magic Academy
+              </span>
+              <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
+                课程 · 答题 · 打卡
+              </Title>
+              <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
+                KEEP LEARNING · KEEP GROWING
+              </p>
+              <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
+                视频课程帮你建立知识框架，节点答题确认理解深度，
+                读书打卡让每天的学习沉淀下来。
+              </Paragraph>
+              <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
+                <button
+                  type="button"
+                  className="cta-arrow-btn"
+                  onClick={() => openCourseCenter()}
+                >
+                  <ReadOutlined />
+                  <span>{continueStudyVideo ? "继续学习" : "进入课程"}</span>
+                  <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+                </button>
+                <button
+                  type="button"
+                  className="cta-arrow-btn cta-arrow-btn--ghost"
+                  onClick={openReadingCenter}
+                >
+                  <CalendarOutlined />
+                  <span>{todayUploadedAudio ? "查看打卡" : "今日打卡"}</span>
+                  <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+                </button>
+              </div>
+            </div>
+            <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
+              <span className="showcase-hero__side-eyebrow">Learning at a glance</span>
+              <ul className="showcase-hero__side-list">
+                <li className="showcase-hero__side-item">
+                  <span>待学必修</span>
+                  <strong>{myRequiredVideos.length}</strong>
+                </li>
+                <li className="showcase-hero__side-item">
+                  <span>进行中</span>
+                  <strong>{myLearningVideos.length}</strong>
+                </li>
+                <li className="showcase-hero__side-item">
+                  <span>已完成</span>
+                  <strong>{myCompletedVideos.length}</strong>
+                </li>
+                <li className="showcase-hero__side-item">
+                  <span>今日打卡</span>
+                  <strong>{todayUploadedAudio ? "已完成" : "待完成"}</strong>
+                </li>
+              </ul>
+            </aside>
+          </div>
+        </section>
+      ) : null}
 
-        {!adminMode ? (
-          academyView === "courses"
-            ? renderCourseCenter()
-            : academyView === "reading"
-              ? renderReadingCheckin()
-              : renderMagicHome()
-        ) : null}
-
-        {adminMode ? (
-          <Tabs
-            activeKey={activeTab}
-            onChange={handleTabChange}
-            items={adminTabs}
-          />
-        ) : null}
-      </Space>
+      {adminMode ? (
+        <Tabs
+          activeKey={activeTab}
+          onChange={handleTabChange}
+          items={adminTabs}
+        />
+      ) : (
+        userViewContent
+      )}
 
       <VideoFormModal
         open={!!videoModal}
@@ -2645,16 +2723,13 @@ export default function MagicAcademyPage({ embedded = false }) {
         onSubmit={submitVideo}
       />
 
-      <Modal open={!!pointModal} title={pointModal?.id ? "编辑答题节点" : "新增答题节点"} onCancel={() => setPointModal(null)} onOk={submitPoint} destroyOnClose>
-        <Form form={pointForm} layout="vertical" preserve={false} initialValues={pointModal || { trigger_second: 0, question_count: 0, pass_score: 60, enabled: true }}>
+      <Modal open={!!pointModal} title={pointModal?.id ? "编辑答题节点" : "新增答题节点"} onCancel={() => setPointModal(null)} onOk={submitPoint} destroyOnHidden>
+        <Form form={pointForm} layout="vertical" preserve={false} initialValues={pointModal || { trigger_second: 0, question_count: 0, pass_score: 100, enabled: true }}>
           <Form.Item label="触发时间（秒）" name="trigger_second" rules={[{ required: true, message: "请输入触发时间" }]}>
             <InputNumber min={0} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item label="题目数量" name="question_count">
             <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="通过分数" name="pass_score">
-            <InputNumber min={0} max={100} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item label="启用" name="enabled" valuePropName="checked">
             <Switch />

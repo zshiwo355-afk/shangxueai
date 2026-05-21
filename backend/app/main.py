@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -41,6 +41,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _no_cache_for_api(request: Request, call_next):
+    """所有 /api/* 响应禁用浏览器缓存，避免历史 SPA 回退被磁盘缓存劫持。"""
+    response = await call_next(request)
+    path = request.url.path or ""
+    if path.startswith("/api/") or path == "/api":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 # 鉴权
 app.include_router(auth_router)
@@ -86,6 +98,10 @@ if assets_dir.exists():
 
 @app.get("/{full_path:path}", response_model=None)
 async def frontend(full_path: str):
+    normalized = full_path.strip("/")
+    if normalized == "api" or normalized.startswith("api/"):
+        raise HTTPException(status_code=404, detail=f"API endpoint not found: /{normalized}")
+
     index_file = frontend_dist / "index.html"
     if index_file.exists():
         return FileResponse(index_file)

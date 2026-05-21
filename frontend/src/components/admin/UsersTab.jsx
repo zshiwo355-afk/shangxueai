@@ -163,18 +163,18 @@ export default function UsersTab() {
     {
       title: "角色",
       dataIndex: "role",
-      render: (v) => v === "admin" ? <Tag color="red">管理员</Tag> : <Tag>普通用户</Tag>,
+      render: (v) => v === "admin" ? <Tag bordered={false} color="red">管理员</Tag> : <Tag bordered={false}>普通用户</Tag>,
     },
     {
       title: "新人",
       dataIndex: "is_newcomer",
-      render: (v) => v ? <Tag color="gold">新人</Tag> : "—",
+      render: (v) => v ? <Tag bordered={false} color="gold">新人</Tag> : "—",
     },
     {
       title: "状态",
       render: (_, row) => {
-        if (row.disabled) return <Tag color="default">已禁用</Tag>;
-        return row.status === "inactive" ? <Tag color="warning">停用</Tag> : <Tag color="success">正常</Tag>;
+        if (row.disabled) return <Tag bordered={false} color="default">已禁用</Tag>;
+        return row.status === "inactive" ? <Tag bordered={false} color="warning">停用</Tag> : <Tag bordered={false} color="success">正常</Tag>;
       },
     },
     {
@@ -219,7 +219,7 @@ export default function UsersTab() {
           fillTickRef.current += 1;
           fillForm();
         }}
-        destroyOnClose={false}
+        destroyOnHidden={false}
         forceRender
       >
         <Form form={form} layout="vertical">

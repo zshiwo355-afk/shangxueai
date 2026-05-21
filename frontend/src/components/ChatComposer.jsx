@@ -7,11 +7,11 @@ const { TextArea } = Input;
 const ATTACHMENT_PRESETS = [
   { key: "产品图", label: "产品图" },
   { key: "价格表", label: "价格表" },
-  { key: "宣传册", label: "宣传册" },
+  { key: "宣传页", label: "宣传页" },
   { key: "视频", label: "视频" },
-  { key: "链接", label: "链接（小程序/商城）" },
-  { key: "朋友圈截图", label: "朋友圈截图" },
-  { key: "资质证明", label: "资质证明" },
+  { key: "链接", label: "链接" },
+  { key: "截图", label: "截图" },
+  { key: "资质", label: "资质" },
 ];
 
 export default function ChatComposer({ disabled, sending, onSend }) {
@@ -27,7 +27,7 @@ export default function ChatComposer({ disabled, sending, onSend }) {
 
   const insertMarker = (kind) => {
     if (disabled || sending) return;
-    const marker = `[发送${kind}]`;
+    const marker = `[资料:${kind}]`;
     setValue((prev) => {
       const separator = prev && !prev.endsWith(" ") && !prev.endsWith("\n") ? " " : "";
       return `${prev}${separator}${marker} `;
@@ -46,7 +46,7 @@ export default function ChatComposer({ disabled, sending, onSend }) {
   return (
     <div className="chat-composer-wrap">
       <div className="chat-composer">
-        <Tooltip title="模拟发送资料、图片或链接">
+        <Tooltip title="插入资料标记">
           <Dropdown
             menu={{ items: menuItems }}
             placement="topLeft"
@@ -71,11 +71,7 @@ export default function ChatComposer({ disabled, sending, onSend }) {
             event.preventDefault();
             submit();
           }}
-          placeholder={
-            disabled
-              ? "当前会话已结束。"
-              : "输入你的回复，回车发送。需要给客户发送资料时，也可以用左侧附件按钮快速插入。"
-          }
+          placeholder={disabled ? "当前会话已结束。" : "输入回复，回车发送"}
           autoSize={{ minRows: 1, maxRows: 6 }}
           disabled={disabled || sending}
           variant="borderless"
