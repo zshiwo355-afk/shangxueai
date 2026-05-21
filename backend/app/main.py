@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -89,10 +90,41 @@ async def health() -> dict[str, str]:
 
 
 # ---- 静态托管前端构建产物 ----
-frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-assets_dir = frontend_dist / "assets"
+# 查找顺序：
+#   1) 环境变量 FRONTEND_DIST_PATH（绝对路径或相对 backend 目录）
+#   2) <project_root>/frontend/dist     （仓库默认结构）
+#   3) <backend>/../frontend/dist       （和 #2 等价，保险）
+#   4) <backend>/../dist                 （把 dist 直接放在 backend 同级）
+#   5) <backend>/dist                    （把 dist 放进 backend）
+# 第一个存在 index.html 的就用它。
+def _resolve_frontend_dist() -> Path | None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    project_root = backend_dir.parent
+    candidates: list[Path] = []
+    env_path = (os.environ.get("FRONTEND_DIST_PATH") or "").strip()
+    if env_path:
+        env_dir = Path(env_path)
+        if not env_dir.is_absolute():
+            env_dir = (backend_dir / env_dir).resolve()
+        candidates.append(env_dir)
+    candidates.extend([
+        project_root / "frontend" / "dist",
+        backend_dir.parent / "frontend" / "dist",
+        backend_dir.parent / "dist",
+        backend_dir / "dist",
+    ])
+    for path in candidates:
+        if (path / "index.html").exists():
+            logger.info("frontend dist resolved at: %s", path)
+            return path
+    logger.warning("no frontend dist found in any of: %s", [str(p) for p in candidates])
+    return None
 
-if assets_dir.exists():
+
+frontend_dist = _resolve_frontend_dist()
+assets_dir = (frontend_dist / "assets") if frontend_dist else None
+
+if assets_dir and assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
@@ -102,9 +134,11 @@ async def frontend(full_path: str):
     if normalized == "api" or normalized.startswith("api/"):
         raise HTTPException(status_code=404, detail=f"API endpoint not found: /{normalized}")
 
-    index_file = frontend_dist / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file)
+    if frontend_dist:
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
     return {
-        "message": "前端尚未构建，请进入 frontend 目录执行 npm run build，或开发模式 npm run dev。",
+        "message": "前端尚未构建或目录不对。请确认 frontend/dist/index.html 存在，"
+                   "或设置 FRONTEND_DIST_PATH 环境变量指向 dist 目录。",
     }

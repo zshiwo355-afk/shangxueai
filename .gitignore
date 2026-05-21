@@ -11,6 +11,8 @@ frontend/node_modules/
 dist/
 frontend/dist/
 build/
+dist-shangxue-*/
+dist-shangxue-*.zip
 
 # Env / secrets
 .env
