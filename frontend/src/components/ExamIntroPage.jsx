@@ -32,7 +32,7 @@ export default function ExamIntroPage() {
         const list = await fetchMyExams();
         const item = (list || []).find((entry) => String(entry.exam?.id) === String(examId));
         if (!item) {
-          message.error("没有找到这场考试。");
+          message.error("没有找到这场通关。");
           navigate("/workspace/training", { replace: true });
           return;
         }
@@ -92,7 +92,7 @@ export default function ExamIntroPage() {
         <div className="page-toolbar__leading">
           <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
           <div>
-            <h2 style={{ margin: 0 }}>{exam.title || "销售考试"}</h2>
+            <h2 style={{ margin: 0 }}>{exam.title || "AI 通关"}</h2>
             <Text type="secondary">开始前先确认状态。</Text>
           </div>
         </div>
@@ -146,7 +146,7 @@ export default function ExamIntroPage() {
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             <Space>
               <CheckCircleOutlined />
-              <Text>{exam.status === "passed" ? "这场考试已通过。" : "这场考试未通过。"}</Text>
+              <Text>{exam.status === "passed" ? "这场通关已通过。" : "这场通关未通过。"}</Text>
             </Space>
             <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>
               查看结果
@@ -168,25 +168,25 @@ export default function ExamIntroPage() {
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             <Space>
               <PlayCircleOutlined />
-              <Text>检测到未完成考试。</Text>
+              <Text>检测到未完成通关。</Text>
             </Space>
             <Button type="primary" onClick={handleStart} loading={starting}>
-              继续考试
+              继续通关
             </Button>
           </Space>
         </Card>
       ) : remaining <= 0 ? (
         <Card bordered={false}>
-          <Empty description="这场考试已经没有剩余次数。" />
+          <Empty description="这场通关已经没有剩余次数。" />
         </Card>
       ) : (
         <Card className="exam-state-card exam-state-card--minimal" bordered={false}>
           <Space direction="vertical" size={12} style={{ width: "100%" }}>
             <Text>
-              当前可开始第 <strong>{exam.attempt_count + 1}</strong> 次考试。
+              当前可开始第 <strong>{exam.attempt_count + 1}</strong> 次通关。
             </Text>
             <Button type="primary" size="large" loading={starting} onClick={handleStart}>
-              {starting ? "准备中..." : `开始第 ${exam.attempt_count + 1} 次考试`}
+              {starting ? "准备中..." : `开始第 ${exam.attempt_count + 1} 次通关`}
             </Button>
           </Space>
         </Card>

@@ -2,6 +2,7 @@ import {
   ArrowRightOutlined,
   CalendarOutlined,
   ClockCircleOutlined,
+  FormOutlined,
   HistoryOutlined,
   PlayCircleFilled,
   ReadOutlined,
@@ -15,17 +16,36 @@ import { useNavigate } from "react-router-dom";
 import { fetchMyExams } from "../lib/api.exam";
 import { fetchMyAudios, fetchMyMagicVideos } from "../lib/api.magic";
 import { fetchMyTrainingRecords } from "../lib/api.training";
+import { fetchMyPaperAssignments } from "../lib/api.userPapers";
 import { getCurrentUser } from "../lib/auth";
 import { loadActiveSession } from "../lib/storage";
 
 const { Paragraph, Text, Title } = Typography;
 
-function examStatusLabel(status) {
+function challengeStatusLabel(status) {
   if (status === "passed") return "已通过";
   if (status === "failed") return "未通过";
   if (status === "in_progress") return "进行中";
   if (status === "pending_review") return "待复核";
   return "待开始";
+}
+
+function paperStatusLabel(item) {
+  if (item.is_expired && item.last_status !== "graded") return "已截止";
+  if (item.last_status === "graded") return item.last_is_pass ? "已通过" : "未通过";
+  if (item.last_status === "submitted") return "待复核";
+  if (item.last_status === "in_progress") return "进行中";
+  return "待开始";
+}
+
+function paperAttemptsLeft(item) {
+  return Math.max(0, Number(item.max_attempts || 1) - Number(item.attempt_count || 0));
+}
+
+function paperIsTodo(item) {
+  if (item.last_status === "graded") return false;
+  if (item.is_expired && paperAttemptsLeft(item) <= 0) return false;
+  return true;
 }
 
 function resultColor(result) {
@@ -39,12 +59,75 @@ function formatTime(value) {
   return String(value).slice(0, 16).replace("T", " ");
 }
 
+const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+function greetingFor(hour) {
+  if (hour < 5) return "夜深了";
+  if (hour < 9) return "早上好";
+  if (hour < 12) return "上午好";
+  if (hour < 14) return "中午好";
+  if (hour < 18) return "下午好";
+  if (hour < 22) return "晚上好";
+  return "夜深了";
+}
+
+function LiveClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const initialDelay = 1000 - (Date.now() % 1000);
+    let intervalId = null;
+    const timeoutId = window.setTimeout(() => {
+      tick();
+      intervalId = window.setInterval(tick, 1000);
+    }, initialDelay);
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  const dateText = dayjs(now).format("YYYY 年 M 月 D 日");
+  const weekday = WEEKDAY_LABELS[now.getDay()];
+  const greeting = greetingFor(now.getHours());
+  const minuteProgress = (now.getSeconds() + now.getMilliseconds() / 1000) / 60;
+
+  return (
+    <div className="live-clock fade-in-up" style={{ "--fade-delay": "300ms" }} aria-live="polite">
+      <span className="live-clock__eyebrow">Local Time</span>
+
+      <div className="live-clock__row">
+        <span className="live-clock__digits">
+          <span className="live-clock__hm">{hh}<i>:</i>{mm}</span>
+          <span className="live-clock__sec">{ss}</span>
+        </span>
+        <span className="live-clock__greeting">{greeting}</span>
+      </div>
+
+      <div className="live-clock__bar" aria-hidden="true">
+        <span style={{ transform: `scaleX(${minuteProgress})` }} />
+      </div>
+
+      <div className="live-clock__meta">
+        <span>{weekday}</span>
+        <span className="live-clock__dot" aria-hidden="true" />
+        <span>{dateText}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const user = getCurrentUser();
   const [, setLoading] = useState(true);
-  const [exams, setExams] = useState([]);
+  const [challenges, setChallenges] = useState([]); // 老的"通关"
+  const [papers, setPapers] = useState([]);         // 新的"考试"
   const [records, setRecords] = useState([]);
   const [videos, setVideos] = useState([]);
   const [audios, setAudios] = useState([]);
@@ -55,14 +138,16 @@ export default function HomePage() {
 
     (async () => {
       try {
-        const [examData, recordData, videoData, audioData] = await Promise.all([
+        const [challengeData, paperData, recordData, videoData, audioData] = await Promise.all([
           fetchMyExams().catch(() => []),
+          fetchMyPaperAssignments().catch(() => []),
           fetchMyTrainingRecords().catch(() => []),
           fetchMyMagicVideos().catch(() => []),
           fetchMyAudios().catch(() => []),
         ]);
         if (!alive) return;
-        setExams(Array.isArray(examData) ? examData : []);
+        setChallenges(Array.isArray(challengeData) ? challengeData : []);
+        setPapers(Array.isArray(paperData) ? paperData : []);
         setRecords(Array.isArray(recordData) ? recordData : []);
         setVideos(Array.isArray(videoData) ? videoData : []);
         setAudios(Array.isArray(audioData) ? audioData : []);
@@ -78,10 +163,14 @@ export default function HomePage() {
     };
   }, [message]);
 
-  const todoExams = exams.filter((item) =>
+  const todoChallenges = challenges.filter((item) =>
     ["pending", "in_progress", "pending_review"].includes(item.exam?.status),
   );
-  const doneExams = exams.filter((item) => ["passed", "failed"].includes(item.exam?.status));
+  const doneChallenges = challenges.filter((item) =>
+    ["passed", "failed"].includes(item.exam?.status),
+  );
+  const todoPapers = papers.filter(paperIsTodo);
+  const donePapers = papers.filter((p) => !paperIsTodo(p));
   const pendingVideos = videos.filter((item) => item.is_required && !item.progress?.is_completed);
   const inProgressVideos = videos.filter(
     (item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0,
@@ -102,7 +191,7 @@ export default function HomePage() {
       ? {
           key: "session",
           icon: <PlayCircleFilled />,
-          title: activeSession.mode === "exam" ? "继续上次考试" : "继续上次训练",
+          title: activeSession.mode === "exam" ? "继续上次通关" : "继续上次训练",
           description: activeSession.training_type
             ? `${activeSession.training_type} · ${activeSession.difficulty || "未标记难度"}`
             : "回到上次会话。",
@@ -110,20 +199,35 @@ export default function HomePage() {
           onClick: () => navigate(`/chat/${activeSession.session_id}`),
         }
       : null,
-    todoExams[0]?.exam
+    todoPapers[0]
       ? {
-          key: "exam",
-          icon: <ClockCircleOutlined />,
-          title: todoExams[0].exam.status === "pending_review" ? "查看考试结果" : "处理待办考试",
-          description: `${todoExams[0].exam.title || "销售考试"} · ${examStatusLabel(
-            todoExams[0].exam.status,
-          )}`,
-          action: todoExams[0].exam.status === "pending_review" ? "查看" : "进入",
+          key: "paper",
+          icon: <FormOutlined />,
+          title: todoPapers[0].last_status === "submitted" ? "查看考试结果" : "处理待办考试",
+          description: `${todoPapers[0].paper_title} · ${paperStatusLabel(todoPapers[0])}`,
+          action: todoPapers[0].last_status === "submitted" ? "查看" : "进入",
           onClick: () =>
             navigate(
-              todoExams[0].exam.status === "pending_review"
-                ? `/exam/${todoExams[0].exam.id}/result`
-                : `/exam/${todoExams[0].exam.id}/intro`,
+              todoPapers[0].last_status === "submitted" && todoPapers[0].last_submission_id
+                ? `/papers/submissions/${todoPapers[0].last_submission_id}`
+                : `/papers/${todoPapers[0].id}/take`,
+            ),
+        }
+      : null,
+    todoChallenges[0]?.exam
+      ? {
+          key: "challenge",
+          icon: <ClockCircleOutlined />,
+          title: todoChallenges[0].exam.status === "pending_review" ? "查看通关结果" : "处理待办通关",
+          description: `${todoChallenges[0].exam.title || "AI 通关"} · ${challengeStatusLabel(
+            todoChallenges[0].exam.status,
+          )}`,
+          action: todoChallenges[0].exam.status === "pending_review" ? "查看" : "进入",
+          onClick: () =>
+            navigate(
+              todoChallenges[0].exam.status === "pending_review"
+                ? `/exam/${todoChallenges[0].exam.id}/result`
+                : `/exam/${todoChallenges[0].exam.id}/intro`,
             ),
         }
       : null,
@@ -141,7 +245,7 @@ export default function HomePage() {
       : null,
   ]
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, 4);
 
   const averageScore =
     records.length > 0
@@ -173,48 +277,30 @@ export default function HomePage() {
             </p>
             <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
               欢迎回来，{user?.display_name || user?.username || "学员"}。
-              从这里出发，进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术，
-              或走进<strong style={{ color: "var(--accent-deep)" }}>魔学院</strong>沉淀知识。
+              进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术、
+              走进<strong style={{ color: "var(--accent-deep)" }}>魔学院</strong>沉淀知识，
+              或前往<strong style={{ color: "var(--accent-deep)" }}>考试</strong>验证学习成果。
             </Paragraph>
-            <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
-              <button
-                type="button"
-                className="cta-arrow-btn"
-                onClick={() => navigate("/workspace/training")}
-              >
-                <RocketOutlined />
-                <span>开启销售对练</span>
-                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-              </button>
-              <button
-                type="button"
-                className="cta-arrow-btn cta-arrow-btn--ghost"
-                onClick={() => navigate("/workspace/magic")}
-              >
-                <ReadOutlined />
-                <span>进入魔学院</span>
-                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-              </button>
-            </div>
+            <LiveClock />
           </div>
           <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
             <span className="showcase-hero__side-eyebrow">Today at a glance</span>
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
                 <span>待办考试</span>
-                <strong>{todoExams.length}</strong>
+                <strong>{todoPapers.length}</strong>
               </li>
               <li className="showcase-hero__side-item">
-                <span>平均得分</span>
+                <span>待办通关</span>
+                <strong>{todoChallenges.length}</strong>
+              </li>
+              <li className="showcase-hero__side-item">
+                <span>训练均分</span>
                 <strong>{averageScore}</strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>完课率</span>
                 <strong>{completedVideoRate}%</strong>
-              </li>
-              <li className="showcase-hero__side-item">
-                <span>本月打卡</span>
-                <strong>{monthAudioCount}</strong>
               </li>
             </ul>
           </aside>
@@ -224,11 +310,11 @@ export default function HomePage() {
       <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
         <div className="showcase-section__header">
           <span className="showcase-eyebrow">Modules</span>
-          <Title level={2} className="showcase-title">两大功能区</Title>
-          <p className="showcase-lead">把对练与学习清晰拆分，按需进入对应空间。</p>
+          <Title level={2} className="showcase-title">三大功能区</Title>
+          <p className="showcase-lead">练习、学习、考试，按需进入对应空间。</p>
         </div>
 
-        <div className="entry-grid entry-grid--two">
+        <div className="entry-grid">
           <button
             type="button"
             className="entry-card entry-card--feature fade-in-up"
@@ -242,10 +328,10 @@ export default function HomePage() {
             <span className="entry-card__divider" />
             <div>
               <h3 className="entry-card__title">销售对练</h3>
-              <p className="entry-card__subtitle">模拟 · 考核 · 复盘</p>
+              <p className="entry-card__subtitle">模拟 · 通关 · 复盘</p>
             </div>
             <p className="entry-card__desc">
-              通过 AI 对练还原真实客户场景，结合考试与复盘形成"练-评-改"的闭环。
+              通过 AI 对练还原真实客户场景，结合 AI 通关与复盘形成"练-评-改"的闭环。
             </p>
             <span className="entry-card__cta">
               {activeSession?.session_id ? "继续上次会话" : "进入训练空间"}
@@ -274,6 +360,33 @@ export default function HomePage() {
             </p>
             <span className="entry-card__cta">
               {continueVideo ? "继续学习" : "浏览课程"}
+              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
+            </span>
+            <span className="entry-card__bg" />
+          </button>
+
+          <button
+            type="button"
+            className="entry-card fade-in-up"
+            style={{ "--fade-delay": "340ms" }}
+            onClick={() => navigate("/papers")}
+          >
+            <div className="entry-card__top">
+              <span className="entry-card__num">03</span>
+              <span className="entry-card__tag">EXAM</span>
+            </div>
+            <span className="entry-card__divider" />
+            <div>
+              <h3 className="entry-card__title">考试中心</h3>
+              <p className="entry-card__subtitle">试卷 · 答题 · 评分</p>
+            </div>
+            <p className="entry-card__desc">
+              {todoPapers.length > 0
+                ? `当前有 ${todoPapers.length} 份待办考试，按截止时间提交答卷即可。`
+                : "暂无待办考试，可回顾过往答卷与成绩。"}
+            </p>
+            <span className="entry-card__cta">
+              {todoPapers.length > 0 ? "前往作答" : "查看记录"}
               <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
             </span>
             <span className="entry-card__bg" />
@@ -414,21 +527,36 @@ export default function HomePage() {
       <section className="showcase-section">
         <div className="stats-row fade-in-up">
           <div className="stats-row__item">
+            <span className="stats-row__icon"><RocketOutlined /></span>
             <span className="stats-row__value">{records.length}</span>
             <span className="stats-row__label">训练次数</span>
           </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
-            <span className="stats-row__value">{doneExams.length}</span>
+          <div className="stats-row__item stats-row__item--accent">
+            <span className="stats-row__icon"><FormOutlined /></span>
+            <span className="stats-row__value">
+              {donePapers.length}
+              <span className="stats-row__value-suffix">/ {papers.length || 0}</span>
+            </span>
             <span className="stats-row__label">完成考试</span>
           </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
-            <span className="stats-row__value">{completedVideoRate}%</span>
+          <div className="stats-row__item stats-row__item--violet">
+            <span className="stats-row__icon"><TrophyOutlined /></span>
+            <span className="stats-row__value">
+              {doneChallenges.length}
+              <span className="stats-row__value-suffix">/ {challenges.length || 0}</span>
+            </span>
+            <span className="stats-row__label">完成通关</span>
+          </div>
+          <div className="stats-row__item stats-row__item--warm">
+            <span className="stats-row__icon"><ReadOutlined /></span>
+            <span className="stats-row__value">
+              {completedVideoRate}
+              <span className="stats-row__value-suffix">%</span>
+            </span>
             <span className="stats-row__label">完课率</span>
           </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
+          <div className="stats-row__item stats-row__item--rose">
+            <span className="stats-row__icon"><CalendarOutlined /></span>
             <span className="stats-row__value">{monthAudioCount}</span>
             <span className="stats-row__label">本月打卡</span>
           </div>

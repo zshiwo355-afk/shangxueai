@@ -15,6 +15,9 @@ import TrainingRecordDetailPage from "./components/TrainingRecordDetailPage";
 import MagicAcademyPage from "./components/MagicAcademyPage";
 import TrainingWorkspacePage from "./components/TrainingWorkspacePage";
 import MagicWorkspacePage from "./components/MagicWorkspacePage";
+import UserPapersListPage from "./components/user/papers/UserPapersListPage";
+import UserPaperTakePage from "./components/user/papers/UserPaperTakePage";
+import UserPaperResultPage from "./components/user/papers/UserPaperResultPage";
 
 import { isAdmin, isAuthenticated, setUnauthorizedHandler } from "./lib/auth";
 
@@ -76,6 +79,9 @@ export default function App() {
         <Route path="/training/records" element={<TrainingHistoryPage />} />
         <Route path="/training/records/:id" element={<TrainingRecordDetailPage />} />
         <Route path="/magic-academy" element={<MagicAcademyPage />} />
+        <Route path="/papers" element={<UserPapersListPage />} />
+        <Route path="/papers/:assignmentId/take" element={<UserPaperTakePage />} />
+        <Route path="/papers/submissions/:submissionId" element={<UserPaperResultPage />} />
       </Route>
 
       <Route

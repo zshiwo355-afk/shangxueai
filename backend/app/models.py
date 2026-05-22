@@ -345,3 +345,177 @@ class MagicAudioUpload(Base):
     __table_args__ = (
         Index("idx_magic_audio_uploads_user_month", "user_id", "uploaded_date", "is_deleted"),
     )
+
+
+# =========================================================================
+# 考试管理（独立卷库式）：题库 / 试卷 / 派发 / 提交 / 单题作答 / 导入任务
+# =========================================================================
+
+
+class QuestionBank(Base):
+    __tablename__ = "question_bank"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    question_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    stem: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    correct_answer_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    default_score: Mapped[float] = mapped_column(Float, default=5.0)
+    category: Mapped[str] = mapped_column(String(128), default="")
+    tag: Mapped[str] = mapped_column(String(255), default="")
+    difficulty: Mapped[str] = mapped_column(String(32), default="")
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_question_bank_status_type", "status", "question_type", "created_at"),
+        Index("idx_question_bank_category", "category"),
+    )
+
+
+class Paper(Base):
+    __tablename__ = "papers"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_score: Mapped[float] = mapped_column(Float, default=0)
+    pass_score: Mapped[float] = mapped_column(Float, default=60)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    auto_grade_objective: Mapped[bool] = mapped_column(Boolean, default=True)
+    manual_review_subjective: Mapped[bool] = mapped_column(Boolean, default=True)
+    shuffle_questions: Mapped[bool] = mapped_column(Boolean, default=False)
+    show_answer_after: Mapped[str] = mapped_column(String(16), default="after_submit")
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    question_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_papers_status_created", "status", "created_at"),
+    )
+
+
+class PaperQuestion(Base):
+    __tablename__ = "paper_questions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    paper_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    question_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    score_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    section_name: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("paper_id", "question_id", name="uk_paper_questions_paper_q"),
+        Index("idx_paper_questions_paper_sort", "paper_id", "sort_order"),
+    )
+
+
+class PaperAssignment(Base):
+    __tablename__ = "paper_assignments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    paper_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=1)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    wecom_push_status: Mapped[str] = mapped_column(String(16), default="none")
+    wecom_push_payload_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    wecom_push_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wecom_pushed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("paper_id", "user_id", name="uk_paper_assignments_paper_user"),
+        Index("idx_paper_assignments_user_status", "user_id", "status"),
+        Index("idx_paper_assignments_paper_status", "paper_id", "status"),
+    )
+
+
+class PaperSubmission(Base):
+    __tablename__ = "paper_submissions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    assignment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    paper_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    attempt_no: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    auto_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    manual_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_pass: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    graded_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_paper_submissions_assign", "assignment_id", "attempt_no"),
+        Index("idx_paper_submissions_status", "status", "submitted_at"),
+        Index("idx_paper_submissions_user", "user_id", "paper_id"),
+    )
+
+
+class PaperAnswer(Base):
+    __tablename__ = "paper_answers"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    submission_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    paper_question_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    question_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    question_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    answer_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    auto_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    manual_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("submission_id", "paper_question_id", name="uk_paper_answers_sub_pq"),
+        Index("idx_paper_answers_submission", "submission_id"),
+    )
+
+
+class QuestionImportJob(Base):
+    __tablename__ = "question_import_jobs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), default="excel")
+    original_name: Mapped[str] = mapped_column(String(255), default="")
+    total_rows: Mapped[int] = mapped_column(Integer, default=0)
+    valid_rows: Mapped[int] = mapped_column(Integer, default=0)
+    invalid_rows: Mapped[int] = mapped_column(Integer, default=0)
+    rows_json: Mapped[str] = mapped_column(LONGTEXT, default="[]")
+    committed: Mapped[bool] = mapped_column(Boolean, default=False)
+    committed_count: Mapped[int] = mapped_column(Integer, default=0)
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_question_import_jobs_creator", "created_by", "created_at"),
+    )

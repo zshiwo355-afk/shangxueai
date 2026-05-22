@@ -20,6 +20,13 @@ from .exams_api import (
 from .magic_academy_api import magic_video_router, router as magic_academy_router
 from .maxkb import MaxKBClient
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
+from .paper_assignments_api import (
+    router as paper_assignments_router,
+    submit_router as paper_submit_router,
+)
+from .papers_api import router as papers_router
+from .question_bank_api import router as question_bank_router
+from .question_imports_api import router as question_imports_router
 from .rule_loader import RuleLoader
 from .rules_api import build_router as build_rules_router
 from .training_api import build_router as build_training_router
@@ -28,7 +35,7 @@ from .users_api import router as users_admin_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="商学院AI培训", version="2.0.0")
+app = FastAPI(title="怀仁商学院", version="2.0.0")
 
 settings = get_settings()
 maxkb_client = MaxKBClient(settings)
@@ -71,6 +78,12 @@ app.include_router(training_records_router)
 app.include_router(exams_admin_router)
 app.include_router(exams_review_router)
 app.include_router(build_exams_user_router(settings=settings, rule_loader=rule_loader))
+# 考试管理（独立卷库式：题库 / 试卷 / 派发 / 导入）
+app.include_router(question_bank_router)
+app.include_router(papers_router)
+app.include_router(paper_assignments_router)
+app.include_router(question_imports_router)
+app.include_router(paper_submit_router)
 # 规则重载
 app.include_router(build_rules_router(rule_loader=rule_loader))
 

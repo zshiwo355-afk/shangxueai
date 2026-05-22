@@ -66,7 +66,7 @@ export default function ExamResultPage() {
 
         const item = (examsList || []).find((entry) => String(entry.exam?.id) === String(examId));
         if (!item) {
-          message.error("没有找到这场考试。");
+          message.error("没有找到这场通关。");
           navigate("/workspace/training", { replace: true });
           return;
         }
@@ -109,17 +109,17 @@ export default function ExamResultPage() {
         <div className="page-toolbar__leading">
           <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
           <div>
-            <h2 style={{ margin: 0 }}>{exam.title || "销售考试"} / 结果</h2>
+            <h2 style={{ margin: 0 }}>{exam.title || "AI 通关"} / 结果</h2>
             <Text type="secondary">先看结果，再看每次详情。</Text>
           </div>
         </div>
 
         <div className="page-toolbar__actions">
-          <Button onClick={() => navigate(`/exam/${examId}/intro`)}>考试说明</Button>
+          <Button onClick={() => navigate(`/exam/${examId}/intro`)}>通关说明</Button>
           <Button onClick={() => navigate("/workspace/training")}>工作台</Button>
           {canRetry ? (
             <Button type="primary" onClick={() => navigate(`/exam/${examId}/intro`)}>
-              继续考试
+              继续通关
             </Button>
           ) : null}
         </div>
@@ -132,7 +132,7 @@ export default function ExamResultPage() {
               {exam.status === "pending_review" ? <Tag bordered={false} color="gold">待复核</Tag> : null}
               {exam.status === "passed" ? <Tag bordered={false} color="success">已通过</Tag> : null}
               {exam.status === "failed" ? <Tag bordered={false} color="error">未通过</Tag> : null}
-              {exam.status === "pending" ? <Tag bordered={false}>可继续考试</Tag> : null}
+              {exam.status === "pending" ? <Tag bordered={false}>可继续通关</Tag> : null}
             </Space>
 
             <div className="exam-metric-grid">
@@ -230,10 +230,10 @@ export default function ExamResultPage() {
       <div className="journey-actions journey-actions--spread journey-actions--minimal">
         <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
         <Space size={10} wrap>
-          <Button onClick={() => navigate(`/exam/${examId}/intro`)}>考试说明</Button>
+          <Button onClick={() => navigate(`/exam/${examId}/intro`)}>通关说明</Button>
           {canRetry ? (
             <Button type="primary" onClick={() => navigate(`/exam/${examId}/intro`)}>
-              继续考试
+              继续通关
             </Button>
           ) : null}
         </Space>

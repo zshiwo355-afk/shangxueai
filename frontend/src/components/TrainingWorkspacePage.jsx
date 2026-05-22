@@ -81,7 +81,7 @@ export default function TrainingWorkspacePage() {
       ? {
           key: "session",
           icon: <PlayCircleOutlined />,
-          title: activeSession.mode === "exam" ? "继续上次考试" : "继续上次训练",
+          title: activeSession.mode === "exam" ? "继续上次通关" : "继续上次训练",
           description: activeSession.training_type
             ? `${activeSession.training_type} · ${activeSession.difficulty || "未标记难度"}`
             : "回到上次会话。",
@@ -100,8 +100,8 @@ export default function TrainingWorkspacePage() {
       ? {
           key: "exam",
           icon: <ClockCircleOutlined />,
-          title: pendingExams[0].exam.status === "pending_review" ? "查看考试结果" : "处理待办考试",
-          description: `${pendingExams[0].exam.title || "销售考试"} · ${
+          title: pendingExams[0].exam.status === "pending_review" ? "查看通关结果" : "处理待办通关",
+          description: `${pendingExams[0].exam.title || "AI 通关"} · ${
             buildExamStatus(pendingExams[0].exam).label
           }`,
           action: pendingExams[0].exam.status === "pending_review" ? "查看" : "进入",
@@ -132,13 +132,13 @@ export default function TrainingWorkspacePage() {
               Sales Training
             </span>
             <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
-              训练 · 考核 · 复盘
+              训练 · 通关 · 复盘
             </Title>
             <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
               PRACTICE MAKES PERFECT
             </p>
             <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
-              在真实场景里反复打磨话术，结合考试与复盘形成"练-评-改"的闭环，
+              在真实场景里反复打磨话术，结合 AI 通关与复盘形成"练-评-改"的闭环，
               每一次对话都比上一次更稳。
             </Paragraph>
             <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
@@ -166,7 +166,7 @@ export default function TrainingWorkspacePage() {
             <span className="showcase-hero__side-eyebrow">Today at a glance</span>
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
-                <span>待办考试</span>
+                <span>待办通关</span>
                 <strong>{pendingExams.length}</strong>
               </li>
               <li className="showcase-hero__side-item">
@@ -230,20 +230,20 @@ export default function TrainingWorkspacePage() {
           >
             <div className="entry-card__top">
               <span className="entry-card__num">02</span>
-              <span className="entry-card__tag">EXAM</span>
+              <span className="entry-card__tag">CHALLENGE</span>
             </div>
             <span className="entry-card__divider" />
             <div>
-              <h3 className="entry-card__title">考试中心</h3>
-              <p className="entry-card__subtitle">检验掌握 · 真实场景评分</p>
+              <h3 className="entry-card__title">AI 通关</h3>
+              <p className="entry-card__subtitle">检验话术 · 真实场景评分</p>
             </div>
             <p className="entry-card__desc">
               {pendingExams.length > 0
-                ? `当前有 ${pendingExams.length} 项待办考试，从最新的一项开始。`
-                : "暂无待办考试，可以回顾最近的考试结果。"}
+                ? `当前有 ${pendingExams.length} 项待办通关，从最新的一项开始。`
+                : "暂无待办通关，可以回顾最近的通关结果。"}
             </p>
             <span className="entry-card__cta">
-              {pendingExams.length > 0 ? "进入考试" : "查看记录"}
+              {pendingExams.length > 0 ? "进入通关" : "查看记录"}
               <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
             </span>
             <span className="entry-card__bg" />
@@ -306,7 +306,7 @@ export default function TrainingWorkspacePage() {
           <div className="workspace-panel__head">
             <Space>
               <ClockCircleOutlined />
-              <strong>待办考试</strong>
+              <strong>待办通关</strong>
             </Space>
             <Button type="link" onClick={() => navigate("/training/records")}>
               全部
@@ -314,7 +314,7 @@ export default function TrainingWorkspacePage() {
           </div>
 
           {pendingExams.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有待处理考试。" />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有待处理通关。" />
           ) : (
             <div className="workspace-line-list">
               {pendingExams.slice(0, 3).map((item) => {
@@ -329,7 +329,7 @@ export default function TrainingWorkspacePage() {
                   <div key={exam.id} className="workspace-line-item workspace-line-item--soft">
                     <div className="workspace-line-item__content">
                       <Space size={[8, 8]} wrap>
-                        <strong>{exam.title || "销售考试"}</strong>
+                        <strong>{exam.title || "AI 通关"}</strong>
                         <Tag color={status.color}>{status.label}</Tag>
                       </Space>
                       <span>

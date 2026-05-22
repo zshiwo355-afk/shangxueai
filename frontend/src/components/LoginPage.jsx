@@ -31,8 +31,8 @@ export default function LoginPage() {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-emblem">商</div>
-        <h1 className="login-title">商学院AI培训</h1>
+        <div className="login-emblem">怀</div>
+        <h1 className="login-title">怀仁商学院</h1>
         <p className="login-subtitle">请输入账号登录</p>
 
         <Form layout="vertical" onFinish={handleSubmit} initialValues={{ username: "admin" }}>

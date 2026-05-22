@@ -1,5 +1,6 @@
 import {
   BookOutlined,
+  FormOutlined,
   HomeOutlined,
   LogoutOutlined,
   RocketOutlined,
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
   { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
   { key: "magic", label: "魔学院", path: "/workspace/magic", icon: <BookOutlined /> },
+  { key: "papers", label: "考试", path: "/papers", icon: <FormOutlined /> },
 ];
 
 function resolveSection(pathname) {
@@ -29,6 +31,9 @@ function resolveSection(pathname) {
   }
   if (pathname.startsWith("/workspace/magic") || pathname.startsWith("/magic-academy")) {
     return "魔学院";
+  }
+  if (pathname.startsWith("/papers")) {
+    return "考试";
   }
   return "用户首页";
 }
@@ -55,9 +60,9 @@ export default function UserLayout() {
       <header className="user-layout__header">
         <div className="user-layout__header-inner">
           <button type="button" className="user-layout__brand" onClick={() => navigate("/home")}>
-            <div className="user-layout__brand-mark">商</div>
+            <div className="user-layout__brand-mark">怀</div>
             <div className="user-layout__brand-copy">
-              <strong>商学院 AI 培训</strong>
+              <strong>怀仁商学院</strong>
               <span>{currentSection}</span>
             </div>
           </button>
@@ -66,7 +71,8 @@ export default function UserLayout() {
             {NAV_ITEMS.map((item) => {
               const active = location.pathname === item.path
                 || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
-                || (item.key === "magic" && resolveSection(location.pathname) === "魔学院");
+                || (item.key === "magic" && resolveSection(location.pathname) === "魔学院")
+                || (item.key === "papers" && resolveSection(location.pathname) === "考试");
 
               return (
                 <button

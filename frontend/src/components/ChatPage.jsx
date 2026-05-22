@@ -77,7 +77,7 @@ export default function ChatPage() {
   };
 
   const stageLabel = STAGE_LABELS[state.current_stage] || state.current_stage || "进行中";
-  const sessionTitle = isExam ? "考试中" : "训练中";
+  const sessionTitle = isExam ? "通关中" : "训练中";
   const sessionSubtitle = [active?.training_type, active?.difficulty, active?.customer_type]
     .filter(Boolean)
     .join(" · ");
@@ -135,7 +135,7 @@ export default function ChatPage() {
 
   const handleFinish = () => {
     modal.confirm({
-      title: isExam ? "提交考试？" : "结束训练？",
+      title: isExam ? "提交通关？" : "结束训练？",
       content: isExam ? "提交后生成结果。" : "结束后生成复盘。",
       okText: isExam ? "提交" : "结束",
       cancelText: "继续",
@@ -186,7 +186,7 @@ export default function ChatPage() {
     {
       key: "brief",
       icon: <InfoCircleOutlined />,
-      label: isExam ? "考试说明" : "训练说明",
+      label: isExam ? "通关说明" : "训练说明",
       onClick: () => setBriefOpen(true),
     },
     !isExam && {
@@ -214,7 +214,7 @@ export default function ChatPage() {
               <Title level={3} style={{ margin: 0 }}>
                 {sessionTitle}
               </Title>
-              {isExam ? <Tag color="error">考试</Tag> : <Tag color="blue">训练</Tag>}
+              {isExam ? <Tag color="error">通关</Tag> : <Tag color="blue">训练</Tag>}
             </Space>
             <Text type="secondary">{sessionSubtitle || "继续对话"}</Text>
           </div>
@@ -229,7 +229,7 @@ export default function ChatPage() {
             disabled={isFinished}
             onClick={handleFinish}
           >
-            {isExam ? "提交考试" : "结束训练"}
+            {isExam ? "提交通关" : "结束训练"}
           </Button>
           <Dropdown menu={{ items: menuItems }} placement="bottomRight" trigger={["click"]}>
             <Button icon={<EllipsisOutlined />} aria-label="更多操作" />

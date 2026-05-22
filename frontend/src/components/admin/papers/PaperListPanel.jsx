@@ -1,0 +1,291 @@
+import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, SendOutlined } from "@ant-design/icons";
+import {
+  App as AntdApp,
+  Button,
+  Col,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Row,
+  Space,
+  Switch,
+  Table,
+  Tag,
+} from "antd";
+import { useEffect, useMemo, useState } from "react";
+import {
+  createPaper,
+  deletePaper,
+  listPapers,
+  publishPaper,
+  updatePaper,
+} from "../../../lib/api.papers";
+import dayjs from "dayjs";
+import PaperEditorDrawer from "./PaperEditorDrawer";
+
+const STATUS_TAG = {
+  draft: { color: "default", text: "草稿" },
+  published: { color: "green", text: "已发布" },
+  archived: { color: "default", text: "已归档" },
+};
+
+export default function PaperListPanel() {
+  const { message, modal } = AntdApp.useApp();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [editingPaperId, setEditingPaperId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      const data = await listPapers();
+      setItems(Array.isArray(data) ? data : []);
+    } catch (err) {
+      message.error(err?.message || "加载失败。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  const remove = async (item) => {
+    try {
+      await deletePaper(item.id);
+      message.success("已删除。");
+      reload();
+    } catch (err) {
+      message.error(err?.message || "删除失败。");
+    }
+  };
+
+  const publish = async (item) => {
+    if (item.question_count <= 0) {
+      message.warning("尚未挑题，无法发布。");
+      return;
+    }
+    modal.confirm({
+      title: "确认发布该试卷？",
+      content: "发布后才能派发给用户。",
+      okText: "发布",
+      cancelText: "取消",
+      onOk: async () => {
+        try {
+          await publishPaper(item.id);
+          message.success("已发布。");
+          reload();
+        } catch (err) {
+          message.error(err?.message || "发布失败。");
+        }
+      },
+    });
+  };
+
+  const columns = [
+    { title: "ID", dataIndex: "id", width: 70 },
+    { title: "标题", dataIndex: "title" },
+    { title: "题数", dataIndex: "question_count", width: 70 },
+    {
+      title: "题型分布",
+      key: "types",
+      width: 150,
+      render: (_, row) => (
+        <Space size={4}>
+          <Tag color="blue" bordered={false}>客观 {row.objective_count}</Tag>
+          <Tag color="orange" bordered={false}>简答 {row.subjective_count}</Tag>
+        </Space>
+      ),
+    },
+    { title: "总分", dataIndex: "total_score", width: 70 },
+    { title: "及格", dataIndex: "pass_score", width: 70 },
+    {
+      title: "需复核",
+      dataIndex: "needs_manual_review",
+      width: 80,
+      render: (v) => v ? <Tag color="gold">是</Tag> : <Tag>否</Tag>,
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 90,
+      render: (v) => {
+        const cfg = STATUS_TAG[v] || { color: "default", text: v };
+        return <Tag color={cfg.color} bordered={false}>{cfg.text}</Tag>;
+      },
+    },
+    {
+      title: "更新时间",
+      dataIndex: "updated_at",
+      width: 160,
+      sorter: (a, b) => dayjs(a.updated_at || a.created_at || 0).valueOf() - dayjs(b.updated_at || b.created_at || 0).valueOf(),
+      defaultSortOrder: "descend",
+      render: (_, row) => {
+        const t = row.updated_at || row.created_at;
+        return t ? dayjs(t).format("YYYY-MM-DD HH:mm") : "—";
+      },
+    },
+    {
+      title: "操作",
+      key: "action",
+      width: 280,
+      render: (_, row) => (
+        <Space wrap>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setEditingPaperId(row.id)}>组卷</Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => setEditing({ mode: "edit", item: row })}>编辑</Button>
+          {row.status === "draft" ? (
+            <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => publish(row)}>发布</Button>
+          ) : null}
+          <Popconfirm title="确认删除该试卷？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
+        <span style={{ color: "var(--text-mute)" }}>共 {items.length} 份试卷</span>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: "create" })}>新建试卷</Button>
+      </div>
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        columns={columns}
+        pagination={{
+          current: page,
+          pageSize,
+          total: items.length,
+          showSizeChanger: true,
+          showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
+          pageSizeOptions: ["10", "20", "50", "100"],
+          onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+        }}
+        scroll={{ x: 1100 }}
+      />
+
+      {editing ? (
+        <PaperEditModal
+          key={editing.mode === "edit" ? `edit-${editing.item.id}` : "create"}
+          editing={editing}
+          onCancel={() => setEditing(null)}
+          onSaved={(created) => {
+            setEditing(null);
+            reload();
+            if (created?.id) setEditingPaperId(created.id);
+          }}
+        />
+      ) : null}
+
+      <PaperEditorDrawer
+        paperId={editingPaperId}
+        open={!!editingPaperId}
+        onClose={() => setEditingPaperId(null)}
+        onChanged={reload}
+      />
+    </>
+  );
+}
+
+function PaperEditModal({ editing, onCancel, onSaved }) {
+  const { message } = AntdApp.useApp();
+  const [form] = Form.useForm();
+
+  const initialValues = useMemo(() => {
+    if (editing.mode === "create") {
+      return {
+        pass_score: 60,
+        duration_minutes: 0,
+        auto_grade_objective: true,
+        manual_review_subjective: true,
+        shuffle_questions: false,
+        show_answer_after: "after_submit",
+      };
+    }
+    const item = editing.item;
+    return {
+      title: item.title,
+      description: item.description,
+      pass_score: item.pass_score,
+      duration_minutes: item.duration_minutes,
+      auto_grade_objective: item.auto_grade_objective,
+      manual_review_subjective: item.manual_review_subjective,
+      shuffle_questions: item.shuffle_questions,
+      show_answer_after: item.show_answer_after,
+    };
+  }, [editing]);
+
+  const submit = async () => {
+    let values;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    try {
+      if (editing.mode === "create") {
+        const created = await createPaper(values);
+        message.success("已创建。");
+        onSaved(created);
+      } else {
+        await updatePaper(editing.item.id, values);
+        message.success("已更新。");
+        onSaved(null);
+      }
+    } catch (err) {
+      message.error(err?.message || "保存失败。");
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title={editing.mode === "create" ? "新建试卷" : "编辑试卷"}
+      onCancel={onCancel}
+      onOk={submit}
+      okText="保存"
+      cancelText="取消"
+      width={620}
+      destroyOnHidden
+    >
+      <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
+        <Form.Item label="标题" name="title" rules={[{ required: true, message: "请输入标题" }]}>
+          <Input placeholder="如：销售认证模拟考 2026Q2" maxLength={120} />
+        </Form.Item>
+        <Form.Item label="说明" name="description">
+          <Input.TextArea rows={2} maxLength={500} showCount />
+        </Form.Item>
+        <Row gutter={12}>
+          <Col xs={24} sm={12}>
+            <Form.Item label="及格分" name="pass_score" rules={[{ required: true }]}>
+              <InputNumber min={0} step={1} style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item label="限时（分钟，0=不限）" name="duration_minutes">
+              <InputNumber min={0} step={5} style={{ width: "100%" }} />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Space wrap size={24}>
+          <Form.Item label="客观题自动判分" name="auto_grade_objective" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item label="简答题人工复核" name="manual_review_subjective" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item label="题目顺序打乱" name="shuffle_questions" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Space>
+      </Form>
+    </Modal>
+  );
+}

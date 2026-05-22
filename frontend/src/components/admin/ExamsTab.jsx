@@ -1,5 +1,6 @@
 import { DeleteOutlined, EyeOutlined, FileSearchOutlined, PlusOutlined } from "@ant-design/icons";
 import { Badge, Button, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
+import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
   adminCreateExam,
@@ -17,7 +18,7 @@ import ReviewView from "../ReviewView";
 const { Paragraph, Text } = Typography;
 
 const STATUS_TAGS = {
-  pending: { color: "warning", text: "待考试" },
+  pending: { color: "warning", text: "待通关" },
   in_progress: { color: "processing", text: "进行中" },
   pending_review: { color: "gold", text: "待复核" },
   passed: { color: "success", text: "已通过" },
@@ -41,7 +42,6 @@ export default function ExamsTab() {
   const [detail, setDetail] = useState(null);
   const [reviewingAttempt, setReviewingAttempt] = useState(null); // {attempt, exam}
   const [createForm] = Form.useForm();
-  const [reviewForm] = Form.useForm();
   const { message } = AntdApp.useApp();
 
   const reload = async () => {
@@ -90,7 +90,7 @@ export default function ExamsTab() {
     }
     try {
       await adminCreateExam(payload);
-      message.success("考试已派发。");
+      message.success("通关已派发。");
       setCreating(false);
       reload();
     } catch (err) {
@@ -118,16 +118,10 @@ export default function ExamsTab() {
   };
 
   const openReview = (attempt, exam) => {
-    reviewForm.resetFields();
-    reviewForm.setFieldsValue({
-      admin_score: Math.round(attempt.score || 0),
-      admin_comment: "",
-    });
     setReviewingAttempt({ attempt, exam });
   };
 
-  const submitReview = async () => {
-    const values = await reviewForm.validateFields();
+  const submitReview = async (values) => {
     try {
       const data = await adminSubmitReview(reviewingAttempt.attempt.id, {
         admin_score: values.admin_score,
@@ -200,13 +194,21 @@ export default function ExamsTab() {
       render: (_, row) => `${row.attempt_count} / ${row.max_attempts}`,
     },
     {
+      title: "派发时间",
+      dataIndex: "created_at",
+      width: 150,
+      sorter: (a, b) => dayjs(a.created_at || 0).valueOf() - dayjs(b.created_at || 0).valueOf(),
+      defaultSortOrder: "descend",
+      render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—",
+    },
+    {
       title: "操作",
       key: "action",
       width: 200,
       render: (_, row) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)}>详情</Button>
-          <Popconfirm title="确认删除该考试？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
+          <Popconfirm title="确认删除该通关？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
@@ -218,7 +220,7 @@ export default function ExamsTab() {
     <>
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <Space>
-          <span style={{ color: "var(--text-mute)" }}>共 {exams.length} 个考试</span>
+          <span style={{ color: "var(--text-mute)" }}>共 {exams.length} 个通关</span>
           {pendingCount > 0 ? (
             <Badge count={pendingCount} style={{ backgroundColor: "#f59e0b" }}>
               <Tag bordered={false} icon={<FileSearchOutlined />} color="gold" style={{ margin: 0 }}>
@@ -228,16 +230,28 @@ export default function ExamsTab() {
           ) : null}
         </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreating(true); }}>
-          派发考试
+          派发通关
         </Button>
       </div>
 
-      <Table rowKey="id" loading={loading} dataSource={exams} columns={columns} pagination={{ pageSize: 20 }} />
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={exams}
+        columns={columns}
+        pagination={{
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          pageSizeOptions: ["10", "20", "50", "100"],
+          showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
+        }}
+        scroll={{ x: 1100 }}
+      />
 
-      {/* 派发考试弹窗 */}
+      {/* 派发通关弹窗 */}
       <Modal
         open={creating}
-        title="派发考试"
+        title="派发通关"
         onCancel={() => setCreating(false)}
         onOk={submitCreate}
         okText="派发"
@@ -254,7 +268,7 @@ export default function ExamsTab() {
               filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
-          <Form.Item label="考试标题" name="title" initialValue="陪练考试">
+          <Form.Item label="通关标题" name="title" initialValue="陪练通关">
             <Input placeholder="例如：销售认证一阶" />
           </Form.Item>
           <Form.Item label="训练类型（选『随机』则每次抽取）" name="fixed_training_type" initialValue={RANDOM_SENTINEL}>
@@ -291,10 +305,10 @@ export default function ExamsTab() {
         </Form>
       </Modal>
 
-      {/* 考试详情抽屉 */}
+      {/* 通关详情抽屉 */}
       <Drawer
         open={!!detail}
-        title={detail?.exam ? `${detail.exam.title} · 详情` : "考试详情"}
+        title={detail?.exam ? `${detail.exam.title} · 详情` : "通关详情"}
         onClose={() => setDetail(null)}
         width={780}
       >
@@ -311,7 +325,7 @@ export default function ExamsTab() {
             </div>
 
             {(detail.attempts || []).length === 0 ? (
-              <Empty description="该考试尚未开始" />
+              <Empty description="该通关尚未开始" />
             ) : (
               <Tabs
                 items={(detail.attempts || []).map((a) => ({
@@ -370,38 +384,65 @@ export default function ExamsTab() {
       </Drawer>
 
       {/* 复核弹窗 */}
-      <Modal
-        open={!!reviewingAttempt}
-        title={reviewingAttempt ? `复核第 ${reviewingAttempt.attempt.attempt_no} 次（AI 分 ${Math.round(reviewingAttempt.attempt.score || 0)}）` : "复核"}
-        onCancel={() => setReviewingAttempt(null)}
-        onOk={submitReview}
-        okText="提交复核"
-        cancelText="取消"
-        width={520}
-        destroyOnHidden
-      >
-        <Form form={reviewForm} layout="vertical" preserve={false}>
-          <Form.Item
-            label="老师评分（0-100）"
-            name="admin_score"
-            rules={[
-              { required: true, message: "请填分" },
-              { type: "number", min: 0, max: 100, message: "0-100 之间" },
-            ]}
-          >
-            <InputNumber min={0} max={100} step={1} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="评语（可选）" name="admin_comment">
-            <Input.TextArea rows={4} placeholder="给学员一些反馈" maxLength={1000} showCount />
-          </Form.Item>
-          {reviewingAttempt ? (
-            <Paragraph type="secondary" style={{ margin: 0 }}>
-              本场考试 AI 占比 {Math.round(reviewingAttempt.exam.ai_weight * 100)}% / 老师占比 {Math.round((1 - reviewingAttempt.exam.ai_weight) * 100)}%；
-              及格 {reviewingAttempt.exam.pass_score} 分。
-            </Paragraph>
-          ) : null}
-        </Form>
-      </Modal>
+      {reviewingAttempt ? (
+        <ReviewAttemptModal
+          key={reviewingAttempt.attempt.id}
+          reviewing={reviewingAttempt}
+          onCancel={() => setReviewingAttempt(null)}
+          onSubmit={submitReview}
+        />
+      ) : null}
     </>
+  );
+}
+
+function ReviewAttemptModal({ reviewing, onCancel, onSubmit }) {
+  const [form] = Form.useForm();
+  const initialValues = useMemo(() => ({
+    admin_score: Math.round(reviewing.attempt.score || 0),
+    admin_comment: "",
+  }), [reviewing]);
+
+  const handleOk = async () => {
+    let values;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    await onSubmit(values);
+  };
+
+  return (
+    <Modal
+      open
+      title={`复核第 ${reviewing.attempt.attempt_no} 次（AI 分 ${Math.round(reviewing.attempt.score || 0)}）`}
+      onCancel={onCancel}
+      onOk={handleOk}
+      okText="提交复核"
+      cancelText="取消"
+      width={520}
+      destroyOnHidden
+    >
+      <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
+        <Form.Item
+          label="老师评分（0-100）"
+          name="admin_score"
+          rules={[
+            { required: true, message: "请填分" },
+            { type: "number", min: 0, max: 100, message: "0-100 之间" },
+          ]}
+        >
+          <InputNumber min={0} max={100} step={1} style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item label="评语（可选）" name="admin_comment">
+          <Input.TextArea rows={4} placeholder="给学员一些反馈" maxLength={1000} showCount />
+        </Form.Item>
+        <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
+          本场通关 AI 占比 {Math.round(reviewing.exam.ai_weight * 100)}% / 老师占比 {Math.round((1 - reviewing.exam.ai_weight) * 100)}%；
+          及格 {reviewing.exam.pass_score} 分。
+        </Typography.Paragraph>
+      </Form>
+    </Modal>
   );
 }

@@ -1,6 +1,6 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Switch, Table, Tabs, Tag, App as AntdApp } from "antd";
-import { useEffect, useState } from "react";
+import { Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Switch, Table, Tabs, App as AntdApp } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import {
   adminCreateOption,
   adminDeleteOption,
@@ -18,7 +18,6 @@ function CategoryTable({ category }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
-  const [form] = Form.useForm();
   const { message } = AntdApp.useApp();
 
   const reload = async () => {
@@ -34,34 +33,6 @@ function CategoryTable({ category }) {
   };
 
   useEffect(() => { reload(); }, [category]);
-
-  const openCreate = () => {
-    form.resetFields();
-    form.setFieldsValue({ enabled: true, sort_order: (items.length + 1) * 10 });
-    setEditing({ mode: "create" });
-  };
-  const openEdit = (item) => {
-    form.resetFields();
-    form.setFieldsValue({ value: item.value, sort_order: item.sort_order, enabled: item.enabled });
-    setEditing({ mode: "edit", item });
-  };
-
-  const submit = async () => {
-    const values = await form.validateFields();
-    try {
-      if (editing.mode === "create") {
-        await adminCreateOption({ category, ...values });
-        message.success("已新增。");
-      } else {
-        await adminUpdateOption(editing.item.id, values);
-        message.success("已更新。");
-      }
-      setEditing(null);
-      reload();
-    } catch (err) {
-      message.error(err?.message || "保存失败。");
-    }
-  };
 
   const toggleEnabled = async (item, enabled) => {
     try {
@@ -98,7 +69,7 @@ function CategoryTable({ category }) {
       width: 180,
       render: (_, row) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)}>编辑</Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => setEditing({ mode: "edit", item: row })}>编辑</Button>
           <Popconfirm title="确认删除该选项？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -111,33 +82,80 @@ function CategoryTable({ category }) {
     <>
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
         <span style={{ color: "var(--text-mute)" }}>共 {items.length} 项</span>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增选项</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: "create" })}>新增选项</Button>
       </div>
 
       <Table rowKey="id" loading={loading} dataSource={items} columns={columns} pagination={false} />
 
-      <Modal
-        open={!!editing}
-        title={editing?.mode === "create" ? "新增选项" : "编辑选项"}
-        onCancel={() => setEditing(null)}
-        onOk={submit}
-        okText="保存"
-        cancelText="取消"
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item label="选项值" name="value" rules={[{ required: true, message: "请输入" }]}>
-            <Input placeholder="例如：初购转化" />
-          </Form.Item>
-          <Form.Item label="排序（升序）" name="sort_order" initialValue={0}>
-            <InputNumber style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="启用" name="enabled" valuePropName="checked" initialValue={true}>
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {editing ? (
+        <OptionEditModal
+          key={editing.mode === "edit" ? `edit-${editing.item.id}` : "create"}
+          editing={editing}
+          category={category}
+          itemsCount={items.length}
+          onCancel={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function OptionEditModal({ editing, category, itemsCount, onCancel, onSaved }) {
+  const { message } = AntdApp.useApp();
+  const [form] = Form.useForm();
+
+  const initialValues = useMemo(() => {
+    if (editing.mode === "create") {
+      return { enabled: true, sort_order: (itemsCount + 1) * 10, value: "" };
+    }
+    const item = editing.item;
+    return { value: item.value, sort_order: item.sort_order, enabled: item.enabled };
+  }, [editing, itemsCount]);
+
+  const submit = async () => {
+    let values;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    try {
+      if (editing.mode === "create") {
+        await adminCreateOption({ category, ...values });
+        message.success("已新增。");
+      } else {
+        await adminUpdateOption(editing.item.id, values);
+        message.success("已更新。");
+      }
+      onSaved();
+    } catch (err) {
+      message.error(err?.message || "保存失败。");
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title={editing.mode === "create" ? "新增选项" : "编辑选项"}
+      onCancel={onCancel}
+      onOk={submit}
+      okText="保存"
+      cancelText="取消"
+      destroyOnHidden
+    >
+      <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
+        <Form.Item label="选项值" name="value" rules={[{ required: true, message: "请输入" }]}>
+          <Input placeholder="例如：初购转化" />
+        </Form.Item>
+        <Form.Item label="排序（升序）" name="sort_order">
+          <InputNumber style={{ width: "100%" }} />
+        </Form.Item>
+        <Form.Item label="启用" name="enabled" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
 

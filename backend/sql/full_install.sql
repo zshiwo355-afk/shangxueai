@@ -6,6 +6,7 @@
 --   migrate_v2_admin_review.sql      （考试固定参数、管理员复核与最终分）
 --   migrate_v3_magic_academy.sql     （users 扩展字段 + 魔学院相关表）
 --   migrate_v4_magic_video_oss.sql   （magic_videos OSS / 播放与上传状态等列）
+--   migrate_v8_exam_papers.sql       （考试管理：题库 / 试卷 / 派发 / 提交 / 复核 / 导入）
 --
 -- 全新库：只需执行本文件（或与之等价的 init.sql）即可，无需再跑 migrate_*.sql。
 -- 已有旧库升级：请仍按版本顺序单独执行 migrate_*.sql；勿对本文件重复执行（含 DROP）。
@@ -359,6 +360,167 @@ CREATE TABLE `magic_audio_uploads` (
   PRIMARY KEY (`id`),
   KEY `idx_magic_audio_uploads_user_month` (`user_id`, `uploaded_date`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院读书录音上传';
+
+-- ---------------------------------------------------------------------
+-- 16) question_bank — 题库（考试管理模块）
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `question_bank`;
+CREATE TABLE `question_bank` (
+  `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
+  `question_type`       VARCHAR(16)  NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
+  `stem`                TEXT         NOT NULL,
+  `options_json`        LONGTEXT     NULL,
+  `correct_answer_json` LONGTEXT     NULL,
+  `default_score`       FLOAT        NOT NULL DEFAULT 5,
+  `category`            VARCHAR(128) NOT NULL DEFAULT '',
+  `tag`                 VARCHAR(255) NOT NULL DEFAULT '',
+  `difficulty`          VARCHAR(32)  NOT NULL DEFAULT '',
+  `explanation`         TEXT         NULL,
+  `status`              VARCHAR(16)  NOT NULL DEFAULT 'active',
+  `source`              VARCHAR(32)  NOT NULL DEFAULT 'manual',
+  `created_by`          BIGINT       NOT NULL,
+  `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_question_bank_status_type` (`status`, `question_type`, `created_at`),
+  KEY `idx_question_bank_category` (`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题库';
+
+-- ---------------------------------------------------------------------
+-- 17) papers — 试卷模板
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `papers`;
+CREATE TABLE `papers` (
+  `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
+  `title`                    VARCHAR(255) NOT NULL,
+  `description`              TEXT         NULL,
+  `total_score`              FLOAT        NOT NULL DEFAULT 0,
+  `pass_score`               FLOAT        NOT NULL DEFAULT 60,
+  `duration_minutes`         INT          NOT NULL DEFAULT 0,
+  `auto_grade_objective`     TINYINT(1)   NOT NULL DEFAULT 1,
+  `manual_review_subjective` TINYINT(1)   NOT NULL DEFAULT 1,
+  `shuffle_questions`        TINYINT(1)   NOT NULL DEFAULT 0,
+  `show_answer_after`        VARCHAR(16)  NOT NULL DEFAULT 'after_submit',
+  `status`                   VARCHAR(16)  NOT NULL DEFAULT 'draft' COMMENT 'draft / published / archived',
+  `question_count`           INT          NOT NULL DEFAULT 0,
+  `created_by`               BIGINT       NOT NULL,
+  `created_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_papers_status_created` (`status`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷模板';
+
+-- ---------------------------------------------------------------------
+-- 18) paper_questions — 试卷-题目关联
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `paper_questions`;
+CREATE TABLE `paper_questions` (
+  `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+  `paper_id`       BIGINT       NOT NULL,
+  `question_id`    BIGINT       NOT NULL,
+  `score_override` FLOAT        NULL DEFAULT NULL,
+  `sort_order`     INT          NOT NULL DEFAULT 0,
+  `section_name`   VARCHAR(128) NOT NULL DEFAULT '',
+  `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_paper_questions_paper_q` (`paper_id`, `question_id`),
+  KEY `idx_paper_questions_paper_sort` (`paper_id`, `sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷-题目关联';
+
+-- ---------------------------------------------------------------------
+-- 19) paper_assignments — 试卷派发任务
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `paper_assignments`;
+CREATE TABLE `paper_assignments` (
+  `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
+  `paper_id`                 BIGINT       NOT NULL,
+  `user_id`                  BIGINT       NOT NULL,
+  `max_attempts`             INT          NOT NULL DEFAULT 1,
+  `attempt_count`            INT          NOT NULL DEFAULT 0,
+  `deadline_at`              DATETIME     NULL DEFAULT NULL,
+  `status`                   VARCHAR(16)  NOT NULL DEFAULT 'pending',
+  `wecom_push_status`        VARCHAR(16)  NOT NULL DEFAULT 'none',
+  `wecom_push_payload_json`  LONGTEXT     NULL,
+  `wecom_push_error`         TEXT         NULL,
+  `wecom_pushed_at`          DATETIME     NULL DEFAULT NULL,
+  `created_by`               BIGINT       NOT NULL,
+  `created_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_paper_assignments_paper_user` (`paper_id`, `user_id`),
+  KEY `idx_paper_assignments_user_status` (`user_id`, `status`),
+  KEY `idx_paper_assignments_paper_status` (`paper_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷派发任务';
+
+-- ---------------------------------------------------------------------
+-- 20) paper_submissions — 试卷提交主表
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `paper_submissions`;
+CREATE TABLE `paper_submissions` (
+  `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+  `assignment_id`  BIGINT       NOT NULL,
+  `paper_id`       BIGINT       NOT NULL,
+  `user_id`        BIGINT       NOT NULL,
+  `attempt_no`     INT          NOT NULL DEFAULT 1,
+  `status`         VARCHAR(16)  NOT NULL DEFAULT 'in_progress',
+  `auto_score`     FLOAT        NULL DEFAULT NULL,
+  `manual_score`   FLOAT        NULL DEFAULT NULL,
+  `final_score`    FLOAT        NULL DEFAULT NULL,
+  `is_pass`        TINYINT(1)   NULL DEFAULT NULL,
+  `started_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `submitted_at`   DATETIME     NULL DEFAULT NULL,
+  `graded_at`      DATETIME     NULL DEFAULT NULL,
+  `graded_by`      BIGINT       NULL DEFAULT NULL,
+  `comment`        TEXT         NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_paper_submissions_assign` (`assignment_id`, `attempt_no`),
+  KEY `idx_paper_submissions_status` (`status`, `submitted_at`),
+  KEY `idx_paper_submissions_user` (`user_id`, `paper_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷提交主表';
+
+-- ---------------------------------------------------------------------
+-- 21) paper_answers — 单题作答明细
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `paper_answers`;
+CREATE TABLE `paper_answers` (
+  `id`                BIGINT      NOT NULL AUTO_INCREMENT,
+  `submission_id`     BIGINT      NOT NULL,
+  `paper_question_id` BIGINT      NOT NULL,
+  `question_id`       BIGINT      NOT NULL,
+  `question_type`     VARCHAR(16) NOT NULL,
+  `answer_json`       LONGTEXT    NULL,
+  `auto_score`        FLOAT       NULL DEFAULT NULL,
+  `manual_score`      FLOAT       NULL DEFAULT NULL,
+  `final_score`       FLOAT       NULL DEFAULT NULL,
+  `is_correct`        TINYINT(1)  NULL DEFAULT NULL,
+  `comment`           TEXT        NULL,
+  `created_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_paper_answers_sub_pq` (`submission_id`, `paper_question_id`),
+  KEY `idx_paper_answers_submission` (`submission_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷单题作答';
+
+-- ---------------------------------------------------------------------
+-- 22) question_import_jobs — 题库导入任务
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `question_import_jobs`;
+CREATE TABLE `question_import_jobs` (
+  `id`              BIGINT       NOT NULL AUTO_INCREMENT,
+  `created_by`      BIGINT       NOT NULL,
+  `source`          VARCHAR(16)  NOT NULL DEFAULT 'excel',
+  `original_name`   VARCHAR(255) NOT NULL DEFAULT '',
+  `total_rows`      INT          NOT NULL DEFAULT 0,
+  `valid_rows`      INT          NOT NULL DEFAULT 0,
+  `invalid_rows`    INT          NOT NULL DEFAULT 0,
+  `rows_json`       LONGTEXT     NOT NULL,
+  `committed`       TINYINT(1)   NOT NULL DEFAULT 0,
+  `committed_count` INT          NOT NULL DEFAULT 0,
+  `committed_at`    DATETIME     NULL DEFAULT NULL,
+  `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_question_import_jobs_creator` (`created_by`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题库导入任务流水';
 
 SET FOREIGN_KEY_CHECKS = 1;
 

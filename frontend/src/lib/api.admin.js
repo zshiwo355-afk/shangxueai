@@ -1,4 +1,4 @@
-/** 管理员 API：用户 CRUD + 考试 CRUD。 */
+/** 管理员 API：用户 CRUD + AI 通关 CRUD。 */
 import { deleteJson, getJson, postJson, putJson } from "./http";
 
 // ---- 用户 ----
@@ -18,18 +18,18 @@ export async function adminDeleteUser(id) {
   return deleteJson(`/api/admin/users/${id}`, "删除用户失败。");
 }
 
-// ---- 考试 ----
+// ---- AI 通关 ----
 export async function adminListExams() {
-  return getJson("/api/admin/exams", "考试列表加载失败。");
+  return getJson("/api/admin/exams", "通关列表加载失败。");
 }
 export async function adminCreateExam(payload) {
-  return postJson("/api/admin/exams", payload, "派发考试失败。");
+  return postJson("/api/admin/exams", payload, "派发通关失败。");
 }
 export async function adminGetExamDetail(id) {
-  return getJson(`/api/admin/exams/${id}`, "考试详情加载失败。");
+  return getJson(`/api/admin/exams/${id}`, "通关详情加载失败。");
 }
 export async function adminDeleteExam(id) {
-  return deleteJson(`/api/admin/exams/${id}`, "删除考试失败。");
+  return deleteJson(`/api/admin/exams/${id}`, "删除通关失败。");
 }
 export async function adminListPendingReview() {
   return getJson("/api/admin/exams/pending-review", "待复核列表加载失败。");
