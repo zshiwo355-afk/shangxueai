@@ -5131,3 +5131,509 @@ body {
   .paper-take__stem { font-size: 16px !important; }
   .paper-take__option { padding: 12px 14px; }
 }
+
+/* ========== User papers refresh ========== */
+.paper-page-hero,
+.paper-assignment-card,
+.paper-feedback-card,
+.paper-empty-card,
+.paper-answer-card {
+  border-radius: 22px !important;
+  border: 1px solid rgba(30, 41, 59, 0.08) !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05) !important;
+}
+
+.paper-page-hero {
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.10), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%) !important;
+}
+
+.paper-page-hero .ant-card-body {
+  padding: 28px 30px !important;
+}
+
+.paper-page-hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.paper-page-hero__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paper-page-hero__eyebrow,
+.paper-take__hero-eyebrow,
+.paper-feedback-card__eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(66, 111, 159, 0.10);
+  color: var(--accent-deep, #426f9f);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.paper-page-hero__copy h3,
+.paper-take__hero-copy h2 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: var(--text-base);
+}
+
+.paper-page-hero__copy .ant-typography,
+.paper-take__hero-copy .ant-typography {
+  margin-bottom: 0;
+  color: var(--text-mute);
+  line-height: 1.8;
+}
+
+.paper-page-hero__stats,
+.paper-take__hero-stats,
+.paper-result-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.paper-page-hero__stat,
+.paper-take__hero-stat,
+.paper-result-overview__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 110px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.06);
+}
+
+.paper-page-hero__stat span,
+.paper-take__hero-stat span,
+.paper-result-overview__metric span,
+.paper-assignment-card__metric span,
+.paper-answer-card__label {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+.paper-page-hero__stat strong,
+.paper-take__hero-stat strong,
+.paper-result-overview__metric strong,
+.paper-assignment-card__metric strong {
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--text-base);
+}
+
+.paper-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.paper-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.paper-section__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.paper-section__head h3 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.paper-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.paper-section__pager {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.paper-assignment-card {
+  background: #fff !important;
+}
+
+.paper-assignment-card .ant-card-body {
+  padding: 22px 24px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.paper-assignment-card__head,
+.paper-assignment-card__foot,
+.paper-answer-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.paper-assignment-card__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.paper-assignment-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(66, 111, 159, 0.12);
+  color: var(--accent-deep, #426f9f);
+  font-size: 18px;
+}
+
+.paper-assignment-card__title h4,
+.paper-answer-card__title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--text-base);
+}
+
+.paper-assignment-card__desc {
+  margin-bottom: 0 !important;
+  color: var(--text-mute);
+  line-height: 1.8;
+}
+
+.paper-assignment-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.paper-assignment-card__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 96px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #ffffff);
+  border: 1px solid rgba(30, 41, 59, 0.06);
+}
+
+.paper-assignment-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.paper-feedback-card .ant-card-body {
+  padding: 22px 24px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paper-result-overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.paper-answer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.paper-answer-card {
+  background: #fff !important;
+}
+
+.paper-answer-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px !important;
+}
+
+.paper-answer-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding-top: 4px;
+}
+
+.paper-answer-card__stem {
+  margin: 0 !important;
+  white-space: pre-wrap;
+  color: var(--text-base) !important;
+  line-height: 1.85 !important;
+  font-size: 16px !important;
+}
+
+.paper-answer-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.paper-answer-card__option {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.07);
+}
+
+.paper-answer-card__option.is-user {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.07);
+}
+
+.paper-answer-card__option.is-correct {
+  border-color: rgba(34, 197, 94, 0.32);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.paper-answer-card__option.is-wrong {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.paper-answer-card__option-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.06);
+  color: var(--text-base);
+  font-weight: 700;
+}
+
+.paper-answer-card__option-text {
+  line-height: 1.7;
+  color: var(--text-base);
+}
+
+.paper-answer-card__block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.06);
+}
+
+.paper-answer-card__block--success {
+  background: rgba(34, 197, 94, 0.07);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.paper-take {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+.paper-take__bar-main,
+.paper-take__bar-copy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.paper-take__bar-copy {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.paper-take__bar-copy strong {
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text-base);
+}
+
+.paper-take__hero {
+  margin-top: 24px;
+  padding: 28px 30px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border: 1px solid rgba(30, 41, 59, 0.08);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05);
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 1fr);
+  gap: 22px;
+}
+
+.paper-take__hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paper-take__hero-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.paper-take__body {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.paper-take__sidebar {
+  top: 92px;
+  border-radius: 20px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+}
+
+.paper-take__chip {
+  height: 36px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.paper-take__hint {
+  padding: 12px 14px;
+  border-radius: 12px;
+  line-height: 1.7;
+}
+
+.paper-take__qcard.ant-card {
+  border-radius: 24px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+}
+
+.paper-take__qcard.ant-card .ant-card-body {
+  padding: 30px 32px;
+}
+
+.paper-take__qhead {
+  padding-bottom: 18px;
+}
+
+.paper-take__qhead-left {
+  gap: 10px;
+}
+
+.paper-take__qnum {
+  font-size: 24px;
+}
+
+.paper-take__option {
+  padding: 15px 18px;
+  border-radius: 14px;
+}
+
+.paper-take__option-letter {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-weight: 700;
+}
+
+.paper-take__blank-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+@media (max-width: 1080px) {
+  .paper-page-hero__grid,
+  .paper-take__hero,
+  .paper-assignment-card__metrics,
+  .paper-result-overview {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 880px) {
+  .paper-page-hero .ant-card-body,
+  .paper-assignment-card .ant-card-body,
+  .paper-feedback-card .ant-card-body,
+  .paper-answer-card .ant-card-body,
+  .paper-take__qcard.ant-card .ant-card-body {
+    padding: 20px 18px !important;
+  }
+
+  .paper-page-hero__copy h3,
+  .paper-take__hero-copy h2 {
+    font-size: 24px;
+  }
+
+  .paper-take__hero {
+    padding: 22px 18px;
+  }
+
+  .paper-take__body {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .paper-take__sidebar {
+    position: relative;
+    top: 0;
+  }
+
+  .paper-answer-card__option {
+    grid-template-columns: 34px 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .paper-page-hero__stats,
+  .paper-take__hero-stats,
+  .paper-result-overview,
+  .paper-assignment-card__metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .paper-take__bar-main {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .paper-assignment-card__title h4,
+  .paper-answer-card__title {
+    font-size: 18px;
+  }
+
+  .paper-answer-card__option,
+  .paper-take__blank-row {
+    grid-template-columns: 1fr;
+  }
+
+  .paper-take__nav {
+    flex-wrap: wrap;
+  }
+}

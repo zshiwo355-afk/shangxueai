@@ -1,21 +1,24 @@
-import { ArrowLeftOutlined, CheckCircleTwoTone, CloseCircleTwoTone, MinusCircleTwoTone } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  CheckCircleTwoTone,
+  CloseCircleTwoTone,
+  MinusCircleTwoTone,
+} from "@ant-design/icons";
 import {
   Alert,
   App as AntdApp,
   Button,
   Card,
   Empty,
-  Result,
   Space,
-  Statistic,
   Tag,
   Typography,
 } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMySubmissionResult } from "../../../lib/api.userPapers";
 
-const { Paragraph, Title, Text } = Typography;
+const { Paragraph, Text } = Typography;
 
 const TYPE_COLOR = {
   single: "blue",
@@ -29,17 +32,34 @@ function letterFor(idx) {
   return String.fromCharCode("A".charCodeAt(0) + idx);
 }
 
-function fmtScore(v) {
-  if (v == null) return "-";
-  return Math.round(v * 10) / 10;
+function fmtScore(value) {
+  if (value == null) return "-";
+  return Math.round(value * 10) / 10;
 }
 
-function correctnessIcon(ans) {
-  if (ans.is_objective) {
-    if (ans.is_correct === true) return <CheckCircleTwoTone twoToneColor="#52c41a" />;
-    if (ans.is_correct === false) return <CloseCircleTwoTone twoToneColor="#cf1322" />;
+function formatTime(value) {
+  if (!value) return "-";
+  return String(value).slice(0, 16).replace("T", " ");
+}
+
+function correctnessIcon(answer) {
+  if (answer.is_objective) {
+    if (answer.is_correct === true) return <CheckCircleTwoTone twoToneColor="#52c41a" />;
+    if (answer.is_correct === false) return <CloseCircleTwoTone twoToneColor="#cf1322" />;
   }
   return <MinusCircleTwoTone twoToneColor="#faad14" />;
+}
+
+function scoreTone(status, isPass) {
+  if (status !== "graded") return undefined;
+  return isPass ? "#15803d" : "#c2410c";
+}
+
+function answerStateText(answer) {
+  if (!answer.is_objective) return "主观题 / 人工评分";
+  if (answer.is_correct === true) return "本题回答正确";
+  if (answer.is_correct === false) return "本题回答错误";
+  return "等待判分";
 }
 
 export default function UserPaperResultPage() {
@@ -53,185 +73,239 @@ export default function UserPaperResultPage() {
     let alive = true;
     (async () => {
       try {
-        const res = await fetchMySubmissionResult(submissionId);
-        if (alive) setData(res);
+        const response = await fetchMySubmissionResult(submissionId);
+        if (alive) setData(response);
       } catch (err) {
-        if (alive) message.error(err?.message || "加载失败。");
+        if (alive) message.error(err?.message || "答卷加载失败。");
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
-  }, [submissionId, message]);
+    return () => {
+      alive = false;
+    };
+  }, [message, submissionId]);
 
-  if (loading) return <Card loading style={{ maxWidth: 880, margin: "24px auto" }} />;
-  if (!data) return <Empty description="未找到答卷" style={{ marginTop: 80 }} />;
+  const answerSummary = useMemo(() => {
+    const answers = data?.answers || [];
+    return answers.reduce(
+      (acc, answer) => {
+        if (answer.is_correct === true) acc.correct += 1;
+        if (answer.is_correct === false) acc.incorrect += 1;
+        if (!answer.is_objective) acc.subjective += 1;
+        return acc;
+      },
+      { correct: 0, incorrect: 0, subjective: 0 },
+    );
+  }, [data]);
 
-  const { submission: s, paper, answers, show_answer: showAnswer } = data;
-  const isPending = s.status === "submitted";
-  const isGraded = s.status === "graded";
+  if (loading) {
+    return <Card className="paper-assignment-card" loading bordered={false} style={{ maxWidth: 1120, margin: "24px auto" }} />;
+  }
+
+  if (!data) {
+    return (
+      <div className="page-shell page-shell--wide page-shell--minimal">
+        <Card className="paper-empty-card" bordered={false}>
+          <Empty description="未找到这次答卷" />
+        </Card>
+      </div>
+    );
+  }
+
+  const { submission, paper, answers, show_answer: showAnswer } = data;
+  const isPending = submission.status === "submitted";
+  const isGraded = submission.status === "graded";
+  const finalScoreText = isGraded ? fmtScore(submission.final_score) : "--";
 
   return (
-    <div style={{ maxWidth: 880, margin: "0 auto", padding: "16px" }}>
-      <Button
-        size="small"
-        icon={<ArrowLeftOutlined />}
-        onClick={() => navigate("/papers")}
-        style={{ marginBottom: 12 }}
-      >
-        返回考试列表
-      </Button>
+    <div className="page-shell page-shell--wide page-shell--minimal">
+      <div className="page-toolbar page-toolbar--stack page-toolbar--minimal">
+        <div className="page-toolbar__leading">
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/papers")}>
+            返回考试列表
+          </Button>
+          <div>
+            <h2 style={{ margin: 0 }}>{paper.title}</h2>
+            <Text type="secondary">查看本次提交成绩、老师反馈与逐题明细。</Text>
+          </div>
+        </div>
+      </div>
 
-      <Card style={{ marginBottom: 16 }}>
-        <Title level={4} style={{ marginTop: 0 }}>{paper.title}</Title>
-        <Space wrap size={24} style={{ marginTop: 8 }}>
-          <Statistic
-            title="本次成绩"
-            value={isGraded ? fmtScore(s.final_score) : "—"}
-            suffix={isGraded ? `/ ${paper.total_score}` : ""}
-            valueStyle={{ color: isGraded ? (s.is_pass ? "#3f8600" : "#cf1322") : undefined }}
-          />
-          <Statistic title="客观题得分" value={fmtScore(s.auto_score)} />
-          {isGraded ? (
-            <Statistic
-              title="结果"
-              valueRender={() => (s.is_pass
-                ? <Tag color="success" style={{ fontSize: 14 }}>合格 ✓</Tag>
-                : <Tag color="error" style={{ fontSize: 14 }}>不合格 ✗</Tag>)}
-              value=" "
-            />
-          ) : null}
-          <Statistic title="第几次" value={`第 ${s.attempt_no} 次`} />
-          <Statistic title="提交时间" valueStyle={{ fontSize: 14 }} value={String(s.submitted_at || "").slice(0, 16).replace("T", " ")} />
-        </Space>
+      <Card className="paper-page-hero paper-page-hero--result" bordered={false}>
+        <div className="paper-page-hero__grid">
+          <div className="paper-page-hero__copy">
+            <Space size={[8, 8]} wrap>
+              <Tag bordered={false} color={isGraded ? (submission.is_pass ? "success" : "error") : "processing"}>
+                {isGraded ? (submission.is_pass ? "已通过" : "未通过") : "待复核"}
+              </Tag>
+              <Tag bordered={false}>第 {submission.attempt_no} 次提交</Tag>
+              <Tag bordered={false}>{formatTime(submission.submitted_at)}</Tag>
+            </Space>
+            <h3>这次作答的成绩和批注都在这里，方便你直接回看。</h3>
+            <Paragraph>
+              {isPending
+                ? "当前成绩还在等待人工复核，客观题分数已经先展示给你。"
+                : "你可以结合分数、老师评语和逐题解析，快速定位需要补强的知识点。"}
+            </Paragraph>
+          </div>
+
+          <div className="paper-page-hero__stats">
+            <div className="paper-page-hero__stat">
+              <span>最终成绩</span>
+              <strong style={{ color: scoreTone(submission.status, submission.is_pass) }}>{finalScoreText}</strong>
+            </div>
+            <div className="paper-page-hero__stat">
+              <span>客观题得分</span>
+              <strong>{fmtScore(submission.auto_score)}</strong>
+            </div>
+            <div className="paper-page-hero__stat">
+              <span>总分 / 及格线</span>
+              <strong>{`${paper.total_score} / ${paper.pass_score}`}</strong>
+            </div>
+            <div className="paper-page-hero__stat">
+              <span>主观题数量</span>
+              <strong>{answerSummary.subjective}</strong>
+            </div>
+          </div>
+        </div>
       </Card>
+
+      <div className="paper-result-overview">
+        <div className="paper-result-overview__metric">
+          <span>答对题目</span>
+          <strong>{answerSummary.correct}</strong>
+        </div>
+        <div className="paper-result-overview__metric">
+          <span>答错题目</span>
+          <strong>{answerSummary.incorrect}</strong>
+        </div>
+        <div className="paper-result-overview__metric">
+          <span>总题量</span>
+          <strong>{answers?.length || 0}</strong>
+        </div>
+        <div className="paper-result-overview__metric">
+          <span>答案开放</span>
+          <strong>{showAnswer ? "已展示" : "未展示"}</strong>
+        </div>
+      </div>
 
       {isPending ? (
         <Alert
           type="warning"
           showIcon
-          message="待人工复核"
-          description="本卷含简答题，需老师复核完成后才会出最终成绩。"
-          style={{ marginBottom: 16 }}
+          message="本次答卷正在等待人工复核"
+          description="如果试卷中包含简答题或填空题，老师复核完成后才会出现最终成绩和通过状态。"
         />
       ) : null}
 
-      {isGraded && s.comment ? (
-        <Alert
-          type="info"
-          showIcon
-          message="老师评语"
-          description={<Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>{s.comment}</Paragraph>}
-          style={{ marginBottom: 16 }}
-        />
+      {isGraded && submission.comment ? (
+        <Card className="paper-feedback-card" bordered={false}>
+          <span className="paper-feedback-card__eyebrow">老师评语</span>
+          <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+            {submission.comment}
+          </Paragraph>
+        </Card>
       ) : null}
 
       {!showAnswer && paper.show_answer_after === "after_graded" && !isGraded ? (
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
-          message="复核完成后才会展示正确答案。"
+          message="正确答案会在复核完成后展示"
         />
       ) : null}
 
-      {(answers || []).map((ans, idx) => (
-        <Card
-          key={ans.id}
-          style={{ marginBottom: 16 }}
-          title={
-            <Space>
-              <span>第 {idx + 1} 题</span>
-              <Tag bordered={false} color={TYPE_COLOR[ans.question_type] || "default"}>
-                {ans.question_type_label}
-              </Tag>
-              {correctnessIcon(ans)}
-              <Tag>得分 {fmtScore(ans.final_score ?? ans.auto_score)} / {ans.score}</Tag>
-            </Space>
-          }
-        >
-          <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 12 }}>{ans.stem}</Paragraph>
-
-          {ans.options && ans.options.length ? (
-            <div style={{ marginBottom: 12 }}>
-              {ans.options.map((opt, i) => {
-                const letter = letterFor(i);
-                const userPicked = ans.user_answer.includes(letter);
-                const isCorrect = showAnswer && ans.correct_answer.includes(letter);
-                let bg = "transparent";
-                let border = "1px solid var(--line-soft, #eee)";
-                if (isCorrect) {
-                  bg = "rgba(82,196,26,.12)";
-                  border = "1px solid #52c41a";
-                } else if (userPicked && showAnswer && !isCorrect) {
-                  bg = "rgba(207,19,34,.08)";
-                  border = "1px solid #cf1322";
-                } else if (userPicked) {
-                  bg = "rgba(22,119,255,.08)";
-                  border = "1px solid #1677ff";
-                }
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      padding: "8px 12px",
-                      marginBottom: 6,
-                      borderRadius: 6,
-                      background: bg,
-                      border,
-                    }}
-                  >
-                    <Space>
-                      <Tag>{letter}</Tag>
-                      <span>{opt}</span>
-                      {userPicked ? <Tag color="blue" bordered={false}>你的选择</Tag> : null}
-                      {isCorrect ? <Tag color="success" bordered={false}>正确</Tag> : null}
-                    </Space>
-                  </div>
-                );
-              })}
+      <div className="paper-answer-stack">
+        {(answers || []).map((answer, idx) => (
+          <Card key={answer.id} className="paper-answer-card" bordered={false}>
+            <div className="paper-answer-card__head">
+              <div>
+                <Space size={[8, 8]} wrap>
+                  <span className="paper-answer-card__title">第 {idx + 1} 题</span>
+                  <Tag bordered={false} color={TYPE_COLOR[answer.question_type] || "default"}>
+                    {answer.question_type_label}
+                  </Tag>
+                  <Tag bordered={false}>得分 {fmtScore(answer.final_score ?? answer.auto_score)} / {answer.score}</Tag>
+                </Space>
+                <Text type="secondary">{answerStateText(answer)}</Text>
+              </div>
+              <div className="paper-answer-card__icon">
+                {correctnessIcon(answer)}
+              </div>
             </div>
-          ) : null}
 
-          {/* 非选择题展示用户答案 */}
-          {(!ans.options || !ans.options.length) ? (
-            <div style={{ marginBottom: 12 }}>
-              <Text type="secondary">你的答案：</Text>
-              {ans.user_answer.length ? (
-                <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                  {ans.user_answer.join(" | ")}
+            <Paragraph className="paper-answer-card__stem">
+              {answer.stem}
+            </Paragraph>
+
+            {answer.options && answer.options.length ? (
+              <div className="paper-answer-card__options">
+                {answer.options.map((option, optionIndex) => {
+                  const letter = letterFor(optionIndex);
+                  const userPicked = answer.user_answer.includes(letter);
+                  const correctPicked = showAnswer && answer.correct_answer.includes(letter);
+                  const optionClass = [
+                    "paper-answer-card__option",
+                    userPicked ? "is-user" : "",
+                    correctPicked ? "is-correct" : "",
+                    userPicked && showAnswer && !correctPicked ? "is-wrong" : "",
+                  ].filter(Boolean).join(" ");
+
+                  return (
+                    <div key={letter} className={optionClass}>
+                      <span className="paper-answer-card__option-letter">{letter}</span>
+                      <span className="paper-answer-card__option-text">{option}</span>
+                      <Space size={[6, 6]} wrap>
+                        {userPicked ? <Tag bordered={false} color="blue">你的选择</Tag> : null}
+                        {correctPicked ? <Tag bordered={false} color="success">正确答案</Tag> : null}
+                      </Space>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="paper-answer-card__block">
+                <span className="paper-answer-card__label">你的答案</span>
+                {answer.user_answer.length ? (
+                  <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                    {answer.user_answer.join(" | ")}
+                  </Paragraph>
+                ) : (
+                  <Text type="secondary">未作答</Text>
+                )}
+              </div>
+            )}
+
+            {showAnswer && answer.correct_answer.length && (!answer.options || !answer.options.length) ? (
+              <div className="paper-answer-card__block paper-answer-card__block--success">
+                <span className="paper-answer-card__label">参考答案</span>
+                <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                  {answer.correct_answer.join(" | ")}
                 </Paragraph>
-              ) : <Text type="secondary">（未作答）</Text>}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
 
-          {showAnswer && ans.correct_answer.length && (!ans.options || !ans.options.length) ? (
-            <div style={{ marginBottom: 12 }}>
-              <Text strong type="success">参考答案：</Text>
-              <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-                {ans.correct_answer.join(" | ")}
-              </Paragraph>
-            </div>
-          ) : null}
+            {showAnswer && answer.explanation ? (
+              <Alert
+                type="info"
+                showIcon
+                message="解析"
+                description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.explanation}</span>}
+              />
+            ) : null}
 
-          {showAnswer && ans.explanation ? (
-            <Alert
-              type="info"
-              message="解析"
-              description={<span style={{ whiteSpace: "pre-wrap" }}>{ans.explanation}</span>}
-            />
-          ) : null}
-
-          {ans.comment ? (
-            <Alert
-              type="success"
-              style={{ marginTop: 12 }}
-              message="老师批注"
-              description={<span style={{ whiteSpace: "pre-wrap" }}>{ans.comment}</span>}
-            />
-          ) : null}
-        </Card>
-      ))}
+            {answer.comment ? (
+              <Alert
+                type="success"
+                showIcon
+                message="老师批注"
+                description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.comment}</span>}
+              />
+            ) : null}
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
