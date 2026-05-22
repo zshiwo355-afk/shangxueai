@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, SendOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, EyeOutlined, InboxOutlined, PlusOutlined, RedoOutlined, SendOutlined } from "@ant-design/icons";
 import {
   App as AntdApp,
   Button,
@@ -64,6 +64,16 @@ export default function PaperListPanel() {
     }
   };
 
+  const setStatus = async (item, status) => {
+    try {
+      await updatePaper(item.id, { status });
+      message.success(status === "archived" ? "已归档。" : status === "published" ? "已重新发布。" : "已恢复为草稿。");
+      reload();
+    } catch (err) {
+      message.error(err?.message || "更新状态失败。");
+    }
+  };
+
   const publish = async (item) => {
     if (item.question_count <= 0) {
       message.warning("尚未挑题，无法发布。");
@@ -87,13 +97,13 @@ export default function PaperListPanel() {
   };
 
   const columns = [
-    { title: "ID", dataIndex: "id", width: 70 },
-    { title: "标题", dataIndex: "title" },
+    { title: "ID", dataIndex: "id", width: 60 },
+    { title: "标题", dataIndex: "title", width: 220, ellipsis: true },
     { title: "题数", dataIndex: "question_count", width: 70 },
     {
       title: "题型分布",
       key: "types",
-      width: 150,
+      width: 130,
       render: (_, row) => (
         <Space size={4}>
           <Tag color="blue" bordered={false}>客观 {row.objective_count}</Tag>
@@ -121,7 +131,7 @@ export default function PaperListPanel() {
     {
       title: "更新时间",
       dataIndex: "updated_at",
-      width: 160,
+      width: 150,
       sorter: (a, b) => dayjs(a.updated_at || a.created_at || 0).valueOf() - dayjs(b.updated_at || b.created_at || 0).valueOf(),
       defaultSortOrder: "descend",
       render: (_, row) => {
@@ -132,7 +142,8 @@ export default function PaperListPanel() {
     {
       title: "操作",
       key: "action",
-      width: 280,
+      width: 380,
+      fixed: "right",
       render: (_, row) => (
         <Space wrap>
           <Button size="small" icon={<EyeOutlined />} onClick={() => setEditingPaperId(row.id)}>组卷</Button>
@@ -140,7 +151,15 @@ export default function PaperListPanel() {
           {row.status === "draft" ? (
             <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => publish(row)}>发布</Button>
           ) : null}
-          <Popconfirm title="确认删除该试卷？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
+          {row.status === "published" ? (
+            <Popconfirm title="确认归档该试卷？" description="归档后不再出现在派发列表中。" onConfirm={() => setStatus(row, "archived")} okText="归档" cancelText="取消">
+              <Button size="small" icon={<InboxOutlined />}>归档</Button>
+            </Popconfirm>
+          ) : null}
+          {row.status === "archived" ? (
+            <Button size="small" icon={<RedoOutlined />} onClick={() => setStatus(row, "published")}>重新发布</Button>
+          ) : null}
+          <Popconfirm title="确认删除该试卷？" description="已派发的试卷请改为归档。" onConfirm={() => remove(row)} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
@@ -168,7 +187,7 @@ export default function PaperListPanel() {
           pageSizeOptions: ["10", "20", "50", "100"],
           onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1320 }}
       />
 
       {editing ? (

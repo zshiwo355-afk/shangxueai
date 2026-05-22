@@ -322,3 +322,41 @@ async def delete_question(
     if res.rowcount == 0:
         raise HTTPException(status_code=404, detail="题目不存在。")
     return {"success": True}
+
+
+# ---------------- 批量操作 ----------------
+
+
+class BulkIdsPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+
+
+class BulkStatusPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+    status: str = Field(..., pattern="^(active|archived)$")
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_questions(
+    payload: BulkIdsPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    res = await db.execute(sql_delete(QuestionBank).where(QuestionBank.id.in_(payload.ids)))
+    return {"success": True, "deleted": int(res.rowcount or 0)}
+
+
+@router.post("/bulk-status")
+async def bulk_set_question_status(
+    payload: BulkStatusPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    rows = (
+        await db.execute(select(QuestionBank).where(QuestionBank.id.in_(payload.ids)))
+    ).scalars().all()
+    for q in rows:
+        q.status = payload.status
+    return {"success": True, "updated": len(rows)}

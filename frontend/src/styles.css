@@ -645,62 +645,330 @@ body {
 
 /* ============ 登录页 ============ */
 
-.login-screen {
+/* 企业级双栏：左侧品牌叙事 / 右侧表单 */
+.auth-shell {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-  background:
-    radial-gradient(circle at 18% -5%, rgba(22, 119, 255, 0.10), transparent 55%),
-    radial-gradient(circle at 82% 105%, rgba(64, 150, 255, 0.10), transparent 55%),
-    var(--bg-canvas);
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, 0.9fr);
+  background: var(--bg-canvas);
 }
 
-.login-card {
+/* —— 左侧品牌区 —— */
+.auth-shell__brand {
+  position: relative;
+  overflow: hidden;
+  padding: 56px 64px 48px;
+  color: #f4ede0;
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(125, 165, 212, 0.32), transparent 55%),
+    radial-gradient(120% 80% at 0% 100%, rgba(214, 183, 138, 0.18), transparent 55%),
+    linear-gradient(155deg, #1d2a3a 0%, #243a52 55%, #2c4a68 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-shell__watermark {
+  position: absolute;
+  right: -40px;
+  top: -60px;
+  font-family: "Source Han Serif SC", "Noto Serif SC", serif;
+  font-weight: 700;
+  font-size: 480px;
+  line-height: 1;
+  color: rgba(244, 237, 224, 0.05);
+  letter-spacing: -0.04em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.auth-shell__brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 48px;
+  max-width: 540px;
+}
+
+.auth-shell__logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.auth-shell__logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #588bc8 0%, #7da5d4 100%);
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(88, 139, 200, 0.32);
+}
+
+.auth-shell__logo-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.auth-shell__logo-copy strong {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #f8f1e3;
+}
+
+.auth-shell__logo-copy span {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(244, 237, 224, 0.55);
+}
+
+.auth-shell__hero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: auto;
+}
+
+.auth-shell__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgba(244, 237, 224, 0.7);
+}
+
+.auth-shell__eyebrow::before {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  margin-right: 12px;
+  opacity: 0.55;
+}
+
+.auth-shell__title {
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1.18;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: #f8f1e3;
+}
+
+.auth-shell__lead {
+  font-size: 15px;
+  line-height: 1.85;
+  color: rgba(244, 237, 224, 0.75);
+  margin: 0;
+  max-width: 460px;
+}
+
+.auth-shell__features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-shell__features li {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.auth-shell__feature-num {
+  font-family: "Inter", "Geist", "Helvetica Neue", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(244, 237, 224, 0.45);
+  padding-top: 2px;
+  min-width: 24px;
+}
+
+.auth-shell__features li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.auth-shell__features strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8f1e3;
+  letter-spacing: 0.02em;
+}
+
+.auth-shell__features span {
+  font-size: 13px;
+  color: rgba(244, 237, 224, 0.55);
+  line-height: 1.6;
+}
+
+.auth-shell__footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(244, 237, 224, 0.4);
+  letter-spacing: 0.04em;
+  padding-top: 12px;
+  border-top: 1px solid rgba(244, 237, 224, 0.10);
+}
+
+/* —— 右侧表单区 —— */
+.auth-shell__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 48px 56px;
+  background: #ffffff;
+  border-left: 1px solid var(--line-soft);
+}
+
+.auth-shell__panel-inner {
   width: 100%;
   max-width: 380px;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 32px 28px 24px;
-  box-shadow: 0 8px 30px rgba(31, 41, 55, 0.08);
-}
-
-.login-emblem {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  margin: 0 auto 16px;
-  background: linear-gradient(135deg, #1677ff 0%, #4096ff 100%);
-  color: #fff;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  font-weight: 600;
-  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.32);
+  flex-direction: column;
+  gap: 32px;
 }
 
-.login-title {
-  text-align: center;
-  font-size: 22px;
-  font-weight: 600;
-  margin: 0 0 4px;
+.auth-shell__panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.login-subtitle {
-  text-align: center;
+.auth-shell__panel-head .auth-shell__eyebrow {
+  color: var(--accent-deep);
+}
+
+.auth-shell__panel-head h2 {
+  margin: 4px 0 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-base);
+}
+
+.auth-shell__panel-head p {
+  margin: 0;
   color: var(--text-mute);
-  margin: 0 0 24px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
-.login-hint {
-  text-align: center;
+/* 表单细节：去掉 placeholder 提示味道，强化 label */
+.auth-shell__form .ant-form-item {
+  margin-bottom: 18px;
+}
+
+.auth-shell__form .ant-form-item-label > label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-base);
+  letter-spacing: 0.04em;
+  height: auto;
+  margin-bottom: 4px;
+}
+
+.auth-shell__form .ant-input-affix-wrapper,
+.auth-shell__form .ant-input-affix-wrapper-lg {
+  border-radius: 10px;
+  border-color: var(--line);
+  padding: 8px 14px;
+  background: #fff;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.auth-shell__form .ant-input-affix-wrapper:hover {
+  border-color: var(--accent-light);
+}
+
+.auth-shell__form .ant-input-affix-wrapper:focus-within,
+.auth-shell__form .ant-input-affix-wrapper-focused {
+  border-color: var(--accent-deep);
+  box-shadow: 0 0 0 3px rgba(88, 139, 200, 0.14);
+}
+
+.auth-shell__form .ant-input-affix-wrapper .anticon {
   color: var(--text-faint);
+}
+
+.auth-shell__form .ant-btn-primary {
+  background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+  border: 0;
+  border-radius: 10px;
+  height: 44px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  box-shadow: 0 8px 22px rgba(66, 111, 159, 0.24);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.auth-shell__form .ant-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(66, 111, 159, 0.32);
+}
+
+.auth-shell__note {
+  margin: 0;
+  text-align: center;
   font-size: 12px;
-  margin: 8px 0 0;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+.auth-shell__panel-foot {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.05em;
+}
+
+/* 响应式：1024px 以下叠成单列 */
+@media (max-width: 1024px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+  }
+  .auth-shell__brand {
+    padding: 40px 32px;
+  }
+  .auth-shell__watermark { font-size: 320px; right: -20px; top: -30px; }
+  .auth-shell__brand-inner { gap: 28px; max-width: 100%; }
+  .auth-shell__title { font-size: 34px; }
+  .auth-shell__features { display: none; }
+  .auth-shell__panel {
+    padding: 36px 24px 64px;
+    border-left: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+  .auth-shell__panel-foot { position: static; margin-top: 24px; }
+}
+
+@media (max-width: 540px) {
+  .auth-shell__brand { padding: 28px 22px; }
+  .auth-shell__title { font-size: 26px; }
+  .auth-shell__lead { font-size: 14px; }
+  .auth-shell__panel-head h2 { font-size: 24px; }
 }
 
 /* ============ 用户首页 ============ */
@@ -4436,8 +4704,56 @@ body {
   background: var(--accent);
 }
 
-/* ========== Paper take (一题一屏的考试页) ========== */
+/* ========== 通用：批量操作浮动条 ========== */
 
+.bulk-action-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px 10px 20px;
+  border-radius: 999px;
+  background: rgba(31, 41, 51, 0.92);
+  color: #f4ede0;
+  box-shadow: 0 12px 32px rgba(31, 41, 51, 0.32);
+  backdrop-filter: saturate(150%) blur(12px);
+  z-index: 1100;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  animation: bulk-bar-rise 0.18s ease-out;
+}
+
+@keyframes bulk-bar-rise {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.bulk-action-bar__count {
+  white-space: nowrap;
+}
+
+.bulk-action-bar__count strong {
+  font-family: "Inter", "Geist", "Helvetica Neue", monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 4px;
+}
+
+.bulk-action-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-action-bar__actions .ant-btn {
+  border-radius: 999px;
+}
+
+/* ========== Paper take (一题一屏的考试页) ========== */
 .paper-take {
   max-width: 1180px;
   margin: 0 auto;

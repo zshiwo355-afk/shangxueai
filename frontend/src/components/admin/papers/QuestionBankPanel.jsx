@@ -1,4 +1,4 @@
-import { DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, PlusOutlined } from "@ant-design/icons";
+import { CheckOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, InboxOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   App as AntdApp,
   Button,
@@ -19,6 +19,8 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
   buildImportTemplateUrl,
+  bulkDeleteQuestions,
+  bulkSetQuestionStatus,
   createQuestion,
   deleteQuestion,
   listQuestionBank,
@@ -53,6 +55,7 @@ export default function QuestionBankPanel() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState([]);
   const [filters, setFilters] = useState({});
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -85,6 +88,28 @@ export default function QuestionBankPanel() {
       reload();
     } catch (err) {
       message.error(err?.message || "删除失败。");
+    }
+  };
+
+  const bulkDelete = async () => {
+    try {
+      const res = await bulkDeleteQuestions(selectedIds);
+      message.success(`已删除 ${res?.deleted ?? selectedIds.length} 题。`);
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量删除失败。");
+    }
+  };
+
+  const bulkSetStatus = async (status) => {
+    try {
+      const res = await bulkSetQuestionStatus(selectedIds, status);
+      message.success(`已${status === "active" ? "启用" : "归档"} ${res?.updated ?? selectedIds.length} 题。`);
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量更新失败。");
     }
   };
 
@@ -185,6 +210,11 @@ export default function QuestionBankPanel() {
         loading={loading}
         dataSource={items}
         columns={columns}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: setSelectedIds,
+          preserveSelectedRowKeys: true,
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -196,6 +226,29 @@ export default function QuestionBankPanel() {
         }}
         scroll={{ x: 1200 }}
       />
+
+      {selectedIds.length > 0 ? (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar__count">
+            已选 <strong>{selectedIds.length}</strong> 题
+          </span>
+          <div className="bulk-action-bar__actions">
+            <Button onClick={() => setSelectedIds([])}>取消选择</Button>
+            <Button icon={<CheckOutlined />} onClick={() => bulkSetStatus("active")}>批量启用</Button>
+            <Button icon={<InboxOutlined />} onClick={() => bulkSetStatus("archived")}>批量归档</Button>
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 题？`}
+              description="该操作不可撤销。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={bulkDelete}
+            >
+              <Button danger icon={<DeleteOutlined />}>批量删除</Button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <QuestionEditModal

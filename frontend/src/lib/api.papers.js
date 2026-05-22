@@ -57,6 +57,14 @@ export async function deleteQuestion(id) {
   return deleteJson(`/api/admin/question-bank/${id}`, "删除题目失败。");
 }
 
+export async function bulkDeleteQuestions(ids) {
+  return postJson("/api/admin/question-bank/bulk-delete", { ids }, "批量删除题目失败。");
+}
+
+export async function bulkSetQuestionStatus(ids, status) {
+  return postJson("/api/admin/question-bank/bulk-status", { ids, status }, "批量更新状态失败。");
+}
+
 // ---------------- 试卷 ----------------
 
 export async function listPapers(params = {}) {

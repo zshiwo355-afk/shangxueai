@@ -1,9 +1,16 @@
-"""管理员用户 CRUD。"""
+"""管理员用户 CRUD + 分页搜索 + 批量导入 + 模板下载。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import io
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete as sql_delete, select
+from sqlalchemy import delete as sql_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +95,21 @@ class UserUpdateRequest(BaseModel):
         return v if v in ("active", "inactive") else "active"
 
 
+class UserPageResponse(BaseModel):
+    items: list[UserDTO]
+    total: int
+    page: int
+    page_size: int
+
+
+class BulkImportSummary(BaseModel):
+    total: int
+    created: int
+    skipped: int
+    failed: int
+    errors: list[str] = Field(default_factory=list)
+
+
 def _digest(raw: str) -> str:
     raw = (raw or "").strip()
     if len(raw) == 32 and all(c in "0123456789abcdefABCDEF" for c in raw):
@@ -112,14 +134,260 @@ def _to_dto(user: User) -> UserDTO:
     )
 
 
+# ---------- 列表 / 分页搜索 ----------
+
+
 @router.get("", response_model=list[UserDTO])
 async def list_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[UserDTO]:
+    """旧版：不分页直接返回全部（派发选人等下拉框继续用这个）。"""
     del admin
     result = await db.execute(select(User).order_by(User.id.asc()))
     return [_to_dto(u) for u in result.scalars().all()]
+
+
+@router.get("/search", response_model=UserPageResponse)
+async def search_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=200),
+    keyword: str | None = Query(None, description="按用户名 / 真实姓名 / 显示名模糊搜索"),
+    department: str | None = Query(None, description="按部门精确筛选"),
+    role: str | None = Query(None, description="可选：admin / user"),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> UserPageResponse:
+    del admin
+    stmt = select(User)
+    count_stmt = select(func.count()).select_from(User)
+
+    if keyword:
+        kw = f"%{keyword.strip()}%"
+        cond = or_(User.username.like(kw), User.real_name.like(kw), User.display_name.like(kw))
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
+    if department:
+        stmt = stmt.where(User.department == department.strip())
+        count_stmt = count_stmt.where(User.department == department.strip())
+    if role and role.lower() in ("admin", "user"):
+        stmt = stmt.where(User.role == role.lower())
+        count_stmt = count_stmt.where(User.role == role.lower())
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    stmt = stmt.order_by(User.id.desc()).limit(page_size).offset((page - 1) * page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+    return UserPageResponse(
+        items=[_to_dto(u) for u in rows],
+        total=int(total),
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/departments", response_model=list[str])
+async def list_departments(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> list[str]:
+    del admin
+    rows = (
+        await db.execute(
+            select(User.department)
+            .where(User.department != "")
+            .group_by(User.department)
+            .order_by(User.department.asc())
+        )
+    ).scalars().all()
+    return [d for d in rows if d]
+
+
+# ---------- 模板下载 / 批量导入 ----------
+# 注意：路径里包含静态字段（template / bulk-import），必须放在 /{user_id} 之前，
+# 否则 FastAPI 会按声明顺序优先匹配 /{user_id}，把 "template" 当成 user_id 解析。
+
+
+_USER_TEMPLATE_HEADERS = [
+    "用户名*", "密码*", "真实姓名", "显示名",
+    "部门", "岗位", "角色", "是否新人",
+]
+
+
+def _build_user_template() -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "用户导入模板"
+
+    header_fill = PatternFill(start_color="FFE6F0FA", end_color="FFE6F0FA", fill_type="solid")
+    required_fill = PatternFill(start_color="FFFFF1F0", end_color="FFFFF1F0", fill_type="solid")
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for col_idx, header in enumerate(_USER_TEMPLATE_HEADERS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = bold
+        cell.alignment = center
+        cell.fill = required_fill if header.endswith("*") else header_fill
+        ws.column_dimensions[get_column_letter(col_idx)].width = 16
+
+    samples = [
+        ["zhangsan", "123456", "张三", "三哥", "销售一部", "招商主管", "普通用户", "否"],
+        ["lisi",     "123456", "李四", "",     "销售一部", "招商专员", "普通用户", "是"],
+        ["wangwu",   "abcd1234", "王五", "",   "运营部",   "运营经理", "管理员",   "否"],
+    ]
+    for r, row in enumerate(samples, start=2):
+        for c, value in enumerate(row, start=1):
+            ws.cell(row=r, column=c, value=value)
+
+    notes = [
+        "",
+        "填写说明：",
+        "1) 用户名 / 密码必填，用户名重复将自动跳过。",
+        "2) 角色：普通用户 / 管理员（也可写英文 user / admin），默认普通用户。",
+        "3) 是否新人：是 / 否（默认 否）。",
+        "4) 部门 / 岗位 / 显示名 可空；显示名为空时会取真实姓名或用户名。",
+        "5) 密码以明文写入，后端会做 md5 后入库。",
+    ]
+    for i, line in enumerate(notes, start=len(samples) + 3):
+        cell = ws.cell(row=i, column=1, value=line)
+        ws.merge_cells(start_row=i, end_row=i, start_column=1, end_column=len(_USER_TEMPLATE_HEADERS))
+        if line.startswith("填写说明"):
+            cell.font = Font(bold=True, color="FF1677FF")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/template")
+async def download_user_template(
+    admin: User = Depends(require_admin),
+):
+    del admin
+    data = _build_user_template()
+
+    def _iter():
+        yield data
+
+    headers = {"Content-Disposition": 'attachment; filename="users_template.xlsx"'}
+    return StreamingResponse(
+        _iter(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+_ROLE_ALIASES = {
+    "管理员": "admin", "admin": "admin", "administrator": "admin",
+    "普通用户": "user", "user": "user", "员工": "user", "学员": "user",
+}
+_BOOL_TRUE = {"是", "y", "yes", "true", "1", "新人"}
+
+
+def _norm_role(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    return _ROLE_ALIASES.get(text, "user")
+
+
+def _norm_bool(raw: Any) -> bool:
+    text = str(raw or "").strip().lower()
+    return text in _BOOL_TRUE
+
+
+@router.post("/bulk-import", response_model=BulkImportSummary)
+async def bulk_import_users(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> BulkImportSummary:
+    """上传 Excel (.xlsx) 一次性导入多个用户。
+
+    - 用户名重复 → skipped（不覆盖）
+    - 必填字段缺失 / 数据非法 → failed，错误信息记录在 errors[]
+    - 其余有效行 → created
+    """
+    del admin
+    filename = (file.filename or "").lower()
+    if not filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx 格式。")
+    content = await file.read()
+
+    try:
+        wb = load_workbook(io.BytesIO(content), data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"无法解析 Excel：{exc}") from exc
+
+    if not rows or len(rows) < 2:
+        raise HTTPException(status_code=400, detail="表格为空或没有数据行。")
+
+    data_rows = rows[1:]
+    summary = BulkImportSummary(total=0, created=0, skipped=0, failed=0)
+
+    existing = set(
+        (await db.execute(select(User.username))).scalars().all()
+    )
+
+    for idx, row in enumerate(data_rows):
+        if not row or all(c is None or (isinstance(c, str) and not c.strip()) for c in row):
+            continue
+        summary.total += 1
+        cells = list(row) + [None] * max(0, len(_USER_TEMPLATE_HEADERS) - len(row))
+        username, password, real_name, display_name, department, position, role_raw, newcomer_raw = cells[:8]
+
+        username = str(username or "").strip()
+        password = str(password or "").strip()
+        line_no = idx + 2
+
+        if not username:
+            summary.failed += 1
+            summary.errors.append(f"第 {line_no} 行：用户名不能为空")
+            continue
+        if not password:
+            summary.failed += 1
+            summary.errors.append(f"第 {line_no} 行（{username}）：密码不能为空")
+            continue
+        if username in existing:
+            summary.skipped += 1
+            continue
+
+        real_name = str(real_name or "").strip()
+        display_name = str(display_name or "").strip() or real_name or username
+        department = str(department or "").strip()
+        position = str(position or "").strip()
+        role = _norm_role(role_raw)
+        is_newcomer = _norm_bool(newcomer_raw)
+
+        user = User(
+            username=username,
+            password_md5=_digest(password),
+            display_name=display_name,
+            real_name=real_name or display_name,
+            department=department,
+            position=position,
+            role=role,
+            is_newcomer=is_newcomer,
+            status="active",
+            disabled=False,
+        )
+        db.add(user)
+        try:
+            await db.flush()
+            existing.add(username)
+            summary.created += 1
+        except IntegrityError:
+            await db.rollback()
+            summary.failed += 1
+            summary.errors.append(f"第 {line_no} 行（{username}）：用户名冲突或数据库异常")
+            existing = set(
+                (await db.execute(select(User.username))).scalars().all()
+            )
+
+    return summary
+
+
+# ---------- 单条 CRUD ----------
 
 
 @router.get("/{user_id}", response_model=UserDTO)
@@ -159,7 +427,6 @@ async def create_user(
         await db.flush()
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="用户名已存在。") from exc
-    # server_default 字段（created_at / updated_at）由 DB 填入，必须 refresh 后才能在 Python 对象里读到
     await db.refresh(user)
     return _to_dto(user)
 
@@ -186,7 +453,6 @@ async def update_user(
     if payload.position is not None:
         user.position = payload.position.strip()
     if payload.role is not None:
-        # 防止把唯一管理员降级
         if user.id == admin.id and payload.role != "admin":
             raise HTTPException(status_code=400, detail="不能降级当前登录的管理员。")
         user.role = payload.role
@@ -199,7 +465,6 @@ async def update_user(
             raise HTTPException(status_code=400, detail="不能禁用当前登录的管理员。")
         user.disabled = payload.disabled
     await db.flush()
-    # onupdate=func.now() 触发的新 updated_at 在 Python 端是过期的，refresh 一下
     await db.refresh(user)
     return _to_dto(user)
 

@@ -56,6 +56,23 @@ class ExamCreateRequest(BaseModel):
         return s or None
 
 
+class ExamBatchCreateRequest(BaseModel):
+    user_ids: list[int] = Field(..., min_length=1)
+    title: str = Field(default="陪练通关", max_length=255)
+    fixed_training_type: str | None = Field(default=None, max_length=64)
+    fixed_difficulty: str | None = Field(default=None, max_length=32)
+    fixed_customer_type: str | None = Field(default=None, max_length=64)
+    ai_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @field_validator("fixed_training_type", "fixed_difficulty", "fixed_customer_type", mode="before")
+    @classmethod
+    def _empty_to_none(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+
 class ExamReviewRequest(BaseModel):
     admin_score: float = Field(..., ge=0.0, le=100.0)
     admin_comment: str = Field(default="", max_length=4000)
@@ -238,6 +255,45 @@ async def create_exam(
     await db.flush()
     await db.refresh(exam)
     return _exam_to_dto(exam, target)
+
+
+@admin_router.post("/batch", response_model=list[ExamDTO])
+async def batch_create_exams(
+    payload: ExamBatchCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> list[ExamDTO]:
+    """按多用户批量派发通关 —— 支持按部门/岗位/全员维度（前端解析后传 user_ids）。"""
+    rows = (
+        await db.execute(select(User).where(User.id.in_(payload.user_ids)))
+    ).scalars().all()
+    found = {u.id: u for u in rows}
+    missing = [uid for uid in payload.user_ids if uid not in found]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"用户不存在：{missing}")
+
+    title = (payload.title or "陪练通关").strip() or "陪练通关"
+    out: list[ExamDTO] = []
+    for uid in payload.user_ids:
+        target = found[uid]
+        exam = Exam(
+            user_id=uid,
+            title=title,
+            pass_score=60,
+            status="pending",
+            attempt_count=0,
+            max_attempts=2,
+            fixed_training_type=payload.fixed_training_type,
+            fixed_difficulty=payload.fixed_difficulty,
+            fixed_customer_type=payload.fixed_customer_type,
+            ai_weight=float(payload.ai_weight),
+            created_by=admin.id,
+        )
+        db.add(exam)
+        await db.flush()
+        await db.refresh(exam)
+        out.append(_exam_to_dto(exam, target))
+    return out
 
 
 @admin_router.get("", response_model=list[ExamDTO])

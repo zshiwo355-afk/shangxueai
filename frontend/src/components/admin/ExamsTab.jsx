@@ -1,8 +1,9 @@
 import { DeleteOutlined, EyeOutlined, FileSearchOutlined, PlusOutlined } from "@ant-design/icons";
-import { Badge, Button, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
+import { Alert, Badge, Button, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
+  adminBatchCreateExams,
   adminCreateExam,
   adminDeleteExam,
   adminGetExamDetail,
@@ -74,8 +75,11 @@ export default function ExamsTab() {
 
   const submitCreate = async () => {
     const values = await createForm.validateFields();
+    if (!resolvedUserIds.length) {
+      message.warning("当前选择没有命中任何用户。");
+      return;
+    }
     const payload = {
-      user_id: values.user_id,
       title: values.title,
       ai_weight: typeof values.ai_weight === "number" ? values.ai_weight : 0.5,
     };
@@ -89,8 +93,12 @@ export default function ExamsTab() {
       payload.fixed_customer_type = values.fixed_customer_type;
     }
     try {
-      await adminCreateExam(payload);
-      message.success("通关已派发。");
+      if (resolvedUserIds.length === 1 && dispatchMode === "user") {
+        await adminCreateExam({ ...payload, user_id: resolvedUserIds[0] });
+      } else {
+        await adminBatchCreateExams({ ...payload, user_ids: resolvedUserIds });
+      }
+      message.success(`通关已派发到 ${resolvedUserIds.length} 位用户。`);
       setCreating(false);
       reload();
     } catch (err) {
@@ -145,6 +153,63 @@ export default function ExamsTab() {
     })),
     [users],
   );
+
+  const userPool = useMemo(() => users.filter((u) => u.role === "user"), [users]);
+
+  const departmentOptions = useMemo(() => {
+    const counts = new Map();
+    userPool.forEach((u) => {
+      const dept = (u.department || "").trim();
+      if (!dept) return;
+      counts.set(dept, (counts.get(dept) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([value, n]) => ({
+      value,
+      label: `${value}（${n}人）`,
+    }));
+  }, [userPool]);
+
+  const positionOptions = useMemo(() => {
+    const counts = new Map();
+    userPool.forEach((u) => {
+      const pos = (u.position || "").trim();
+      if (!pos) return;
+      counts.set(pos, (counts.get(pos) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([value, n]) => ({
+      value,
+      label: `${value}（${n}人）`,
+    }));
+  }, [userPool]);
+
+  const dispatchMode = Form.useWatch("dispatch_mode", createForm);
+  const watchedUserIds = Form.useWatch("user_ids", createForm);
+  const watchedDepartments = Form.useWatch("departments", createForm);
+  const watchedPositions = Form.useWatch("positions", createForm);
+  const watchedNewcomerOnly = Form.useWatch("newcomer_only", createForm);
+
+  const resolvedUserIds = useMemo(() => {
+    if (dispatchMode === "department") {
+      const set = new Set(watchedDepartments || []);
+      if (!set.size) return [];
+      return userPool
+        .filter((u) => set.has((u.department || "").trim()))
+        .map((u) => u.id);
+    }
+    if (dispatchMode === "position") {
+      const set = new Set(watchedPositions || []);
+      if (!set.size) return [];
+      return userPool
+        .filter((u) => set.has((u.position || "").trim()))
+        .map((u) => u.id);
+    }
+    if (dispatchMode === "all") {
+      return userPool
+        .filter((u) => (watchedNewcomerOnly ? u.is_newcomer : true))
+        .map((u) => u.id);
+    }
+    return Array.isArray(watchedUserIds) ? watchedUserIds : [];
+  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedNewcomerOnly]);
 
   const buildOptionList = (values, label) => [
     { value: RANDOM_SENTINEL, label: `随机（每次重新抽取）` },
@@ -254,20 +319,110 @@ export default function ExamsTab() {
         title="派发通关"
         onCancel={() => setCreating(false)}
         onOk={submitCreate}
-        okText="派发"
+        okText={`派发到 ${resolvedUserIds.length} 人`}
+        okButtonProps={{ disabled: !resolvedUserIds.length }}
         cancelText="取消"
-        width={520}
+        width={620}
         destroyOnHidden
       >
-        <Form form={createForm} layout="vertical" preserve={false} initialValues={{ ai_weight: 0.5 }}>
-          <Form.Item label="应试用户" name="user_id" rules={[{ required: true, message: "请选择" }]}>
-            <Select
-              showSearch
-              placeholder="选择一个普通用户"
-              options={userOptions}
-              filterOption={(input, opt) => (opt?.label || "").toLowerCase().includes(input.toLowerCase())}
+        <Form
+          form={createForm}
+          layout="vertical"
+          preserve={false}
+          initialValues={{ ai_weight: 0.5, dispatch_mode: "user", newcomer_only: false }}
+        >
+          <Form.Item label="派发维度" name="dispatch_mode">
+            <Radio.Group
+              options={[
+                { value: "user", label: "指定用户" },
+                { value: "department", label: "按部门" },
+                { value: "position", label: "按岗位" },
+                { value: "all", label: "全员普通用户" },
+              ]}
+              optionType="button"
+              buttonStyle="solid"
             />
           </Form.Item>
+
+          {dispatchMode === "user" || !dispatchMode ? (
+            <Form.Item
+              label="应试用户（可多选）"
+              name="user_ids"
+              rules={[{ required: true, message: "请选择用户" }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={userOptions}
+                placeholder="选择 1 ~ N 个普通用户"
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "department" ? (
+            <Form.Item
+              label="选择部门（可多选）"
+              name="departments"
+              rules={[{ required: true, message: "请选择至少 1 个部门" }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={departmentOptions}
+                placeholder={departmentOptions.length ? "选择部门，按部门批量推送" : "暂无可用部门（用户的「部门」字段为空）"}
+                disabled={!departmentOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "position" ? (
+            <Form.Item
+              label="选择岗位（可多选）"
+              name="positions"
+              rules={[{ required: true, message: "请选择至少 1 个岗位" }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={positionOptions}
+                placeholder={positionOptions.length ? "选择岗位" : "暂无可用岗位（用户的「岗位」字段为空）"}
+                disabled={!positionOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "all" ? (
+            <Form.Item
+              label="范围"
+              name="newcomer_only"
+              getValueProps={(v) => ({ value: v ? "newcomer" : "all" })}
+              normalize={(v) => v === "newcomer"}
+            >
+              <Radio.Group
+                options={[
+                  { value: "all", label: "全部普通用户" },
+                  { value: "newcomer", label: "仅新人（is_newcomer）" },
+                ]}
+                optionType="button"
+              />
+            </Form.Item>
+          ) : null}
+
+          <Alert
+            type={resolvedUserIds.length ? "info" : "warning"}
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={resolvedUserIds.length
+              ? `本次派发将命中 ${resolvedUserIds.length} 位用户`
+              : "尚未命中任何用户"}
+          />
+
           <Form.Item label="通关标题" name="title" initialValue="陪练通关">
             <Input placeholder="例如：销售认证一阶" />
           </Form.Item>
