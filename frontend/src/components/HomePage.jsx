@@ -177,10 +177,10 @@ export default function HomePage() {
   );
   const continueVideo = inProgressVideos[0] || pendingVideos[0] || videos[0] || null;
   const monthAudioCount = audios.filter(
-    (item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM"),
+    (item) => dayjs(item.uploaded_date).format("YYYY-MM") === dayjs().format("YYYY-MM"),
   ).length;
   const todayUploaded = audios.some(
-    (item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
+    (item) => dayjs(item.uploaded_date).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
   );
 
   const recentTraining = records.slice(0, 3);
@@ -277,10 +277,30 @@ export default function HomePage() {
             </p>
             <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
               欢迎回来，{user?.display_name || user?.username || "学员"}。
-              进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术、
-              走进<strong style={{ color: "var(--accent-deep)" }}>魔学院</strong>沉淀知识，
+              从这里出发，进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术，
+              走进<strong style={{ color: "var(--accent-deep)" }}>课程管理</strong>沉淀知识，
               或前往<strong style={{ color: "var(--accent-deep)" }}>考试</strong>验证学习成果。
             </Paragraph>
+            <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
+              <button
+                type="button"
+                className="cta-arrow-btn"
+                onClick={() => navigate("/workspace/training")}
+              >
+                <RocketOutlined />
+                <span>开启销售对练</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+              <button
+                type="button"
+                className="cta-arrow-btn cta-arrow-btn--ghost"
+                onClick={() => navigate("/workspace/magic")}
+              >
+                <ReadOutlined />
+                <span>进入课程管理</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+            </div>
             <LiveClock />
           </div>
           <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
@@ -352,7 +372,7 @@ export default function HomePage() {
             </div>
             <span className="entry-card__divider" />
             <div>
-              <h3 className="entry-card__title">魔学院</h3>
+              <h3 className="entry-card__title">课程管理</h3>
               <p className="entry-card__subtitle">课程 · 答题 · 打卡</p>
             </div>
             <p className="entry-card__desc">

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 import oss2
 from oss2.models import PartInfo
@@ -23,19 +23,30 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update
 
-from .auth import get_current_user, require_admin
+from .access import get_user_whitelist_permissions, is_super_admin
+from .auth import get_current_user, require_admin, require_super_admin
 from .config import get_settings
 from .db import get_db
 from .models import (
+    MagicAudioMakeupSetting,
     MagicAudioUpload,
     MagicQuestion,
     MagicQuizAnswer,
     MagicQuizPointPassRecord,
+    MagicReadingContent,
+    MagicReadingContentTarget,
     MagicVideo,
     MagicVideoProgress,
     MagicVideoQuizPoint,
+    MagicVideoSeries,
+    MagicVideoSeriesItem,
     MagicVideoTarget,
+    MagicVideoWatchConfirmLog,
+    MagicVideoWatchConfirmSetting,
     MagicVideoWhitelist,
+    MaterialAsset,
+    MaterialProject,
+    UserWhitelist,
     User,
 )
 
@@ -48,10 +59,14 @@ VIDEO_DIR = UPLOAD_ROOT / "videos"
 MAX_AUDIO_SIZE = 50 * 1024 * 1024
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".wav", ".aac", ".amr", ".webm", ".ogg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_STATUSES = {"draft", "published", "disabled"}
 VIDEO_UPLOAD_STATUSES = {"pending", "uploading", "completed", "failed", "deleted"}
 TRANSCODE_STATUSES = {"none", "pending", "processing", "completed", "failed"}
 TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "role", "user"}
+VIDEO_SOURCE_TYPES = {"upload", "material"}
+IMAGE_SOURCE_TYPES = {"upload", "material"}
+READING_TARGET_TYPES = {"all", "department", "user"}
 QUESTION_TYPES = {"single", "multiple", "judge", "blank", "short_answer"}
 QUESTION_TYPE_ALIASES = {
     "fill": "blank",
@@ -64,6 +79,18 @@ MAX_MULTIPART_PARTS = 1000
 UNASSIGNED_DEPARTMENT_FILTER = "__UNASSIGNED__"
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+SOURCE_MANUAL = "manual"
+SOURCE_AUDIO_USER_UPLOAD = "user_upload"
+SOURCE_AUDIO_MAKEUP = "makeup"
+SOURCE_WHITELIST_AUTO = "whitelist_auto"
+SOURCE_WHITELIST_EXEMPT = "whitelist_exempt"
+SOURCE_WHITELIST_AUTO_CORRECT = "whitelist_auto_correct"
+WATCH_CONFIRM_DEFAULT_MESSAGE = "请确认你正在观看视频"
+WATCH_CONFIRM_DEFAULT_BUTTON = "继续学习"
+DEFAULT_AUDIO_MAKEUP_DAYS = 0
+MAX_READING_IMAGE_SIZE = 10 * 1024 * 1024
+READING_CONTENT_ACTIVE = "active"
 
 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -114,11 +141,32 @@ def _normalize_target_type(value: str) -> str:
     return value
 
 
+def _normalize_reading_target_type(value: str) -> str:
+    value = (value or "").strip().lower()
+    if value not in READING_TARGET_TYPES:
+        raise ValueError("不支持的推送对象类型。")
+    return value
+
+
 def _normalize_question_type(value: str) -> str:
     value = (value or "").strip().lower()
     value = QUESTION_TYPE_ALIASES.get(value, value)
     if value not in QUESTION_TYPES:
         raise ValueError("不支持的题型。")
+    return value
+
+
+def _normalize_video_source(value: str) -> str:
+    value = (value or "upload").strip().lower()
+    if value not in VIDEO_SOURCE_TYPES:
+        raise ValueError("不支持的视频来源类型。")
+    return value
+
+
+def _normalize_image_source(value: str) -> str:
+    value = (value or "upload").strip().lower()
+    if value not in IMAGE_SOURCE_TYPES:
+        raise ValueError("不支持的图片来源类型。")
     return value
 
 
@@ -189,6 +237,25 @@ def _guess_video_extension(original_filename: str, mime_type: str | None = None)
     if guessed in VIDEO_EXTENSIONS:
         return guessed
     raise HTTPException(status_code=400, detail="仅支持 mp4、mov、webm、m4v 等视频格式。")
+
+
+def _guess_image_extension(original_filename: str, mime_type: str | None = None) -> str:
+    suffix = Path(original_filename or "").suffix.lower()
+    if suffix in IMAGE_EXTENSIONS:
+        return suffix
+    guessed = mimetypes.guess_extension((mime_type or "").split(";", 1)[0].strip() or "")
+    guessed = ".jpg" if guessed == ".jpe" else guessed
+    if guessed in IMAGE_EXTENSIONS:
+        return guessed
+    raise HTTPException(status_code=400, detail="仅支持 jpg、jpeg、png、webp 图片格式。")
+
+
+def _validate_reading_image_payload(original_filename: str, file_size: int, mime_type: str | None = None) -> str:
+    if int(file_size or 0) <= 0:
+        raise HTTPException(status_code=400, detail="图片大小必须大于 0。")
+    if int(file_size or 0) > MAX_READING_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="图片大小不能超过 10MB。")
+    return _guess_image_extension(original_filename, mime_type)
 
 
 def _validate_video_payload(original_filename: str, file_size: int, mime_type: str | None = None) -> str:
@@ -283,6 +350,11 @@ def _build_signed_stream_url(object_key: str) -> str:
     bucket = _build_oss_bucket()
     expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
     return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
+
+
+def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> None:
+    bucket = _build_oss_bucket()
+    bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
 
 
 def _abort_multipart_upload(object_key: str, upload_id: str) -> None:
@@ -421,6 +493,12 @@ def _month_last_day(month_start: date) -> date:
 
 def _serialize_audio_record(item: MagicAudioUpload, user_map: dict[int, User] | None = None) -> dict[str, Any]:
     owner = user_map.get(item.user_id) if user_map else None
+    source = item.source or SOURCE_AUDIO_USER_UPLOAD
+    source_label = (
+        "补卡" if source == SOURCE_AUDIO_MAKEUP
+        else "白名单自动打卡" if source == SOURCE_WHITELIST_AUTO
+        else "用户上传"
+    )
     return {
         "id": item.id,
         "user_id": item.user_id,
@@ -433,6 +511,10 @@ def _serialize_audio_record(item: MagicAudioUpload, user_map: dict[int, User] | 
         "uploaded_date": _iso(item.uploaded_date),
         "uploaded_time": _iso(item.uploaded_on),
         "status": "已上传",
+        "source": source,
+        "source_label": source_label,
+        "is_makeup": source == SOURCE_AUDIO_MAKEUP,
+        "auto_checkin_by_whitelist": bool(item.auto_checkin_by_whitelist),
     }
 
 
@@ -468,6 +550,276 @@ def _build_audio_calendar_payload(
         })
         cursor += timedelta(days=1)
     return days
+
+
+def _serialize_audio_makeup_setting(row: MagicAudioMakeupSetting | None) -> dict[str, Any]:
+    return {
+        "enabled": bool(row.enabled) if row else False,
+        "make_up_days": int(row.make_up_days or 0) if row else DEFAULT_AUDIO_MAKEUP_DAYS,
+        "description": (
+            f"仅允许补最近 {int(row.make_up_days or 0)} 天内未完成的读书打卡"
+            if row and bool(row.enabled) and int(row.make_up_days or 0) > 0
+            else "当前未开启补卡"
+        ),
+    }
+
+
+def _parse_form_id_list(value: str | None) -> list[int]:
+    text = (value or "").strip()
+    if not text:
+        return []
+    parsed = _json_loads(text, None)
+    if isinstance(parsed, list):
+        values = parsed
+    else:
+        values = [item.strip() for item in text.split(",") if item.strip()]
+    ids: list[int] = []
+    for item in values:
+        try:
+            number = int(item)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="推送对象 ID 格式不正确。") from exc
+        if number > 0:
+            ids.append(number)
+    return sorted(set(ids))
+
+
+def _reading_target_to_dict(item: MagicReadingContentTarget) -> dict[str, Any]:
+    return {
+        "id": int(item.id),
+        "target_type": item.target_type,
+        "target_id": item.target_id or "",
+    }
+
+
+def _reading_image_url(object_key: str) -> str:
+    if not (object_key or "").strip():
+        return ""
+    return _build_signed_stream_url(object_key.strip())
+
+
+def _reading_content_to_dict(
+    item: MagicReadingContent,
+    *,
+    targets: list[MagicReadingContentTarget] | None = None,
+    image_url: str | None = None,
+    creator: User | None = None,
+    push_count: int | None = None,
+) -> dict[str, Any]:
+    resolved_url = image_url if image_url is not None else (item.image_url or "")
+    target_rows = list(targets or [])
+    return {
+        "id": int(item.id),
+        "reading_date": _iso(item.reading_date),
+        "title": item.title,
+        "description": item.description or "",
+        "image_object_key": item.image_object_key or "",
+        "image_url": resolved_url,
+        "image_file_name": item.image_file_name or "",
+        "image_mime_type": item.image_mime_type or "",
+        "image_size": int(item.image_size or 0),
+        "status": item.status or READING_CONTENT_ACTIVE,
+        "created_by": int(item.created_by),
+        "creator_name": _user_name(creator) if creator else "",
+        "created_at": _iso(item.created_at),
+        "updated_at": _iso(item.updated_at),
+        "targets": [_reading_target_to_dict(target) for target in target_rows],
+        "push_count": int(push_count if push_count is not None else sum(1 for target in target_rows if target.target_type == "user")),
+    }
+
+
+async def _get_reading_content_targets_map(
+    db: AsyncSession,
+    content_ids: list[int],
+) -> dict[int, list[MagicReadingContentTarget]]:
+    if not content_ids:
+        return {}
+    result = await db.execute(
+        select(MagicReadingContentTarget)
+        .where(MagicReadingContentTarget.content_id.in_(content_ids))
+        .order_by(MagicReadingContentTarget.id.asc())
+    )
+    mapping: dict[int, list[MagicReadingContentTarget]] = {}
+    for item in result.scalars().all():
+        mapping.setdefault(item.content_id, []).append(item)
+    return mapping
+
+
+def _reading_target_matches_user(user: User, target: MagicReadingContentTarget) -> bool:
+    ttype = (target.target_type or "").strip().lower()
+    target_id = (target.target_id or "").strip()
+    if ttype == "all":
+        return user.role == "user"
+    if ttype == "department":
+        return user.role == "user" and _user_department(user) == target_id
+    if ttype == "user":
+        return str(user.id) == target_id
+    return False
+
+
+async def _get_reading_content_or_404(
+    db: AsyncSession,
+    content_id: int,
+) -> MagicReadingContent:
+    row = await db.get(MagicReadingContent, content_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="读书内容不存在。")
+    return row
+
+
+def _can_manage_reading_content(admin: User, row: MagicReadingContent) -> bool:
+    return is_super_admin(admin) or int(row.created_by) == int(admin.id)
+
+
+async def _replace_reading_targets(
+    db: AsyncSession,
+    content_id: int,
+    *,
+    target_type: str,
+    user_ids: list[int],
+    department_names: list[str],
+) -> list[MagicReadingContentTarget]:
+    await db.execute(sql_delete(MagicReadingContentTarget).where(MagicReadingContentTarget.content_id == content_id))
+    rows: list[MagicReadingContentTarget] = []
+    if target_type == "all":
+        rows.append(MagicReadingContentTarget(content_id=content_id, target_type="all", target_id="0"))
+    elif target_type == "department":
+        rows.extend(
+            MagicReadingContentTarget(content_id=content_id, target_type="department", target_id=name)
+            for name in department_names
+        )
+    else:
+        rows.extend(
+            MagicReadingContentTarget(content_id=content_id, target_type="user", target_id=str(user_id))
+            for user_id in user_ids
+        )
+    for row in rows:
+        db.add(row)
+    await db.flush()
+    return rows
+
+
+async def _validate_reading_recipients(
+    db: AsyncSession,
+    *,
+    target_type: str,
+    target_user_ids: list[int],
+    target_department_names: list[str],
+) -> tuple[list[int], list[str], int]:
+    target_type = _normalize_reading_target_type(target_type)
+    if target_type == "all":
+        result = await db.execute(select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False)))
+        return [], [], int(result.scalar_one() or 0)
+    if target_type == "department":
+        names = sorted({(name or "").strip() for name in target_department_names if (name or "").strip()})
+        if not names:
+            raise HTTPException(status_code=400, detail="请选择至少一个部门。")
+        result = await db.execute(
+            select(User.id, User.department)
+            .where(User.role == "user", User.disabled.is_(False), User.department.in_(names))
+        )
+        rows = result.all()
+        matched_departments = sorted({(department or "").strip() for _, department in rows if (department or "").strip()})
+        if not rows:
+            raise HTTPException(status_code=400, detail="所选部门下没有可推送员工。")
+        return [], matched_departments, len(rows)
+    user_ids = sorted(set(target_user_ids))
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="请选择至少一个员工。")
+    result = await db.execute(
+        select(User.id).where(User.id.in_(user_ids), User.role == "user", User.disabled.is_(False))
+    )
+    existing_ids = sorted({int(item[0]) for item in result.all()})
+    if len(existing_ids) != len(user_ids):
+        raise HTTPException(status_code=400, detail="推送对象里包含无效员工。")
+    return existing_ids, [], len(existing_ids)
+
+
+async def _count_reading_targets(
+    db: AsyncSession,
+    targets: list[MagicReadingContentTarget],
+) -> int:
+    if not targets:
+        return 0
+    if any((item.target_type or "").lower() == "all" for item in targets):
+        result = await db.execute(select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False)))
+        return int(result.scalar_one() or 0)
+    departments = sorted({
+        (item.target_id or "").strip()
+        for item in targets
+        if (item.target_type or "").lower() == "department" and (item.target_id or "").strip()
+    })
+    if departments:
+        result = await db.execute(
+            select(func.count(User.id)).where(
+                User.role == "user",
+                User.disabled.is_(False),
+                User.department.in_(departments),
+            )
+        )
+        return int(result.scalar_one() or 0)
+    user_ids = sorted({
+        int(item.target_id)
+        for item in targets
+        if (item.target_type or "").lower() == "user" and str(item.target_id or "").isdigit()
+    })
+    return len(user_ids)
+
+
+async def _get_audio_makeup_setting(
+    db: AsyncSession,
+    *,
+    create: bool = False,
+) -> MagicAudioMakeupSetting | None:
+    result = await db.execute(
+        select(MagicAudioMakeupSetting).order_by(MagicAudioMakeupSetting.id.asc()).limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row or not create:
+        return row
+    row = MagicAudioMakeupSetting(enabled=False, make_up_days=DEFAULT_AUDIO_MAKEUP_DAYS)
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return row
+
+
+async def _has_audio_checkin_on_date(
+    db: AsyncSession,
+    user_id: int,
+    target_date: date,
+) -> bool:
+    result = await db.execute(
+        select(MagicAudioUpload.id).where(
+            MagicAudioUpload.user_id == user_id,
+            MagicAudioUpload.is_deleted.is_(False),
+            MagicAudioUpload.uploaded_date == target_date,
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
+def _evaluate_audio_makeup_date(
+    target_date: date,
+    *,
+    today: date,
+    setting: MagicAudioMakeupSetting | None,
+    has_record: bool,
+) -> tuple[bool, str]:
+    if target_date > today:
+        return False, "不能补未来日期。"
+    if target_date == today:
+        return False, "今日打卡请直接走正常打卡流程。"
+    if not setting or not setting.enabled or int(setting.make_up_days or 0) <= 0:
+        return False, "当前未开启补卡。"
+    if has_record:
+        return False, "该日期已完成打卡。"
+    delta_days = (today - target_date).days
+    if delta_days <= 0:
+        return False, "不能补未来日期。"
+    if delta_days > int(setting.make_up_days or 0):
+        return False, "补卡时间已过期。"
+    return True, ""
 
 
 def _xlsx_response(filename: str, headers: list[str], rows: list[list[Any]]) -> StreamingResponse:
@@ -608,6 +960,223 @@ async def _is_whitelisted(db: AsyncSession, video_id: int, user_id: int) -> bool
     return result.scalar_one_or_none() is not None
 
 
+def _can_seek_freely(video_whitelisted: bool, permissions: dict[str, Any]) -> bool:
+    return bool(
+        video_whitelisted
+        or permissions.get("allow_video_seek")
+        or permissions.get("course_exempt_enabled")
+    )
+
+
+def _build_progress_payload(
+    video: MagicVideo,
+    progress: MagicVideoProgress | None,
+    permissions: dict[str, Any],
+    *,
+    video_whitelisted: bool = False,
+) -> dict[str, Any] | None:
+    if not progress and not permissions.get("course_exempt_enabled"):
+        return None
+    answered = _json_loads(progress.answered_point_ids_json, []) if progress else []
+    current_position = float(progress.current_position or 0) if progress else 0.0
+    max_watched_position = float(progress.max_watched_position or 0) if progress else 0.0
+    total_duration = float(progress.total_duration or video.duration_seconds or 0) if progress else float(video.duration_seconds or 0)
+    payload = {
+        "current_position": current_position,
+        "max_watched_position": max_watched_position,
+        "progress_percent": float(progress.progress_percent or 0) if progress else 0.0,
+        "is_completed": bool(progress.is_completed) if progress else False,
+        "completed_at": _iso(progress.completed_at) if progress else None,
+        "last_watched_at": _iso(progress.last_watched_at) if progress else None,
+        "answered_point_ids": answered,
+        "quiz_passed": bool(progress.quiz_passed) if progress else False,
+        "answer_attempt_count": int(progress.answer_attempt_count or 0) if progress else 0,
+        "source": (progress.progress_source or SOURCE_MANUAL) if progress else SOURCE_MANUAL,
+        "completed_by_whitelist": bool(progress.completed_by_whitelist) if progress else False,
+        "total_duration": total_duration,
+    }
+    if permissions.get("course_exempt_enabled"):
+        payload["progress_percent"] = max(float(payload["progress_percent"] or 0), 100.0)
+        payload["is_completed"] = True
+        payload["quiz_passed"] = True
+        payload["completed_by_whitelist"] = True
+        payload["source"] = SOURCE_WHITELIST_EXEMPT
+        if not payload["completed_at"]:
+            payload["completed_at"] = _iso(_now())
+    payload["can_seek_freely"] = _can_seek_freely(video_whitelisted, permissions) or payload["is_completed"]
+    return payload
+
+
+def _apply_whitelist_quiz_points(
+    payload: dict[str, Any],
+    permissions: dict[str, Any],
+) -> None:
+    if not permissions.get("course_exempt_enabled"):
+        return
+    quiz_points = payload.get("quiz_points") or []
+    payload.setdefault("progress", {})
+    payload["progress"]["answered_point_ids"] = [int(item["id"]) for item in quiz_points]
+    payload["progress"]["quiz_passed"] = True
+
+
+async def _ensure_auto_audio_checkin(
+    db: AsyncSession,
+    user: User,
+    permissions: dict[str, Any],
+) -> None:
+    if not permissions.get("auto_checkin_enabled"):
+        return
+    today = date.today()
+    existing = await db.execute(
+        select(MagicAudioUpload.id).where(
+            MagicAudioUpload.user_id == user.id,
+            MagicAudioUpload.is_deleted.is_(False),
+            MagicAudioUpload.uploaded_date == today,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+    row = MagicAudioUpload(
+        user_id=user.id,
+        file_name="whitelist_auto_checkin",
+        file_path="",
+        file_size=0,
+        mime_type="",
+        remark="白名单自动打卡",
+        source=SOURCE_WHITELIST_AUTO,
+        auto_checkin_by_whitelist=True,
+        uploaded_on=_now(),
+        uploaded_date=today,
+        is_deleted=False,
+    )
+    db.add(row)
+    await db.flush()
+
+
+def _serialize_watch_confirm_setting(
+    setting: MagicVideoWatchConfirmSetting | None,
+    video_id: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "video_id": int(setting.video_id if setting else video_id or 0),
+        "enabled": bool(setting.enabled) if setting else False,
+        "interval_seconds": int(setting.interval_seconds or 300) if setting else 300,
+        "message": (setting.message or WATCH_CONFIRM_DEFAULT_MESSAGE) if setting else WATCH_CONFIRM_DEFAULT_MESSAGE,
+        "button_text": (setting.button_text or WATCH_CONFIRM_DEFAULT_BUTTON) if setting else WATCH_CONFIRM_DEFAULT_BUTTON,
+    }
+
+
+async def _get_watch_confirm_settings_map(
+    db: AsyncSession,
+    video_ids: list[int],
+) -> dict[int, MagicVideoWatchConfirmSetting]:
+    if not video_ids:
+        return {}
+    result = await db.execute(
+        select(MagicVideoWatchConfirmSetting).where(MagicVideoWatchConfirmSetting.video_id.in_(video_ids))
+    )
+    return {item.video_id: item for item in result.scalars().all()}
+
+
+def _is_effectively_completed(
+    progress: MagicVideoProgress | None,
+    permissions: dict[str, Any] | None = None,
+) -> bool:
+    if permissions and permissions.get("course_exempt_enabled"):
+        return True
+    return bool(progress and progress.is_completed)
+
+
+async def _get_series_context_map(
+    db: AsyncSession,
+    video_ids: list[int],
+    *,
+    progress_map: dict[int, MagicVideoProgress] | None = None,
+    whitelist_permissions: dict[str, Any] | None = None,
+) -> dict[int, dict[str, Any]]:
+    if not video_ids:
+        return {}
+    result = await db.execute(
+        select(MagicVideoSeriesItem, MagicVideoSeries)
+        .join(MagicVideoSeries, MagicVideoSeries.id == MagicVideoSeriesItem.series_id)
+        .where(
+            MagicVideoSeriesItem.video_id.in_(video_ids),
+            MagicVideoSeries.is_deleted.is_(False),
+        )
+        .order_by(MagicVideoSeriesItem.sort_order.asc(), MagicVideoSeriesItem.id.asc())
+    )
+    rows = result.all()
+    by_video: dict[int, dict[str, Any]] = {}
+    series_items_map: dict[int, list[dict[str, Any]]] = {}
+    for item, series in rows:
+        payload = {
+            "series_id": int(series.id),
+            "series_title": series.title,
+            "series_description": series.description or "",
+            "series_enabled": bool(series.enabled),
+            "series_order": int(item.sort_order or 0),
+            "series_item_id": int(item.id),
+            "sequential_unlock_enabled": bool(series.sequential_unlock_enabled),
+            "video_id": int(item.video_id),
+        }
+        by_video[item.video_id] = payload
+        series_items_map.setdefault(series.id, []).append(payload)
+
+    permissions = whitelist_permissions or {}
+    for video_id, payload in by_video.items():
+        payload["previous_video_id"] = None
+        payload["previous_video_completed"] = True
+        payload["is_locked"] = False
+        payload["locked_reason"] = ""
+        if not payload["series_enabled"] or not payload["sequential_unlock_enabled"]:
+            continue
+        items = series_items_map.get(payload["series_id"], [])
+        current_index = next((index for index, item in enumerate(items) if item["video_id"] == video_id), -1)
+        if current_index <= 0:
+            continue
+        previous = items[current_index - 1]
+        payload["previous_video_id"] = previous["video_id"]
+        previous_completed = bool(progress_map is None) or _is_effectively_completed(
+            (progress_map or {}).get(previous["video_id"]),
+            permissions,
+        )
+        payload["previous_video_completed"] = previous_completed
+        if permissions.get("course_exempt_enabled"):
+            continue
+        if not previous_completed:
+            payload["is_locked"] = True
+            payload["locked_reason"] = "请先完成上一节视频后再学习本节"
+    return by_video
+
+
+def _apply_series_payload(payload: dict[str, Any], series_meta: dict[str, Any] | None) -> dict[str, Any]:
+    if not series_meta:
+        payload.setdefault("series_id", None)
+        payload.setdefault("series_title", "")
+        payload.setdefault("series_description", "")
+        payload.setdefault("series_order", None)
+        payload.setdefault("series_enabled", False)
+        payload.setdefault("sequential_unlock_enabled", False)
+        payload.setdefault("previous_video_id", None)
+        payload.setdefault("previous_video_completed", True)
+        payload.setdefault("is_locked", False)
+        payload.setdefault("locked_reason", "")
+        return payload
+    payload.update({
+        "series_id": series_meta["series_id"],
+        "series_title": series_meta["series_title"],
+        "series_description": series_meta["series_description"],
+        "series_order": series_meta["series_order"],
+        "series_enabled": series_meta["series_enabled"],
+        "sequential_unlock_enabled": series_meta["sequential_unlock_enabled"],
+        "previous_video_id": series_meta["previous_video_id"],
+        "previous_video_completed": series_meta["previous_video_completed"],
+        "is_locked": series_meta["is_locked"],
+        "locked_reason": series_meta["locked_reason"],
+    })
+    return payload
+
+
 def _user_matches_target(user: User, target: MagicVideoTarget) -> bool:
     ttype = (target.target_type or "").lower()
     tvalue = (target.target_value or "").strip()
@@ -647,11 +1216,15 @@ def _video_to_dict(
     targets: list[MagicVideoTarget],
     progress: MagicVideoProgress | None = None,
     whitelisted: bool = False,
+    whitelist_permissions: dict[str, Any] | None = None,
+    series_meta: dict[str, Any] | None = None,
+    watch_confirm_setting: MagicVideoWatchConfirmSetting | None = None,
 ) -> dict[str, Any]:
-    answered = _json_loads(progress.answered_point_ids_json, []) if progress else []
+    permissions = whitelist_permissions or {}
     status = (video.status or "draft").strip().lower()
     upload_status = (video.upload_status or "completed").strip().lower()
-    return {
+    progress_payload = _build_progress_payload(video, progress, permissions, video_whitelisted=whitelisted)
+    payload = {
         "id": video.id,
         "title": video.title,
         "description": video.description or "",
@@ -681,6 +1254,7 @@ def _video_to_dict(
         "upload_status": upload_status,
         "upload_error": video.upload_error or "",
         "transcode_status": video.transcode_status or "none",
+        "material_asset_id": int(video.material_asset_id) if video.material_asset_id else None,
         "can_publish": status != "published" and _is_video_upload_ready(video),
         "can_disable": status == "published",
         "created_by": video.created_by,
@@ -691,19 +1265,49 @@ def _video_to_dict(
             {"id": item.id, "target_type": item.target_type, "target_value": item.target_value}
             for item in targets
         ],
-        "progress": {
-            "current_position": float(progress.current_position or 0),
-            "max_watched_position": float(progress.max_watched_position or 0),
-            "progress_percent": float(progress.progress_percent or 0),
-            "is_completed": bool(progress.is_completed),
-            "completed_at": _iso(progress.completed_at),
-            "last_watched_at": _iso(progress.last_watched_at),
-            "answered_point_ids": answered,
-            "quiz_passed": bool(progress.quiz_passed),
-            "answer_attempt_count": int(progress.answer_attempt_count or 0),
-        } if progress else None,
+        "progress": progress_payload,
         "is_whitelisted": whitelisted,
+        "whitelist_permissions": permissions,
+        "can_seek_freely": bool(progress_payload["can_seek_freely"]) if progress_payload else _can_seek_freely(whitelisted, permissions),
+        "watch_confirm_setting": _serialize_watch_confirm_setting(watch_confirm_setting, video.id),
     }
+    return _apply_series_payload(payload, series_meta)
+
+
+def _material_project_visible_to_admin(project: MaterialProject, user: User) -> bool:
+    if is_super_admin(user):
+        return True
+    if int(project.created_by) == int(user.id):
+        return True
+    visibility = (project.visibility or "admin").strip().lower()
+    return visibility in {"admin", "shared"}
+
+
+async def _get_material_asset_or_403(
+    db: AsyncSession,
+    asset_id: int,
+    admin: User,
+    *,
+    expected_type: str,
+) -> MaterialAsset:
+    result = await db.execute(
+        select(MaterialAsset, MaterialProject)
+        .join(MaterialProject, MaterialProject.id == MaterialAsset.project_id)
+        .where(
+            MaterialAsset.id == asset_id,
+            MaterialAsset.is_deleted.is_(False),
+            MaterialProject.is_deleted.is_(False),
+        )
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="素材不存在。")
+    asset, project = row
+    if asset.asset_type != expected_type:
+        raise HTTPException(status_code=400, detail=f"所选素材不是{expected_type}类型。")
+    if not _material_project_visible_to_admin(project, admin):
+        raise HTTPException(status_code=403, detail="无权访问该素材。")
+    return asset
 
 
 async def _collect_target_users(db: AsyncSession, video: MagicVideo, targets: list[MagicVideoTarget]) -> list[User]:
@@ -758,6 +1362,21 @@ async def _ensure_video_access(
         return targets, whitelisted
     if not _video_visible_to_user(video, user, targets, whitelisted):
         raise HTTPException(status_code=403, detail="无权访问该视频。")
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
+    series_context_map = await _get_series_context_map(
+        db,
+        [video.id],
+        progress_map={
+            item.video_id: item
+            for item in (
+                await db.execute(select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id))
+            ).scalars().all()
+        },
+        whitelist_permissions=whitelist_permissions,
+    )
+    series_meta = series_context_map.get(video.id)
+    if series_meta and series_meta.get("is_locked"):
+        raise HTTPException(status_code=403, detail=series_meta.get("locked_reason") or "请先完成上一节视频。")
     return targets, whitelisted
 
 
@@ -780,8 +1399,8 @@ class MagicVideoPayload(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(default="", max_length=5000)
     category: str = Field(default="", max_length=128)
-    file_name: str = Field(..., min_length=1, max_length=255)
-    file_path: str = Field(..., min_length=1, max_length=512)
+    file_name: str = Field(default="", max_length=255)
+    file_path: str = Field(default="", max_length=512)
     mime_type: str = Field(default="video/mp4", max_length=128)
     file_size: int = Field(default=0, ge=0)
     duration_seconds: int = Field(default=0, ge=0)
@@ -789,12 +1408,19 @@ class MagicVideoPayload(BaseModel):
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
     status: str = "draft"
+    video_source: str = "upload"
+    material_asset_id: int | None = Field(default=None, ge=1)
     targets: list[VideoTargetInput] = Field(default_factory=list)
 
     @field_validator("status")
     @classmethod
     def _status(cls, value: str) -> str:
         return _ensure_status(value)
+
+    @field_validator("video_source")
+    @classmethod
+    def _video_source(cls, value: str) -> str:
+        return _normalize_video_source(value)
 
 
 class MagicVideoUploadInitPayload(BaseModel):
@@ -922,6 +1548,64 @@ class MagicAudioUploadPayload(BaseModel):
     file_size: int = Field(default=0, ge=0)
     mime_type: str = Field(default="", max_length=128)
     remark: str = Field(default="", max_length=255)
+
+
+class AudioMakeupSettingPayload(BaseModel):
+    enabled: bool = False
+    make_up_days: int = Field(default=0, ge=0, le=365)
+
+
+class AudioMakeupPayload(BaseModel):
+    makeup_date: date
+    file_name: str = Field(..., min_length=1, max_length=255)
+    file_size: int = Field(default=0, ge=0)
+    mime_type: str = Field(default="", max_length=128)
+    remark: str = Field(default="", max_length=255)
+
+
+class VideoSeriesPayload(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+    sequential_unlock_enabled: bool = True
+    enabled: bool = True
+
+
+class VideoSeriesAddItemPayload(BaseModel):
+    video_id: int = Field(..., ge=1)
+    sort_order: int | None = Field(default=None, ge=0)
+
+
+class VideoSeriesReorderPayload(BaseModel):
+    video_ids: list[int] = Field(default_factory=list)
+
+
+class WatchConfirmSettingPayload(BaseModel):
+    enabled: bool = False
+    interval_seconds: int = Field(default=300, ge=30, le=86400)
+    message: str = Field(default=WATCH_CONFIRM_DEFAULT_MESSAGE, max_length=255)
+    button_text: str = Field(default=WATCH_CONFIRM_DEFAULT_BUTTON, max_length=64)
+
+
+class WatchConfirmLogPayload(BaseModel):
+    progress_seconds: float = Field(default=0, ge=0)
+    confirm_round: int = Field(default=1, ge=1)
+
+
+def _series_to_dict(
+    series: MagicVideoSeries,
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "id": int(series.id),
+        "title": series.title,
+        "description": series.description or "",
+        "sequential_unlock_enabled": bool(series.sequential_unlock_enabled),
+        "enabled": bool(series.enabled),
+        "created_by": int(series.created_by),
+        "created_at": _iso(series.created_at),
+        "updated_at": _iso(series.updated_at),
+        "items": items,
+    }
 
 
 @magic_video_router.post("/videos/upload/init")
@@ -1278,8 +1962,19 @@ async def list_videos(
         select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
     )
     videos = result.scalars().all()
+    video_ids = [item.id for item in videos]
     targets_map = await _get_video_targets(db, [item.id for item in videos])
-    return [_video_to_dict(video, targets_map.get(video.id, [])) for video in videos]
+    series_context_map = await _get_series_context_map(db, video_ids)
+    watch_confirm_settings = await _get_watch_confirm_settings_map(db, video_ids)
+    return [
+        _video_to_dict(
+            video,
+            targets_map.get(video.id, []),
+            series_meta=series_context_map.get(video.id),
+            watch_confirm_setting=watch_confirm_settings.get(video.id),
+        )
+        for video in videos
+    ]
 
 
 @router.post("/videos")
@@ -1288,19 +1983,76 @@ async def create_video(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
+    material_asset: MaterialAsset | None = None
+    storage_type = "local"
+    file_name = payload.file_name.strip()
+    file_path = payload.file_path.strip()
+    original_filename = payload.file_name.strip()
+    stored_filename = Path(payload.file_path.strip()).name if payload.file_path.strip() else ""
+    mime_type = payload.mime_type.strip()
+    file_size = int(payload.file_size or 0)
+    duration_seconds = int(payload.duration_seconds or 0)
+    oss_bucket = ""
+    oss_endpoint = ""
+    oss_object_key = ""
+    oss_url = ""
+    cdn_url = ""
+    play_url = ""
+    material_asset_id = None
+
+    if payload.video_source == "material":
+        if not payload.material_asset_id:
+            raise HTTPException(status_code=400, detail="请选择素材库视频。")
+        material_asset = await _get_material_asset_or_403(
+            db,
+            payload.material_asset_id,
+            admin,
+            expected_type="video",
+        )
+        oss_settings = _ensure_oss_settings()
+        public_base_url = _build_public_base_url(
+            oss_settings["bucket"],
+            oss_settings["endpoint"],
+            settings.oss_public_base_url,
+        )
+        object_url = _build_oss_object_url(public_base_url, material_asset.object_key)
+        storage_type = "oss"
+        file_name = material_asset.file_name
+        file_path = material_asset.object_key
+        original_filename = material_asset.file_name
+        stored_filename = Path(material_asset.object_key).name
+        mime_type = material_asset.mime_type or "video/mp4"
+        file_size = int(material_asset.file_size or 0)
+        duration_seconds = int(material_asset.duration_seconds or 0)
+        oss_bucket = oss_settings["bucket"]
+        oss_endpoint = oss_settings["endpoint"]
+        oss_object_key = material_asset.object_key
+        oss_url = object_url
+        cdn_url = object_url
+        play_url = object_url
+        material_asset_id = int(material_asset.id)
+    else:
+        if not file_name or not file_path:
+            raise HTTPException(status_code=400, detail="请先上传视频文件。")
     video = MagicVideo(
         title=payload.title.strip(),
         description=payload.description.strip(),
         category=payload.category.strip(),
-        file_name=payload.file_name.strip(),
-        file_path=payload.file_path.strip(),
-        original_filename=payload.file_name.strip(),
-        stored_filename=Path(payload.file_path.strip()).name,
-        storage_type="local",
-        mime_type=payload.mime_type.strip(),
-        file_size=int(payload.file_size or 0),
-        duration_seconds=int(payload.duration_seconds or 0),
-        duration=int(payload.duration_seconds or 0),
+        file_name=file_name,
+        file_path=file_path,
+        original_filename=original_filename,
+        stored_filename=stored_filename,
+        storage_type=storage_type,
+        oss_bucket=oss_bucket,
+        oss_endpoint=oss_endpoint,
+        oss_object_key=oss_object_key,
+        oss_url=oss_url,
+        cdn_url=cdn_url,
+        play_url=play_url,
+        mime_type=mime_type,
+        file_size=file_size,
+        duration_seconds=duration_seconds,
+        duration=duration_seconds,
         is_required=payload.is_required,
         is_newcomer_required=payload.is_newcomer_required,
         deadline_at=payload.deadline_at,
@@ -1308,6 +2060,7 @@ async def create_video(
         upload_status="completed",
         upload_error="",
         transcode_status="none",
+        material_asset_id=material_asset_id,
         created_by=admin.id,
     )
     db.add(video)
@@ -1334,7 +2087,14 @@ async def get_video(
     del admin
     video = await _get_video_or_404(db, video_id)
     targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    series_context_map = await _get_series_context_map(db, [video.id])
+    watch_confirm_settings = await _get_watch_confirm_settings_map(db, [video.id])
+    return _video_to_dict(
+        video,
+        targets_map.get(video.id, []),
+        series_meta=series_context_map.get(video.id),
+        watch_confirm_setting=watch_confirm_settings.get(video.id),
+    )
 
 
 @router.put("/videos/{video_id}")
@@ -1346,18 +2106,20 @@ async def update_video(
 ) -> dict[str, Any]:
     del admin
     video = await _get_video_or_404(db, video_id)
+    next_file_name = payload.file_name.strip() or video.file_name
+    next_file_path = payload.file_path.strip() or video.file_path
     video.title = payload.title.strip()
     video.description = payload.description.strip()
     video.category = payload.category.strip()
-    video.file_name = payload.file_name.strip()
-    video.file_path = payload.file_path.strip()
-    video.original_filename = payload.file_name.strip()
-    video.stored_filename = Path(payload.file_path.strip()).name
+    video.file_name = next_file_name
+    video.file_path = next_file_path
+    video.original_filename = next_file_name
+    video.stored_filename = Path(next_file_path).name if next_file_path else video.stored_filename
     video.storage_type = video.storage_type or "local"
-    video.mime_type = payload.mime_type.strip()
-    video.file_size = int(payload.file_size or 0)
-    video.duration_seconds = int(payload.duration_seconds or 0)
-    video.duration = int(payload.duration_seconds or 0)
+    video.mime_type = payload.mime_type.strip() or video.mime_type
+    video.file_size = int(payload.file_size or video.file_size or 0)
+    video.duration_seconds = int(payload.duration_seconds or video.duration_seconds or 0)
+    video.duration = int(payload.duration_seconds or video.duration or video.duration_seconds or 0)
     video.is_required = payload.is_required
     video.is_newcomer_required = payload.is_newcomer_required
     video.deadline_at = payload.deadline_at
@@ -1408,6 +2170,8 @@ async def delete_video(
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to delete OSS object while deleting video %s", video.id)
     await db.execute(sql_delete(MagicVideoWhitelist).where(MagicVideoWhitelist.video_id == video_id))
+    await db.execute(sql_delete(MagicVideoSeriesItem).where(MagicVideoSeriesItem.video_id == video_id))
+    await db.execute(sql_delete(MagicVideoWatchConfirmSetting).where(MagicVideoWatchConfirmSetting.video_id == video_id))
     video.deleted_at = _now()
     video.status = "disabled"
     video.upload_status = "deleted"
@@ -1453,6 +2217,237 @@ async def disable_video(
     await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+async def _build_series_list(db: AsyncSession) -> list[dict[str, Any]]:
+    result = await db.execute(
+        select(MagicVideoSeries)
+        .where(MagicVideoSeries.is_deleted.is_(False))
+        .order_by(MagicVideoSeries.created_at.desc(), MagicVideoSeries.id.desc())
+    )
+    series_rows = result.scalars().all()
+    if not series_rows:
+        return []
+    series_ids = [item.id for item in series_rows]
+    items_result = await db.execute(
+        select(MagicVideoSeriesItem, MagicVideo)
+        .join(MagicVideo, MagicVideo.id == MagicVideoSeriesItem.video_id)
+        .where(
+            MagicVideoSeriesItem.series_id.in_(series_ids),
+            MagicVideo.deleted_at.is_(None),
+        )
+        .order_by(MagicVideoSeriesItem.sort_order.asc(), MagicVideoSeriesItem.id.asc())
+    )
+    items_map: dict[int, list[dict[str, Any]]] = {}
+    for item, video in items_result.all():
+        items_map.setdefault(item.series_id, []).append({
+            "id": int(item.id),
+            "video_id": int(video.id),
+            "title": video.title,
+            "category": video.category or "",
+            "sort_order": int(item.sort_order or 0),
+            "status": video.status,
+        })
+    return [_series_to_dict(item, items_map.get(item.id, [])) for item in series_rows]
+
+
+async def _get_series_detail(db: AsyncSession, series_id: int) -> dict[str, Any]:
+    rows = await _build_series_list(db)
+    row = next((item for item in rows if item["id"] == series_id), None)
+    if not row:
+        raise HTTPException(status_code=404, detail="系列不存在。")
+    return row
+
+
+@router.get("/admin/video-series")
+async def list_video_series(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> list[dict[str, Any]]:
+    del admin
+    return await _build_series_list(db)
+
+
+@router.post("/admin/video-series")
+async def create_video_series(
+    payload: VideoSeriesPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = MagicVideoSeries(
+        title=payload.title.strip(),
+        description=payload.description.strip(),
+        sequential_unlock_enabled=payload.sequential_unlock_enabled,
+        enabled=payload.enabled,
+        created_by=admin.id,
+        is_deleted=False,
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return await _get_series_detail(db, row.id)
+
+
+@router.put("/admin/video-series/{series_id}")
+async def update_video_series(
+    series_id: int,
+    payload: VideoSeriesPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    row = await db.get(MagicVideoSeries, series_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="系列不存在。")
+    row.title = payload.title.strip()
+    row.description = payload.description.strip()
+    row.sequential_unlock_enabled = payload.sequential_unlock_enabled
+    row.enabled = payload.enabled
+    await db.flush()
+    await db.refresh(row)
+    return await _get_series_detail(db, series_id)
+
+
+@router.delete("/admin/video-series/{series_id}")
+async def delete_video_series(
+    series_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, bool]:
+    del admin
+    row = await db.get(MagicVideoSeries, series_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="系列不存在。")
+    await db.execute(sql_delete(MagicVideoSeriesItem).where(MagicVideoSeriesItem.series_id == series_id))
+    row.is_deleted = True
+    row.deleted_at = _now()
+    await db.flush()
+    return {"success": True}
+
+
+@router.post("/admin/video-series/{series_id}/items")
+async def add_video_series_item(
+    series_id: int,
+    payload: VideoSeriesAddItemPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    series = await db.get(MagicVideoSeries, series_id)
+    if not series or series.is_deleted:
+        raise HTTPException(status_code=404, detail="系列不存在。")
+    video = await _get_video_or_404(db, payload.video_id)
+    if video.deleted_at is not None:
+        raise HTTPException(status_code=400, detail="视频已删除，不能加入系列。")
+    exists = await db.execute(
+        select(MagicVideoSeriesItem).where(MagicVideoSeriesItem.video_id == payload.video_id)
+    )
+    existing = exists.scalar_one_or_none()
+    if existing and existing.series_id != series_id:
+        raise HTTPException(status_code=400, detail="该视频已加入其他系列。")
+    if existing:
+        raise HTTPException(status_code=400, detail="该视频已在当前系列中。")
+    current_max = await db.execute(
+        select(func.max(MagicVideoSeriesItem.sort_order)).where(MagicVideoSeriesItem.series_id == series_id)
+    )
+    next_sort = int(current_max.scalar_one() or 0) + 10
+    row = MagicVideoSeriesItem(
+        series_id=series_id,
+        video_id=payload.video_id,
+        sort_order=int(payload.sort_order if payload.sort_order is not None else next_sort),
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return await _get_series_detail(db, series_id)
+
+
+@router.put("/admin/video-series/{series_id}/items/reorder")
+async def reorder_video_series_items(
+    series_id: int,
+    payload: VideoSeriesReorderPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    series = await db.get(MagicVideoSeries, series_id)
+    if not series or series.is_deleted:
+        raise HTTPException(status_code=404, detail="系列不存在。")
+    result = await db.execute(
+        select(MagicVideoSeriesItem)
+        .where(MagicVideoSeriesItem.series_id == series_id)
+        .order_by(MagicVideoSeriesItem.sort_order.asc(), MagicVideoSeriesItem.id.asc())
+    )
+    items = result.scalars().all()
+    item_map = {item.video_id: item for item in items}
+    if set(payload.video_ids) != set(item_map):
+        raise HTTPException(status_code=400, detail="排序数据不完整。")
+    for index, video_id in enumerate(payload.video_ids, start=1):
+        item_map[video_id].sort_order = index * 10
+    await db.flush()
+    return await _get_series_detail(db, series_id)
+
+
+@router.delete("/admin/video-series/{series_id}/items/{video_id}")
+async def remove_video_series_item(
+    series_id: int,
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, bool]:
+    del admin
+    result = await db.execute(
+        select(MagicVideoSeriesItem).where(
+            MagicVideoSeriesItem.series_id == series_id,
+            MagicVideoSeriesItem.video_id == video_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="系列视频关系不存在。")
+    await db.delete(row)
+    await db.flush()
+    return {"success": True}
+
+
+@router.get("/admin/videos/{video_id}/watch-confirm-setting")
+async def get_watch_confirm_setting(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    await _get_video_or_404(db, video_id)
+    result = await db.execute(
+        select(MagicVideoWatchConfirmSetting).where(MagicVideoWatchConfirmSetting.video_id == video_id)
+    )
+    row = result.scalar_one_or_none()
+    return _serialize_watch_confirm_setting(row, video_id)
+
+
+@router.put("/admin/videos/{video_id}/watch-confirm-setting")
+async def update_watch_confirm_setting(
+    video_id: int,
+    payload: WatchConfirmSettingPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    await _get_video_or_404(db, video_id)
+    result = await db.execute(
+        select(MagicVideoWatchConfirmSetting).where(MagicVideoWatchConfirmSetting.video_id == video_id)
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        row = MagicVideoWatchConfirmSetting(video_id=video_id)
+        db.add(row)
+    row.enabled = payload.enabled
+    row.interval_seconds = int(payload.interval_seconds or 300)
+    row.message = (payload.message or WATCH_CONFIRM_DEFAULT_MESSAGE).strip() or WATCH_CONFIRM_DEFAULT_MESSAGE
+    row.button_text = (payload.button_text or WATCH_CONFIRM_DEFAULT_BUTTON).strip() or WATCH_CONFIRM_DEFAULT_BUTTON
+    await db.flush()
+    await db.refresh(row)
+    return _serialize_watch_confirm_setting(row, video_id)
 
 
 @router.get("/videos/{video_id}/quiz-points")
@@ -1704,22 +2699,41 @@ async def list_my_videos(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     result = await db.execute(
         select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
     )
     videos = result.scalars().all()
+    video_ids = [item.id for item in videos]
     targets_map = await _get_video_targets(db, [item.id for item in videos])
     progress_result = await db.execute(
         select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id)
     )
     progress_map = {item.video_id: item for item in progress_result.scalars().all()}
+    series_context_map = await _get_series_context_map(
+        db,
+        video_ids,
+        progress_map=progress_map,
+        whitelist_permissions=whitelist_permissions,
+    )
+    watch_confirm_settings = await _get_watch_confirm_settings_map(db, video_ids)
     output = []
     for video in videos:
         targets = targets_map.get(video.id, [])
         whitelisted = await _is_whitelisted(db, video.id, user.id)
         if not _video_visible_to_user(video, user, targets, whitelisted):
             continue
-        output.append(_video_to_dict(video, targets, progress_map.get(video.id), whitelisted))
+        output.append(
+            _video_to_dict(
+                video,
+                targets,
+                progress_map.get(video.id),
+                whitelisted,
+                whitelist_permissions,
+                series_context_map.get(video.id),
+                watch_confirm_settings.get(video.id),
+            )
+        )
     return output
 
 
@@ -1729,14 +2743,34 @@ async def get_my_video_detail(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     video = await _get_video_or_404(db, video_id)
     targets, whitelisted = await _ensure_video_access(db, video, user)
     progress = await _get_progress(db, user.id, video_id, create=False)
     progress = await _ensure_progress_quiz_version(db, progress, video)
+    all_progress_result = await db.execute(
+        select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id)
+    )
+    all_progress_map = {item.video_id: item for item in all_progress_result.scalars().all()}
     points_map = await _get_quiz_points_map(db, [video_id])
     points = points_map.get(video_id, [])
     questions_map = await _get_questions_map(db, [item.id for item in points])
-    payload = _video_to_dict(video, targets, progress, whitelisted)
+    series_context_map = await _get_series_context_map(
+        db,
+        [video_id],
+        progress_map=all_progress_map,
+        whitelist_permissions=whitelist_permissions,
+    )
+    watch_confirm_settings = await _get_watch_confirm_settings_map(db, [video_id])
+    payload = _video_to_dict(
+        video,
+        targets,
+        progress,
+        whitelisted,
+        whitelist_permissions,
+        series_context_map.get(video_id),
+        watch_confirm_settings.get(video_id),
+    )
     payload["stream_url"] = f"/api/magic-academy/videos/{video_id}/stream"
     payload["quiz_points"] = [
         {
@@ -1760,6 +2794,7 @@ async def get_my_video_detail(
         }
         for point in points
     ]
+    _apply_whitelist_quiz_points(payload, whitelist_permissions)
     return payload
 
 
@@ -1787,18 +2822,24 @@ async def save_my_video_progress(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     video = await _get_video_or_404(db, video_id)
     targets, whitelisted = await _ensure_video_access(db, video, user)
     progress = await _get_progress(db, user.id, video_id, create=True)
     progress = await _ensure_progress_quiz_version(db, progress, video)
+    all_progress_result = await db.execute(
+        select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id)
+    )
+    all_progress_map = {item.video_id: item for item in all_progress_result.scalars().all()}
     duration = max(float(payload.duration_seconds or video.duration_seconds or progress.total_duration or 0), 0)
     progress.total_duration = duration
     progress.current_position = min(max(float(payload.current_position or 0), 0), duration or float(payload.current_position or 0))
     allowed_max = max(float(progress.max_watched_position or 0), float(payload.max_watched_position or 0))
-    if not whitelisted and duration > 0:
+    if not _can_seek_freely(whitelisted, whitelist_permissions) and duration > 0:
         allowed_max = min(allowed_max, duration)
     progress.max_watched_position = allowed_max
     progress.progress_percent = round((allowed_max / duration) * 100, 2) if duration > 0 else 0
+    progress.progress_source = progress.progress_source or SOURCE_MANUAL
     if payload.page_visible:
         progress.last_watched_at = _now()
     answered = set(_json_loads(progress.answered_point_ids_json, []))
@@ -1808,15 +2849,38 @@ async def save_my_video_progress(
     )
     required_point_ids = {int(item[0]) for item in point_result.all()}
     progress.quiz_passed = answered.issuperset(required_point_ids)
+    if whitelist_permissions.get("course_exempt_enabled"):
+        progress.quiz_passed = True
     near_end = duration > 0 and allowed_max >= max(duration - 1.5, duration * 0.98)
-    if whitelisted:
+    if _can_seek_freely(whitelisted, whitelist_permissions):
         near_end = duration > 0 and progress.current_position >= 0
-    if near_end and progress.quiz_passed and video.status == "published":
+    if whitelist_permissions.get("course_exempt_enabled"):
+        progress.is_completed = True
+        progress.completed_by_whitelist = True
+        progress.progress_source = SOURCE_WHITELIST_EXEMPT
+        if not progress.completed_at:
+            progress.completed_at = _now()
+    elif near_end and progress.quiz_passed and video.status == "published":
         progress.is_completed = True
         if not progress.completed_at:
             progress.completed_at = _now()
     await db.flush()
-    return _video_to_dict(video, targets, progress, whitelisted)
+    series_context_map = await _get_series_context_map(
+        db,
+        [video_id],
+        progress_map=all_progress_map,
+        whitelist_permissions=whitelist_permissions,
+    )
+    watch_confirm_settings = await _get_watch_confirm_settings_map(db, [video_id])
+    return _video_to_dict(
+        video,
+        targets,
+        progress,
+        whitelisted,
+        whitelist_permissions,
+        series_context_map.get(video_id),
+        watch_confirm_settings.get(video_id),
+    )
 
 
 @router.post("/my/videos/{video_id}/submit-quiz")
@@ -1826,6 +2890,7 @@ async def submit_my_video_quiz(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     video = await _get_video_or_404(db, video_id)
     _, whitelisted = await _ensure_video_access(db, video, user)
     point = await db.get(MagicVideoQuizPoint, payload.quiz_point_id)
@@ -1846,7 +2911,8 @@ async def submit_my_video_quiz(
 
     answer_map = {item.question_id: item.answer for item in payload.answers}
     rows = []
-    if whitelisted and payload.skip_by_whitelist:
+    auto_correct = bool(whitelist_permissions.get("auto_answer_correct") or (whitelisted and payload.skip_by_whitelist))
+    if auto_correct:
         for question in questions:
             rows.append({
                 "question_id": question.id,
@@ -1885,11 +2951,13 @@ async def submit_my_video_quiz(
                 correct_answer_json=_json_dumps(item["correct_answer"]),
                 is_correct=item["is_correct"],
                 score=score,
+                answer_source=SOURCE_WHITELIST_AUTO_CORRECT if auto_correct else SOURCE_MANUAL,
+                auto_correct_by_whitelist=auto_correct,
             )
         )
     final_score = round((total_score / total_possible) * 100, 2) if total_possible > 0 else 100.0
     all_correct = bool(rows) and all(bool(item["is_correct"]) for item in rows)
-    passed = bool(whitelisted and payload.skip_by_whitelist) or all_correct
+    passed = auto_correct or all_correct
     db.add(
         MagicQuizPointPassRecord(
             user_id=user.id,
@@ -1898,6 +2966,7 @@ async def submit_my_video_quiz(
             attempt_no=attempt_no,
             score=final_score,
             passed=passed,
+            source=SOURCE_WHITELIST_AUTO_CORRECT if auto_correct else SOURCE_MANUAL,
             passed_at=_now() if passed else None,
         )
     )
@@ -1913,7 +2982,7 @@ async def submit_my_video_quiz(
         )
     )
     required_point_ids = {int(item[0]) for item in point_result.all()}
-    progress.quiz_passed = answered.issuperset(required_point_ids)
+    progress.quiz_passed = answered.issuperset(required_point_ids) or whitelist_permissions.get("course_exempt_enabled")
     if progress.total_duration > 0 and progress.max_watched_position >= max(progress.total_duration - 1.5, progress.total_duration * 0.98) and progress.quiz_passed:
         progress.is_completed = True
         progress.completed_at = progress.completed_at or _now()
@@ -1925,6 +2994,33 @@ async def submit_my_video_quiz(
         "passed": passed,
         "required_score": 100,
         "details": rows,
+    }
+
+
+@router.post("/my/videos/{video_id}/watch-confirm")
+async def create_watch_confirm_log(
+    video_id: int,
+    payload: WatchConfirmLogPayload,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    video = await _get_video_or_404(db, video_id)
+    await _ensure_video_access(db, video, user)
+    row = MagicVideoWatchConfirmLog(
+        user_id=user.id,
+        video_id=video_id,
+        progress_seconds=float(payload.progress_seconds or 0),
+        confirm_round=int(payload.confirm_round or 1),
+        confirmed_at=_now(),
+    )
+    db.add(row)
+    await db.flush()
+    return {
+        "id": int(row.id),
+        "video_id": int(video_id),
+        "progress_seconds": float(row.progress_seconds or 0),
+        "confirm_round": int(row.confirm_round or 1),
+        "confirmed_at": _iso(row.confirmed_at),
     }
 
 
@@ -1958,9 +3054,15 @@ async def get_video_stats(
         )
     )
     whitelist_user_ids = {item.user_id for item in whitelist_result.scalars().all()}
+    user_whitelist_result = await db.execute(
+        select(UserWhitelist).where(UserWhitelist.user_id.in_(user_ids), UserWhitelist.enabled.is_(True))
+    )
+    user_whitelist_map = {item.user_id: item for item in user_whitelist_result.scalars().all()}
     rows = []
     for item in users:
         progress = progress_map.get(item.id)
+        whitelist_entry = user_whitelist_map.get(item.id)
+        course_exempt_enabled = bool(whitelist_entry and whitelist_entry.course_exempt_enabled)
         watched = min(float(progress.max_watched_position or 0), float(video.duration_seconds or progress.total_duration or 0)) if progress else 0
         rows.append({
             "user_id": item.id,
@@ -1970,13 +3072,15 @@ async def get_video_stats(
             "video_name": video.title,
             "video_duration_seconds": int(video.duration_seconds or 0),
             "watched_seconds": round(watched, 2),
-            "progress_percent": float(progress.progress_percent or 0) if progress else 0,
-            "is_completed": bool(progress.is_completed) if progress else False,
-            "completed_at": _iso(progress.completed_at) if progress else None,
-            "quiz_passed": bool(progress.quiz_passed) if progress else False,
+            "progress_percent": 100.0 if course_exempt_enabled else float(progress.progress_percent or 0) if progress else 0,
+            "is_completed": True if course_exempt_enabled else bool(progress.is_completed) if progress else False,
+            "completed_at": _iso(progress.completed_at) if progress else (_iso(_now()) if course_exempt_enabled else None),
+            "quiz_passed": True if course_exempt_enabled else bool(progress.quiz_passed) if progress else False,
             "answer_attempt_count": int(progress.answer_attempt_count or 0) if progress else 0,
             "last_watched_at": _iso(progress.last_watched_at) if progress else None,
             "is_whitelist_user": item.id in whitelist_user_ids,
+            "completed_by_whitelist": course_exempt_enabled,
+            "progress_source": SOURCE_WHITELIST_EXEMPT if course_exempt_enabled else (progress.progress_source if progress else SOURCE_MANUAL),
         })
     return rows
 
@@ -2020,6 +3124,8 @@ async def get_video_answer_details(
             "score": float(answer.score or 0),
             "submitted_at": _iso(answer.submitted_at),
             "attempt_no": answer.attempt_no,
+            "answer_source": answer.answer_source or SOURCE_MANUAL,
+            "auto_correct_by_whitelist": bool(answer.auto_correct_by_whitelist),
         })
     return rows
 
@@ -2102,7 +3208,7 @@ async def export_video_answers(
 @router.get("/video-whitelist")
 async def list_video_whitelist(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
 ) -> list[dict[str, Any]]:
     del admin
     result = await db.execute(
@@ -2130,7 +3236,7 @@ async def list_video_whitelist(
 async def create_video_whitelist(
     payload: VideoWhitelistCreatePayload,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
 ) -> dict[str, Any]:
     await _get_video_or_404(db, payload.video_id)
     target = await db.get(User, payload.user_id)
@@ -2164,7 +3270,7 @@ async def create_video_whitelist(
 async def delete_video_whitelist(
     whitelist_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
 ) -> dict[str, bool]:
     del admin
     row = await db.get(MagicVideoWhitelist, whitelist_id)
@@ -2175,17 +3281,411 @@ async def delete_video_whitelist(
     return {"success": True}
 
 
+@router.get("/admin/reading-contents")
+async def list_admin_reading_contents(
+    month: str | None = None,
+    date_value: str | None = Query(default=None, alias="date"),
+    keyword: str = "",
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    stmt = select(MagicReadingContent).where(MagicReadingContent.is_deleted.is_(False))
+    if not is_super_admin(admin):
+        stmt = stmt.where(MagicReadingContent.created_by == admin.id)
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="date 格式应为 YYYY-MM-DD。") from exc
+        stmt = stmt.where(MagicReadingContent.reading_date == target_date)
+    elif month:
+        month_start, month_end = _parse_month(month)
+        stmt = stmt.where(
+            MagicReadingContent.reading_date >= month_start,
+            MagicReadingContent.reading_date <= month_end,
+        )
+    keyword_text = (keyword or "").strip()
+    if keyword_text:
+        like_value = f"%{keyword_text}%"
+        stmt = stmt.where(
+            or_(
+                MagicReadingContent.title.like(like_value),
+                MagicReadingContent.description.like(like_value),
+            )
+        )
+    page = max(int(page or 1), 1)
+    page_size = max(min(int(page_size or 20), 100), 1)
+    count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+    total = int((await db.execute(count_stmt)).scalar_one() or 0)
+    stmt = stmt.order_by(desc(MagicReadingContent.reading_date), desc(MagicReadingContent.created_at))
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+    content_ids = [item.id for item in rows]
+    targets_map = await _get_reading_content_targets_map(db, content_ids)
+    creator_ids = sorted({int(item.created_by) for item in rows})
+    creator_map: dict[int, User] = {}
+    if creator_ids:
+        creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
+        creator_map = {item.id: item for item in creator_result.scalars().all()}
+    items = []
+    for row in rows:
+        targets = targets_map.get(row.id, [])
+        items.append(
+            _reading_content_to_dict(
+                row,
+                targets=targets,
+                image_url=await asyncio.to_thread(_reading_image_url, row.image_object_key or ""),
+                creator=creator_map.get(row.created_by),
+                push_count=await _count_reading_targets(db, targets),
+            )
+        )
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+    }
+
+
+@router.get("/admin/reading-contents/{content_id}")
+async def get_admin_reading_content_detail(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权查看该读书内容。")
+    targets_map = await _get_reading_content_targets_map(db, [content_id])
+    creator = await db.get(User, row.created_by)
+    targets = targets_map.get(content_id, [])
+    return _reading_content_to_dict(
+        row,
+        targets=targets,
+        image_url=await asyncio.to_thread(_reading_image_url, row.image_object_key or ""),
+        creator=creator,
+        push_count=await _count_reading_targets(db, targets),
+    )
+
+
+@router.post("/admin/reading-contents")
+async def create_admin_reading_content(
+    reading_date: date = Form(...),
+    title: str = Form(...),
+    description: str = Form(default=""),
+    image_source: str = Form(default="upload"),
+    material_asset_id: int | None = Form(default=None),
+    target_type: str = Form(...),
+    target_user_ids: str = Form(default=""),
+    target_department_ids: str = Form(default=""),
+    image: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    normalized_image_source = _normalize_image_source(image_source)
+    normalized_target_type = _normalize_reading_target_type(target_type)
+    normalized_title = (title or "").strip()
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="请输入标题。")
+    user_ids = _parse_form_id_list(target_user_ids)
+    department_names = sorted({
+        item.strip()
+        for item in (_json_loads(target_department_ids, []) if (target_department_ids or "").strip().startswith("[") else (target_department_ids or "").split(","))
+        if str(item).strip()
+    })
+    valid_user_ids, valid_departments, push_count = await _validate_reading_recipients(
+        db,
+        target_type=normalized_target_type,
+        target_user_ids=user_ids,
+        target_department_names=department_names,
+    )
+    if normalized_image_source == "material":
+        if not material_asset_id:
+            raise HTTPException(status_code=400, detail="请选择素材库图片。")
+        material_asset = await _get_material_asset_or_403(
+            db,
+            material_asset_id,
+            admin,
+            expected_type="image",
+        )
+        object_key = material_asset.object_key
+        object_url = _build_oss_object_url(_ensure_oss_settings()["public_base_url"], object_key)
+        image_file_name = material_asset.file_name
+        image_mime_type = material_asset.mime_type or "image/jpeg"
+        image_size = int(material_asset.file_size or 0)
+    else:
+        if image is None:
+            raise HTTPException(status_code=400, detail="请先上传读书内容图片。")
+        raw = await image.read()
+        mime_type = (image.content_type or "").strip() or mimetypes.guess_type(image.filename or "")[0] or "image/jpeg"
+        extension = _validate_reading_image_payload(image.filename or "", len(raw), mime_type)
+        object_key, stored_filename = _build_object_key_and_name(image.filename or f"reading-content{extension}", extension)
+        await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
+        object_url = _build_oss_object_url(_ensure_oss_settings()["public_base_url"], object_key)
+        image_file_name = _safe_filename(image.filename or stored_filename)
+        image_mime_type = mime_type
+        image_size = len(raw)
+    row = MagicReadingContent(
+        reading_date=reading_date,
+        title=normalized_title,
+        description=(description or "").strip(),
+        image_object_key=object_key,
+        image_url=object_url,
+        image_file_name=image_file_name,
+        image_mime_type=image_mime_type,
+        image_size=image_size,
+        status=READING_CONTENT_ACTIVE,
+        created_by=admin.id,
+        is_deleted=False,
+    )
+    db.add(row)
+    await db.flush()
+    targets = await _replace_reading_targets(
+        db,
+        row.id,
+        target_type=normalized_target_type,
+        user_ids=valid_user_ids,
+        department_names=valid_departments,
+    )
+    await db.refresh(row)
+    return _reading_content_to_dict(
+        row,
+        targets=targets,
+        image_url=await asyncio.to_thread(_reading_image_url, row.image_object_key or ""),
+        creator=admin,
+        push_count=push_count,
+    )
+
+
+@router.put("/admin/reading-contents/{content_id}")
+async def update_admin_reading_content(
+    content_id: int,
+    reading_date: date = Form(...),
+    title: str = Form(...),
+    description: str = Form(default=""),
+    image_source: str = Form(default="upload"),
+    material_asset_id: int | None = Form(default=None),
+    target_type: str = Form(...),
+    target_user_ids: str = Form(default=""),
+    target_department_ids: str = Form(default=""),
+    image: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权编辑该读书内容。")
+    normalized_image_source = _normalize_image_source(image_source)
+    normalized_target_type = _normalize_reading_target_type(target_type)
+    normalized_title = (title or "").strip()
+    if not normalized_title:
+        raise HTTPException(status_code=400, detail="请输入标题。")
+    user_ids = _parse_form_id_list(target_user_ids)
+    department_names = sorted({
+        item.strip()
+        for item in (_json_loads(target_department_ids, []) if (target_department_ids or "").strip().startswith("[") else (target_department_ids or "").split(","))
+        if str(item).strip()
+    })
+    valid_user_ids, valid_departments, push_count = await _validate_reading_recipients(
+        db,
+        target_type=normalized_target_type,
+        target_user_ids=user_ids,
+        target_department_names=department_names,
+    )
+    row.reading_date = reading_date
+    row.title = normalized_title
+    row.description = (description or "").strip()
+    row.status = READING_CONTENT_ACTIVE
+    if normalized_image_source == "material":
+        if not material_asset_id:
+            raise HTTPException(status_code=400, detail="请选择素材库图片。")
+        material_asset = await _get_material_asset_or_403(
+            db,
+            material_asset_id,
+            admin,
+            expected_type="image",
+        )
+        row.image_object_key = material_asset.object_key
+        row.image_url = _build_oss_object_url(_ensure_oss_settings()["public_base_url"], material_asset.object_key)
+        row.image_file_name = material_asset.file_name
+        row.image_mime_type = material_asset.mime_type or "image/jpeg"
+        row.image_size = int(material_asset.file_size or 0)
+    elif image is not None and image.filename:
+        raw = await image.read()
+        mime_type = (image.content_type or "").strip() or mimetypes.guess_type(image.filename or "")[0] or "image/jpeg"
+        extension = _validate_reading_image_payload(image.filename or "", len(raw), mime_type)
+        object_key, stored_filename = _build_object_key_and_name(image.filename or f"reading-content{extension}", extension)
+        await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
+        row.image_object_key = object_key
+        row.image_url = _build_oss_object_url(_ensure_oss_settings()["public_base_url"], object_key)
+        row.image_file_name = _safe_filename(image.filename or stored_filename)
+        row.image_mime_type = mime_type
+        row.image_size = len(raw)
+    targets = await _replace_reading_targets(
+        db,
+        row.id,
+        target_type=normalized_target_type,
+        user_ids=valid_user_ids,
+        department_names=valid_departments,
+    )
+    await db.flush()
+    await db.refresh(row)
+    creator = await db.get(User, row.created_by)
+    return _reading_content_to_dict(
+        row,
+        targets=targets,
+        image_url=await asyncio.to_thread(_reading_image_url, row.image_object_key or ""),
+        creator=creator,
+        push_count=push_count,
+    )
+
+
+@router.delete("/admin/reading-contents/{content_id}")
+async def delete_admin_reading_content(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, bool]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权删除该读书内容。")
+    row.is_deleted = True
+    row.deleted_at = _now()
+    await db.flush()
+    return {"success": True}
+
+
+@router.get("/my/reading-contents")
+async def list_my_reading_contents(
+    date_value: str | None = Query(default=None, alias="date"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    target_date = date.today()
+    if date_value:
+        try:
+            target_date = date.fromisoformat(date_value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="date 格式应为 YYYY-MM-DD。") from exc
+    result = await db.execute(
+        select(MagicReadingContent)
+        .where(
+            MagicReadingContent.is_deleted.is_(False),
+            MagicReadingContent.status == READING_CONTENT_ACTIVE,
+            MagicReadingContent.reading_date == target_date,
+        )
+        .order_by(desc(MagicReadingContent.created_at), desc(MagicReadingContent.id))
+    )
+    rows = result.scalars().all()
+    if not rows:
+        return []
+    targets_map = await _get_reading_content_targets_map(db, [item.id for item in rows])
+    output = []
+    for row in rows:
+        targets = targets_map.get(row.id, [])
+        if not targets or not any(_reading_target_matches_user(user, target) for target in targets):
+            continue
+        output.append(
+            _reading_content_to_dict(
+                row,
+                targets=targets,
+                image_url=await asyncio.to_thread(_reading_image_url, row.image_object_key or ""),
+            )
+        )
+    return output
+
+
 @router.get("/my/audios")
 async def list_my_audios(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
+    await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
     result = await db.execute(
         select(MagicAudioUpload)
         .where(MagicAudioUpload.user_id == user.id, MagicAudioUpload.is_deleted.is_(False))
         .order_by(desc(MagicAudioUpload.uploaded_on))
     )
     return [_serialize_audio_record(item) for item in result.scalars().all()]
+
+
+@router.get("/admin/audio-makeup-setting")
+async def get_audio_makeup_setting(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    row = await _get_audio_makeup_setting(db)
+    return _serialize_audio_makeup_setting(row)
+
+
+@router.put("/admin/audio-makeup-setting")
+async def update_audio_makeup_setting(
+    payload: AudioMakeupSettingPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_audio_makeup_setting(db, create=True)
+    if not row:
+        raise HTTPException(status_code=500, detail="补卡设置初始化失败。")
+    row.enabled = payload.enabled
+    row.make_up_days = int(payload.make_up_days or 0)
+    row.updated_by = admin.id
+    await db.flush()
+    await db.refresh(row)
+    return _serialize_audio_makeup_setting(row)
+
+
+@router.get("/my/audios/makeup-options")
+async def get_my_audio_makeup_options(
+    month: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
+    await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
+    setting = await _get_audio_makeup_setting(db)
+    month_start, _ = _parse_month(month)
+    month_last_day = _month_last_day(month_start)
+    result = await db.execute(
+        select(MagicAudioUpload)
+        .where(
+            MagicAudioUpload.user_id == user.id,
+            MagicAudioUpload.is_deleted.is_(False),
+            MagicAudioUpload.uploaded_date >= month_start,
+            MagicAudioUpload.uploaded_date <= month_last_day,
+        )
+        .order_by(MagicAudioUpload.uploaded_on.asc())
+    )
+    uploads = result.scalars().all()
+    uploaded_dates = {item.uploaded_date for item in uploads if item.uploaded_date}
+    today = date.today()
+    days = []
+    cursor = month_start
+    while cursor <= month_last_day:
+        can_makeup, reason = _evaluate_audio_makeup_date(
+            cursor,
+            today=today,
+            setting=setting,
+            has_record=cursor in uploaded_dates,
+        )
+        days.append({
+            "date": cursor.isoformat(),
+            "can_makeup": can_makeup,
+            "reason": reason,
+            "has_record": cursor in uploaded_dates,
+            "is_future": cursor > today,
+            "is_expired": bool(reason == "补卡时间已过期。"),
+        })
+        cursor += timedelta(days=1)
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "setting": _serialize_audio_makeup_setting(setting),
+        "days": days,
+    }
 
 
 @router.post("/my/audios")
@@ -2208,6 +3708,8 @@ async def upload_my_audio(
         file_size=int(payload.file_size or 0),
         mime_type=(payload.mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip(),
         remark=(payload.remark or "").strip(),
+        source=SOURCE_AUDIO_USER_UPLOAD,
+        auto_checkin_by_whitelist=False,
         uploaded_on=now,
         uploaded_date=now.date(),
         is_deleted=False,
@@ -2223,7 +3725,54 @@ async def upload_my_audio(
         "uploaded_date": _iso(row.uploaded_date),
         "uploaded_time": _iso(row.uploaded_on),
         "status": "已上传",
+        "source": SOURCE_AUDIO_USER_UPLOAD,
+        "source_label": "用户上传",
     }
+
+
+@router.post("/my/audios/makeup")
+async def submit_my_audio_makeup(
+    payload: AudioMakeupPayload,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    suffix = Path(payload.file_name or "").suffix.lower()
+    if suffix not in AUDIO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="音频格式不支持。")
+    if int(payload.file_size or 0) > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
+    await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
+    today = date.today()
+    target_date = payload.makeup_date
+    setting = await _get_audio_makeup_setting(db)
+    has_record = await _has_audio_checkin_on_date(db, user.id, target_date)
+    can_makeup, reason = _evaluate_audio_makeup_date(
+        target_date,
+        today=today,
+        setting=setting,
+        has_record=has_record,
+    )
+    if not can_makeup:
+        raise HTTPException(status_code=400, detail=reason)
+    safe_name = _safe_filename(payload.file_name or f"audio{suffix}")
+    row = MagicAudioUpload(
+        user_id=user.id,
+        file_name=safe_name,
+        file_path="",
+        file_size=int(payload.file_size or 0),
+        mime_type=(payload.mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip(),
+        remark=(payload.remark or "").strip(),
+        source=SOURCE_AUDIO_MAKEUP,
+        auto_checkin_by_whitelist=False,
+        uploaded_on=_now(),
+        uploaded_date=target_date,
+        is_deleted=False,
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return _serialize_audio_record(row)
 
 
 @router.delete("/my/audios/{audio_id}")
@@ -2247,6 +3796,8 @@ async def get_my_audio_calendar(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
+    whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
+    await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
     month_start, _ = _parse_month(month)
     month_last_day = _month_last_day(month_start)
     result = await db.execute(
@@ -2304,6 +3855,7 @@ async def _build_audio_stats(
         items = grouped.get(target.id, [])
         upload_days = {item.uploaded_date.isoformat() for item in items if item.uploaded_date}
         upload_count = len(items)
+        makeup_count = sum(1 for item in items if (item.source or "") == SOURCE_AUDIO_MAKEUP)
         missing = max(expected - len(upload_days), 0)
         rows.append({
             "user_id": target.id,
@@ -2313,6 +3865,7 @@ async def _build_audio_stats(
             "expected_upload_days": expected,
             "actual_upload_days": len(upload_days),
             "actual_upload_count": upload_count,
+            "makeup_count": makeup_count,
             "missing_count": missing,
             "upload_rate": round((len(upload_days) / expected) * 100, 2) if expected > 0 else 0,
             "last_upload_time": _iso(items[-1].uploaded_on) if items else None,

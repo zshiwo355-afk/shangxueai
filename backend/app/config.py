@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     jwt_secret: str = Field("change-me-in-production-shangxueai", alias="JWT_SECRET")
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     jwt_ttl_hours: int = Field(720, alias="JWT_TTL_HOURS")  # 30 天
+    super_admin_username: str = Field("", alias="SUPER_ADMIN_USERNAME")
+    super_admin_password: str = Field("", alias="SUPER_ADMIN_PASSWORD")
+    super_admin_name: str = Field("", alias="SUPER_ADMIN_NAME")
 
     # ---- 阿里云 OSS（魔学院视频）----
     oss_access_key_id: str = Field("", alias="OSS_ACCESS_KEY_ID")

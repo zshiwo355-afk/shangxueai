@@ -10,14 +10,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .auth import router as auth_router
+from .auth import ensure_builtin_super_admin, router as auth_router
 from .config import get_settings
+from .db import session_scope
 from .exams_api import (
     admin_router as exams_admin_router,
     review_router as exams_review_router,
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
+from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
 from .paper_assignments_api import (
@@ -32,6 +34,7 @@ from .rules_api import build_router as build_rules_router
 from .training_api import build_router as build_training_router
 from .training_records_api import router as training_records_router
 from .users_api import router as users_admin_router
+from .whitelist_api import router as whitelist_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +72,10 @@ app.include_router(options_user_router)
 app.include_router(options_admin_router)
 # 用户管理（管理员）
 app.include_router(users_admin_router)
+app.include_router(whitelist_router)
 app.include_router(magic_academy_router)
 app.include_router(magic_video_router)
+app.include_router(materials_router)
 # 训练
 app.include_router(build_training_router(settings=settings, rule_loader=rule_loader))
 app.include_router(training_records_router)
@@ -90,6 +95,11 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
+    try:
+        async with session_scope() as session:
+            await ensure_builtin_super_admin(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("super admin bootstrap failed: %s", exc)
     try:
         count = await rule_loader.reload_all()
         logger.info("rule_loader preloaded %d rules", count)

@@ -38,7 +38,7 @@ CREATE TABLE `users` (
   `real_name`    VARCHAR(128) NOT NULL DEFAULT '',
   `department`   VARCHAR(128) NOT NULL DEFAULT '',
   `position`     VARCHAR(128) NOT NULL DEFAULT '',
-  `role`         VARCHAR(16)  NOT NULL DEFAULT 'user' COMMENT 'admin / user',
+  `role`         VARCHAR(16)  NOT NULL DEFAULT 'user' COMMENT 'super_admin / admin / user',
   `is_newcomer`  TINYINT(1)   NOT NULL DEFAULT 0,
   `status`       VARCHAR(16)  NOT NULL DEFAULT 'active' COMMENT 'active / inactive',
   `disabled`     TINYINT(1)   NOT NULL DEFAULT 0,
@@ -66,7 +66,21 @@ CREATE TABLE `config_options` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='下拉选项配置（管理员维护）';
 
 -- ---------------------------------------------------------------------
--- 3) training_sessions — 训练 / 考试通用会话（替代 V1 的 .sessions JSON）
+-- 3) magic_audio_makeup_settings — 读书打卡补卡设置
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_audio_makeup_settings`;
+CREATE TABLE `magic_audio_makeup_settings` (
+  `id`           BIGINT     NOT NULL AUTO_INCREMENT,
+  `enabled`      TINYINT(1) NOT NULL DEFAULT 0,
+  `make_up_days` INT        NOT NULL DEFAULT 0,
+  `updated_by`   BIGINT     NULL DEFAULT NULL,
+  `created_at`   DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`   DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书打卡补卡设置';
+
+-- ---------------------------------------------------------------------
+-- 4) training_sessions — 训练 / 考试通用会话（替代 V1 的 .sessions JSON）
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `training_sessions`;
 CREATE TABLE `training_sessions` (
@@ -196,6 +210,7 @@ CREATE TABLE `magic_videos` (
   `quiz_version`          INT          NOT NULL DEFAULT 1,
   `upload_error`          TEXT         NULL,
   `transcode_status`      VARCHAR(16)  NOT NULL DEFAULT 'none' COMMENT 'none / pending / processing / completed / failed',
+  `material_asset_id`     BIGINT       NULL DEFAULT NULL,
   `replacement_upload_id` VARCHAR(255) NOT NULL DEFAULT '',
   `replacement_object_key` VARCHAR(1024) NOT NULL DEFAULT '',
   `replacement_original_filename` VARCHAR(255) NOT NULL DEFAULT '',
@@ -207,11 +222,47 @@ CREATE TABLE `magic_videos` (
   `updated_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at`            DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx_magic_videos_status` (`status`, `created_at`)
+  KEY `idx_magic_videos_status` (`status`, `created_at`),
+  KEY `idx_magic_videos_material_asset` (`material_asset_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频';
 
 -- ---------------------------------------------------------------------
--- 8) magic_video_targets — 视频适用对象
+-- 8) magic_video_series — 视频系列
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_video_series`;
+CREATE TABLE `magic_video_series` (
+  `id`                        BIGINT       NOT NULL AUTO_INCREMENT,
+  `title`                     VARCHAR(255) NOT NULL,
+  `description`               TEXT         NULL,
+  `sequential_unlock_enabled` TINYINT(1)   NOT NULL DEFAULT 1,
+  `enabled`                   TINYINT(1)   NOT NULL DEFAULT 1,
+  `created_by`                BIGINT       NOT NULL,
+  `created_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted`                TINYINT(1)   NOT NULL DEFAULT 0,
+  `deleted_at`                DATETIME     NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频系列';
+
+-- ---------------------------------------------------------------------
+-- 9) magic_video_series_items — 系列视频关系
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_video_series_items`;
+CREATE TABLE `magic_video_series_items` (
+  `id`         BIGINT   NOT NULL AUTO_INCREMENT,
+  `series_id`  BIGINT   NOT NULL,
+  `video_id`   BIGINT   NOT NULL,
+  `sort_order` INT      NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_magic_video_series_items_video` (`video_id`),
+  UNIQUE KEY `uk_magic_video_series_items_series_video` (`series_id`, `video_id`),
+  KEY `idx_magic_video_series_items_order` (`series_id`, `sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系列视频关系';
+
+-- ---------------------------------------------------------------------
+-- 10) magic_video_targets — 视频适用对象
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_video_targets`;
 CREATE TABLE `magic_video_targets` (
@@ -225,7 +276,7 @@ CREATE TABLE `magic_video_targets` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频适用对象';
 
 -- ---------------------------------------------------------------------
--- 9) magic_video_quiz_points — 视频答题节点
+-- 11) magic_video_quiz_points — 视频答题节点
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_video_quiz_points`;
 CREATE TABLE `magic_video_quiz_points` (
@@ -242,7 +293,7 @@ CREATE TABLE `magic_video_quiz_points` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频答题节点';
 
 -- ---------------------------------------------------------------------
--- 10) magic_questions — 节点题目
+-- 12) magic_questions — 节点题目
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_questions`;
 CREATE TABLE `magic_questions` (
@@ -262,7 +313,7 @@ CREATE TABLE `magic_questions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题题目';
 
 -- ---------------------------------------------------------------------
--- 11) magic_video_progress — 员工观看进度
+-- 13) magic_video_progress — 员工观看进度
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_video_progress`;
 CREATE TABLE `magic_video_progress` (
@@ -280,6 +331,8 @@ CREATE TABLE `magic_video_progress` (
   `quiz_passed`              TINYINT(1)  NOT NULL DEFAULT 0,
   `quiz_version`             INT         NOT NULL DEFAULT 1,
   `answer_attempt_count`     INT         NOT NULL DEFAULT 0,
+  `progress_source`          VARCHAR(32) NOT NULL DEFAULT 'manual',
+  `completed_by_whitelist`   TINYINT(1)  NOT NULL DEFAULT 0,
   `created_at`               DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`               DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -287,7 +340,7 @@ CREATE TABLE `magic_video_progress` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频观看进度';
 
 -- ---------------------------------------------------------------------
--- 12) magic_quiz_answers — 每题答案明细
+-- 14) magic_quiz_answers — 每题答案明细
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_quiz_answers`;
 CREATE TABLE `magic_quiz_answers` (
@@ -301,13 +354,15 @@ CREATE TABLE `magic_quiz_answers` (
   `correct_answer_json` LONGTEXT    NULL,
   `is_correct`          TINYINT(1)  NOT NULL DEFAULT 0,
   `score`               FLOAT       NOT NULL DEFAULT 0,
+  `answer_source`       VARCHAR(32) NOT NULL DEFAULT 'manual',
+  `auto_correct_by_whitelist` TINYINT(1) NOT NULL DEFAULT 0,
   `submitted_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_magic_quiz_answers_export` (`video_id`, `quiz_point_id`, `submitted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题明细';
 
 -- ---------------------------------------------------------------------
--- 13) magic_quiz_point_pass_records — 节点提交记录
+-- 15) magic_quiz_point_pass_records — 节点提交记录
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_quiz_point_pass_records`;
 CREATE TABLE `magic_quiz_point_pass_records` (
@@ -318,6 +373,7 @@ CREATE TABLE `magic_quiz_point_pass_records` (
   `attempt_no`    INT         NOT NULL DEFAULT 1,
   `score`         FLOAT       NOT NULL DEFAULT 0,
   `passed`        TINYINT(1)  NOT NULL DEFAULT 0,
+  `source`        VARCHAR(32) NOT NULL DEFAULT 'manual',
   `passed_at`     DATETIME    NULL DEFAULT NULL,
   `created_at`    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -325,7 +381,40 @@ CREATE TABLE `magic_quiz_point_pass_records` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题节点提交记录';
 
 -- ---------------------------------------------------------------------
--- 14) magic_video_whitelist — 视频限制白名单
+-- 16) magic_video_watch_confirm_settings — 观看确认弹窗配置
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_video_watch_confirm_settings`;
+CREATE TABLE `magic_video_watch_confirm_settings` (
+  `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+  `video_id`         BIGINT       NOT NULL,
+  `enabled`          TINYINT(1)   NOT NULL DEFAULT 0,
+  `interval_seconds` INT          NOT NULL DEFAULT 300,
+  `message`          VARCHAR(255) NOT NULL DEFAULT '请确认你正在观看视频',
+  `button_text`      VARCHAR(64)  NOT NULL DEFAULT '继续学习',
+  `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_magic_video_watch_confirm_settings_video` (`video_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频观看确认弹窗配置';
+
+-- ---------------------------------------------------------------------
+-- 17) magic_video_watch_confirm_logs — 观看确认弹窗日志
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_video_watch_confirm_logs`;
+CREATE TABLE `magic_video_watch_confirm_logs` (
+  `id`               BIGINT   NOT NULL AUTO_INCREMENT,
+  `user_id`          BIGINT   NOT NULL,
+  `video_id`         BIGINT   NOT NULL,
+  `progress_seconds` FLOAT    NOT NULL DEFAULT 0,
+  `confirm_round`    INT      NOT NULL DEFAULT 1,
+  `confirmed_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_video_watch_confirm_logs_video_user` (`video_id`, `user_id`, `confirmed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频观看确认弹窗日志';
+
+-- ---------------------------------------------------------------------
+-- 18) magic_video_whitelist — 视频限制白名单
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_video_whitelist`;
 CREATE TABLE `magic_video_whitelist` (
@@ -340,7 +429,110 @@ CREATE TABLE `magic_video_whitelist` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频白名单';
 
 -- ---------------------------------------------------------------------
--- 15) magic_audio_uploads — 读书录音上传
+-- 19) user_whitelist — 用户白名单能力配置
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `user_whitelist`;
+CREATE TABLE `user_whitelist` (
+  `id`                    BIGINT       NOT NULL AUTO_INCREMENT,
+  `user_id`               BIGINT       NOT NULL,
+  `enabled`               TINYINT(1)   NOT NULL DEFAULT 1,
+  `auto_checkin_enabled`  TINYINT(1)   NOT NULL DEFAULT 0,
+  `course_exempt_enabled` TINYINT(1)   NOT NULL DEFAULT 0,
+  `allow_video_seek`      TINYINT(1)   NOT NULL DEFAULT 0,
+  `auto_answer_correct`   TINYINT(1)   NOT NULL DEFAULT 0,
+  `remark`                VARCHAR(255) NOT NULL DEFAULT '',
+  `created_by`            BIGINT       NOT NULL,
+  `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_whitelist_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户白名单能力配置';
+
+-- ---------------------------------------------------------------------
+-- 20) material_projects — 全局素材项目
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `material_projects`;
+CREATE TABLE `material_projects` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `name`        VARCHAR(255) NOT NULL,
+  `description` TEXT         NULL,
+  `oss_prefix`  VARCHAR(255) NOT NULL DEFAULT '',
+  `visibility`  VARCHAR(16)  NOT NULL DEFAULT 'admin',
+  `created_by`  BIGINT       NOT NULL,
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted`  TINYINT(1)   NOT NULL DEFAULT 0,
+  `deleted_at`  DATETIME     NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_material_projects_creator` (`created_by`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材项目';
+
+-- ---------------------------------------------------------------------
+-- 21) material_assets — 全局素材文件
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `material_assets`;
+CREATE TABLE `material_assets` (
+  `id`               BIGINT        NOT NULL AUTO_INCREMENT,
+  `project_id`       BIGINT        NOT NULL,
+  `name`             VARCHAR(255)  NOT NULL,
+  `asset_type`       VARCHAR(32)   NOT NULL DEFAULT 'other',
+  `file_name`        VARCHAR(255)  NOT NULL,
+  `object_key`       VARCHAR(1024) NOT NULL,
+  `mime_type`        VARCHAR(128)  NOT NULL DEFAULT '',
+  `file_size`        BIGINT        NOT NULL DEFAULT 0,
+  `duration_seconds` INT           NOT NULL DEFAULT 0,
+  `remark`           TEXT          NULL,
+  `tags`             TEXT          NULL,
+  `status`           VARCHAR(16)   NOT NULL DEFAULT 'active',
+  `created_by`       BIGINT        NOT NULL,
+  `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted`       TINYINT(1)    NOT NULL DEFAULT 0,
+  `deleted_at`       DATETIME      NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_material_assets_project_type` (`project_id`, `asset_type`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材文件';
+
+-- ---------------------------------------------------------------------
+-- 22) magic_reading_contents — 每日读书内容推送
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_reading_contents`;
+CREATE TABLE `magic_reading_contents` (
+  `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+  `reading_date`     DATE         NOT NULL,
+  `title`            VARCHAR(255) NOT NULL,
+  `description`      TEXT         NULL,
+  `image_object_key` VARCHAR(1024) NOT NULL,
+  `image_url`        VARCHAR(2048) NOT NULL DEFAULT '',
+  `image_file_name`  VARCHAR(255) NOT NULL DEFAULT '',
+  `image_mime_type`  VARCHAR(128) NOT NULL DEFAULT '',
+  `image_size`       BIGINT       NOT NULL DEFAULT 0,
+  `status`           VARCHAR(16)  NOT NULL DEFAULT 'active',
+  `created_by`       BIGINT       NOT NULL,
+  `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted`       TINYINT(1)   NOT NULL DEFAULT 0,
+  `deleted_at`       DATETIME     NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_contents_date` (`reading_date`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每日读书内容推送';
+
+-- ---------------------------------------------------------------------
+-- 23) magic_reading_content_targets — 读书内容推送对象
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_reading_content_targets`;
+CREATE TABLE `magic_reading_content_targets` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `content_id`  BIGINT       NOT NULL,
+  `target_type` VARCHAR(32)  NOT NULL COMMENT 'all / department / user',
+  `target_id`   VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_content_targets_lookup` (`content_id`, `target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书内容推送对象';
+
+-- ---------------------------------------------------------------------
+-- 24) magic_audio_uploads — 读书录音上传
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_audio_uploads`;
 CREATE TABLE `magic_audio_uploads` (
@@ -351,6 +543,8 @@ CREATE TABLE `magic_audio_uploads` (
   `file_size`    BIGINT       NOT NULL DEFAULT 0,
   `mime_type`    VARCHAR(128) NOT NULL DEFAULT '',
   `remark`       VARCHAR(255) NOT NULL DEFAULT '',
+  `source`       VARCHAR(32)  NOT NULL DEFAULT 'manual',
+  `auto_checkin_by_whitelist` TINYINT(1) NOT NULL DEFAULT 0,
   `uploaded_on`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `uploaded_date` DATE        NOT NULL DEFAULT (CURRENT_DATE),
   `is_deleted`   TINYINT(1)   NOT NULL DEFAULT 0,

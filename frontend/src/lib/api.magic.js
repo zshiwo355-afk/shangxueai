@@ -47,6 +47,27 @@ export async function updateMagicVideo(id, payload) {
 export async function deleteMagicVideo(id) {
   return deleteJson(`/api/magic-academy/videos/${id}`, "删除视频失败。");
 }
+export async function listMagicVideoSeries() {
+  return getJson("/api/magic-academy/admin/video-series", "系列列表加载失败。");
+}
+export async function createMagicVideoSeries(payload) {
+  return postJson("/api/magic-academy/admin/video-series", payload, "新建系列失败。");
+}
+export async function updateMagicVideoSeries(id, payload) {
+  return putJson(`/api/magic-academy/admin/video-series/${id}`, payload, "更新系列失败。");
+}
+export async function deleteMagicVideoSeries(id) {
+  return deleteJson(`/api/magic-academy/admin/video-series/${id}`, "删除系列失败。");
+}
+export async function addMagicVideoSeriesItem(seriesId, payload) {
+  return postJson(`/api/magic-academy/admin/video-series/${seriesId}/items`, payload, "添加系列视频失败。");
+}
+export async function reorderMagicVideoSeriesItems(seriesId, payload) {
+  return putJson(`/api/magic-academy/admin/video-series/${seriesId}/items/reorder`, payload, "调整系列顺序失败。");
+}
+export async function removeMagicVideoSeriesItem(seriesId, videoId) {
+  return deleteJson(`/api/magic-academy/admin/video-series/${seriesId}/items/${videoId}`, "移除系列视频失败。");
+}
 export async function publishMagicVideo(id) {
   return postJson(`/api/magic-academy/videos/${id}/publish`, {}, "发布视频失败。");
 }
@@ -148,6 +169,15 @@ export async function saveMyMagicVideoProgress(videoId, payload) {
 export async function submitMyMagicQuiz(videoId, payload) {
   return postJson(`/api/magic-academy/my/videos/${videoId}/submit-quiz`, payload, "提交答题失败。");
 }
+export async function createMagicWatchConfirmLog(videoId, payload) {
+  return postJson(`/api/magic-academy/my/videos/${videoId}/watch-confirm`, payload, "确认观看失败。");
+}
+export async function fetchMagicWatchConfirmSetting(videoId) {
+  return getJson(`/api/magic-academy/admin/videos/${videoId}/watch-confirm-setting`, "观看确认配置加载失败。");
+}
+export async function updateMagicWatchConfirmSetting(videoId, payload) {
+  return putJson(`/api/magic-academy/admin/videos/${videoId}/watch-confirm-setting`, payload, "观看确认配置保存失败。");
+}
 
 export async function fetchMagicVideoStats(videoId, params = {}) {
   const search = new URLSearchParams();
@@ -188,6 +218,18 @@ export async function deleteMagicWhitelist(id) {
 export async function fetchMyAudios() {
   return getJson("/api/magic-academy/my/audios", "录音记录加载失败。");
 }
+export async function fetchMyReadingContents(date) {
+  const search = new URLSearchParams();
+  if (date) search.set("date", date);
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/my/reading-contents${suffix}`, "读书内容加载失败。");
+}
+export async function fetchMyAudioMakeupOptions(month) {
+  const search = new URLSearchParams();
+  if (month) search.set("month", month);
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/my/audios/makeup-options${suffix}`, "补卡选项加载失败。");
+}
 export async function fetchMyAudioCalendar(month) {
   const search = new URLSearchParams();
   if (month) search.set("month", month);
@@ -197,8 +239,58 @@ export async function fetchMyAudioCalendar(month) {
 export async function uploadMyAudio(payload) {
   return postJson("/api/magic-academy/my/audios", payload, "录音上传失败。");
 }
+export async function submitMyAudioMakeup(payload) {
+  return postJson("/api/magic-academy/my/audios/makeup", payload, "补卡失败。");
+}
 export async function deleteMyAudio(id) {
   return deleteJson(`/api/magic-academy/my/audios/${id}`, "删除录音失败。");
+}
+export async function fetchMagicAudioMakeupSetting() {
+  return getJson("/api/magic-academy/admin/audio-makeup-setting", "补卡设置加载失败。");
+}
+export async function updateMagicAudioMakeupSetting(payload) {
+  return putJson("/api/magic-academy/admin/audio-makeup-setting", payload, "补卡设置保存失败。");
+}
+export async function fetchAdminReadingContents(params = {}) {
+  const search = new URLSearchParams();
+  if (params.month) search.set("month", params.month);
+  if (params.date) search.set("date", params.date);
+  if (params.keyword) search.set("keyword", params.keyword);
+  if (params.page) search.set("page", String(params.page));
+  if (params.page_size) search.set("page_size", String(params.page_size));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/reading-contents${suffix}`, "读书内容列表加载失败。");
+}
+export async function fetchAdminReadingContentDetail(id) {
+  return getJson(`/api/magic-academy/admin/reading-contents/${id}`, "读书内容详情加载失败。");
+}
+async function submitReadingContentForm(url, method, payload, errorMessage) {
+  const formData = new FormData();
+  formData.append("reading_date", payload.reading_date);
+  formData.append("title", payload.title || "");
+  formData.append("description", payload.description || "");
+  formData.append("image_source", payload.image_source || "upload");
+  if (payload.material_asset_id) formData.append("material_asset_id", String(payload.material_asset_id));
+  formData.append("target_type", payload.target_type || "user");
+  formData.append("target_user_ids", JSON.stringify(payload.target_user_ids || []));
+  formData.append("target_department_ids", JSON.stringify(payload.target_department_ids || []));
+  if (payload.image) formData.append("image", payload.image);
+  const response = await safeFetch(buildApiUrl(url), {
+    method,
+    headers: authHeaders(),
+    body: formData,
+  }, errorMessage);
+  if (!response.ok) await throwRequestError(response, errorMessage);
+  return parseJsonResponse(response, errorMessage);
+}
+export async function createAdminReadingContent(payload) {
+  return submitReadingContentForm("/api/magic-academy/admin/reading-contents", "POST", payload, "新增读书内容失败。");
+}
+export async function updateAdminReadingContent(id, payload) {
+  return submitReadingContentForm(`/api/magic-academy/admin/reading-contents/${id}`, "PUT", payload, "更新读书内容失败。");
+}
+export async function deleteAdminReadingContent(id) {
+  return deleteJson(`/api/magic-academy/admin/reading-contents/${id}`, "删除读书内容失败。");
 }
 
 export async function fetchMagicAudioStats(params = {}) {

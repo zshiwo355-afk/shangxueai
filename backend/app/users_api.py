@@ -14,6 +14,7 @@ from sqlalchemy import delete as sql_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .access import is_admin, is_super_admin
 from .auth import md5_password, require_admin
 from .db import get_db
 from .models import User
@@ -57,7 +58,7 @@ class UserCreateRequest(BaseModel):
     @classmethod
     def _role(cls, v: str) -> str:
         v = (v or "user").strip().lower()
-        return v if v in ("admin", "user") else "user"
+        return v if v in ("super_admin", "admin", "user") else "user"
 
     @field_validator("status")
     @classmethod
@@ -84,7 +85,7 @@ class UserUpdateRequest(BaseModel):
         if v is None:
             return None
         v = v.strip().lower()
-        return v if v in ("admin", "user") else "user"
+        return v if v in ("super_admin", "admin", "user") else "user"
 
     @field_validator("status")
     @classmethod
@@ -134,6 +135,17 @@ def _to_dto(user: User) -> UserDTO:
     )
 
 
+def _is_manageable_by(actor: User, target: User) -> bool:
+    if is_super_admin(actor):
+        return True
+    return not is_super_admin(target)
+
+
+def _assert_manageable(actor: User, target: User) -> None:
+    if not _is_manageable_by(actor, target):
+        raise HTTPException(status_code=403, detail="无权操作超级管理员账号。")
+
+
 # ---------- 列表 / 分页搜索 ----------
 
 
@@ -142,9 +154,10 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[UserDTO]:
-    """旧版：不分页直接返回全部（派发选人等下拉框继续用这个）。"""
-    del admin
-    result = await db.execute(select(User).order_by(User.id.asc()))
+    stmt = select(User).order_by(User.id.asc())
+    if not is_super_admin(admin):
+        stmt = stmt.where(User.role != "super_admin")
+    result = await db.execute(stmt)
     return [_to_dto(u) for u in result.scalars().all()]
 
 
@@ -158,9 +171,11 @@ async def search_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> UserPageResponse:
-    del admin
     stmt = select(User)
     count_stmt = select(func.count()).select_from(User)
+    if not is_super_admin(admin):
+        stmt = stmt.where(User.role != "super_admin")
+        count_stmt = count_stmt.where(User.role != "super_admin")
 
     if keyword:
         kw = f"%{keyword.strip()}%"
@@ -396,10 +411,10 @@ async def get_user_detail(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> UserDTO:
-    del admin
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在。")
+    _assert_manageable(admin, user)
     return _to_dto(user)
 
 
@@ -409,7 +424,8 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> UserDTO:
-    del admin
+    if payload.role == "super_admin" and not is_super_admin(admin):
+        raise HTTPException(status_code=403, detail="仅超级管理员可创建超级管理员账号。")
     user = User(
         username=payload.username,
         password_md5=_digest(payload.password),
@@ -442,6 +458,7 @@ async def update_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在。")
+    _assert_manageable(admin, user)
     if payload.password is not None and payload.password.strip():
         user.password_md5 = _digest(payload.password)
     if payload.display_name is not None:
@@ -453,8 +470,12 @@ async def update_user(
     if payload.position is not None:
         user.position = payload.position.strip()
     if payload.role is not None:
-        if user.id == admin.id and payload.role != "admin":
-            raise HTTPException(status_code=400, detail="不能降级当前登录的管理员。")
+        if payload.role == "super_admin" and not is_super_admin(admin):
+            raise HTTPException(status_code=403, detail="仅超级管理员可设置超级管理员角色。")
+        if user.id == admin.id:
+            expected_self_role = "super_admin" if is_super_admin(admin) else "admin"
+            if payload.role != expected_self_role:
+                raise HTTPException(status_code=400, detail="不能降级当前登录的管理员。")
         user.role = payload.role
     if payload.is_newcomer is not None:
         user.is_newcomer = payload.is_newcomer
@@ -477,6 +498,10 @@ async def delete_user(
 ) -> dict:
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="不能删除当前登录的管理员。")
+    target = await db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在。")
+    _assert_manageable(admin, target)
     res = await db.execute(sql_delete(User).where(User.id == user_id))
     if res.rowcount == 0:
         raise HTTPException(status_code=404, detail="用户不存在。")

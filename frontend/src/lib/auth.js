@@ -50,7 +50,13 @@ export function isAuthenticated() {
 
 export function isAdmin() {
   const u = getCurrentUser();
-  return !!u && (u.role || "").toLowerCase() === "admin";
+  const role = (u?.role || "").toLowerCase();
+  return role === "admin" || role === "super_admin";
+}
+
+export function isSuperAdmin() {
+  const u = getCurrentUser();
+  return !!u && (u.role || "").toLowerCase() === "super_admin";
 }
 
 /**

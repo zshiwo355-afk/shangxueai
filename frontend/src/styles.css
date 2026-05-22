@@ -2566,7 +2566,8 @@ body {
   .user-layout__nav {
     order: 3;
     width: 100%;
-    overflow-x: auto;
+    overflow-x: visible;
+    flex-wrap: wrap;
     padding-bottom: 4px;
   }
 

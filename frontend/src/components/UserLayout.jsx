@@ -14,7 +14,7 @@ import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
   { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
-  { key: "magic", label: "魔学院", path: "/workspace/magic", icon: <BookOutlined /> },
+  { key: "magic", label: "课程管理", path: "/workspace/magic", icon: <BookOutlined /> },
   { key: "papers", label: "考试", path: "/papers", icon: <FormOutlined /> },
 ];
 
@@ -30,7 +30,7 @@ function resolveSection(pathname) {
     return "销售对练";
   }
   if (pathname.startsWith("/workspace/magic") || pathname.startsWith("/magic-academy")) {
-    return "魔学院";
+    return "课程管理";
   }
   if (pathname.startsWith("/papers")) {
     return "考试";
@@ -71,7 +71,7 @@ export default function UserLayout() {
             {NAV_ITEMS.map((item) => {
               const active = location.pathname === item.path
                 || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
-                || (item.key === "magic" && resolveSection(location.pathname) === "魔学院")
+                || (item.key === "magic" && resolveSection(location.pathname) === "课程管理")
                 || (item.key === "papers" && resolveSection(location.pathname) === "考试");
 
               return (

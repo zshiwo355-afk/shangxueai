@@ -2,7 +2,6 @@ import {
   ArrowRightOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
-  PlayCircleOutlined,
   ReadOutlined,
   RightOutlined,
   VideoCameraOutlined,
@@ -34,7 +33,7 @@ export default function MagicWorkspacePage() {
         setVideos(Array.isArray(videoData) ? videoData : []);
         setAudios(Array.isArray(audioData) ? audioData : []);
       } catch (error) {
-        if (alive) message.error(error?.message || "魔学院学习中心加载失败。");
+        if (alive) message.error(error?.message || "课程管理学习中心加载失败。");
       }
     })();
 
@@ -50,10 +49,10 @@ export default function MagicWorkspacePage() {
   const completed = videos.filter((item) => item.progress?.is_completed);
   const continueVideo = inProgress[0] || requiredPending[0] || videos[0] || null;
   const monthAudioCount = audios.filter(
-    (item) => dayjs(item.uploaded_time).format("YYYY-MM") === dayjs().format("YYYY-MM"),
+    (item) => dayjs(item.uploaded_date).format("YYYY-MM") === dayjs().format("YYYY-MM"),
   ).length;
   const todayUploaded = audios.some(
-    (item) => dayjs(item.uploaded_time).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
+    (item) => dayjs(item.uploaded_date).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
   );
   const recentVideos = useMemo(() => {
     const ordered = [...videos].sort(
@@ -61,6 +60,9 @@ export default function MagicWorkspacePage() {
     );
     return ordered.slice(0, 4);
   }, [videos]);
+  const openStudyVideo = (videoId) => {
+    navigate(`/magic-academy?tab=courses&video=${encodeURIComponent(String(videoId))}`);
+  };
 
   return (
     <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
@@ -85,7 +87,7 @@ export default function MagicWorkspacePage() {
               <button
                 type="button"
                 className="cta-arrow-btn"
-                onClick={() => navigate("/magic-academy")}
+                onClick={() => navigate("/magic-academy?tab=courses")}
               >
                 <ReadOutlined />
                 <span>进入学习中心</span>
@@ -194,7 +196,7 @@ export default function MagicWorkspacePage() {
               <VideoCameraOutlined />
               <strong>学习任务</strong>
             </Space>
-            <Button type="link" icon={<RightOutlined />} onClick={() => navigate("/magic-academy")}>
+            <Button type="link" icon={<RightOutlined />} onClick={() => navigate("/magic-academy?tab=courses")}>
               全部
             </Button>
           </div>
@@ -221,7 +223,7 @@ export default function MagicWorkspacePage() {
                       <span>{item.category || "未分类课程"}</span>
                       <Progress percent={percent} size="small" showInfo={false} />
                     </div>
-                    <Button type="link" onClick={() => navigate("/magic-academy")}>
+                    <Button type="link" onClick={() => openStudyVideo(item.id)}>
                       {item.progress?.is_completed ? "查看" : "继续"}
                     </Button>
                   </div>
@@ -232,34 +234,6 @@ export default function MagicWorkspacePage() {
         </div>
 
         <aside className="workspace-panel workspace-panel--aside">
-          <div className="workspace-panel">
-            <div className="workspace-panel__head">
-              <Space>
-                <PlayCircleOutlined />
-                <strong>继续学习</strong>
-              </Space>
-            </div>
-
-            {continueVideo ? (
-              <div className="workspace-note-block">
-                <strong>{continueVideo.title}</strong>
-                <div className="workspace-note-block__actions">
-                  <Button type="primary" block onClick={() => navigate("/magic-academy")}>
-                    进入继续学习
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="workspace-note-block">
-                <div className="workspace-note-block__actions">
-                  <Button type="primary" block onClick={() => navigate("/magic-academy")}>
-                    浏览课程
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-
           <div className="workspace-panel">
             <div className="workspace-panel__head">
               <Space>

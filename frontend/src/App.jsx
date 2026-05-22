@@ -19,7 +19,7 @@ import UserPapersListPage from "./components/user/papers/UserPapersListPage";
 import UserPaperTakePage from "./components/user/papers/UserPaperTakePage";
 import UserPaperResultPage from "./components/user/papers/UserPaperResultPage";
 
-import { isAdmin, isAuthenticated, setUnauthorizedHandler } from "./lib/auth";
+import { isAdmin, isAuthenticated, isSuperAdmin, setUnauthorizedHandler } from "./lib/auth";
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -35,6 +35,16 @@ function RequireAdmin({ children }) {
   }
   if (!isAdmin()) {
     return <Navigate to="/home" replace />;
+  }
+  return children;
+}
+
+function RequireSuperAdmin({ children }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
+  if (!isSuperAdmin()) {
+    return <Navigate to="/admin" replace />;
   }
   return children;
 }

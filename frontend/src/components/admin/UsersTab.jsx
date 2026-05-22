@@ -26,12 +26,14 @@ import {
   adminUpdateUser,
   buildUsersTemplateUrl,
 } from "../../lib/api.admin";
+import { isSuperAdmin } from "../../lib/auth";
 
 const { Dragger } = Upload;
 
 export default function UsersTab() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
+  const canManageSuperAdmin = isSuperAdmin();
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -206,7 +208,11 @@ export default function UsersTab() {
       title: "角色",
       dataIndex: "role",
       width: 90,
-      render: (v) => v === "admin" ? <Tag bordered={false} color="red">管理员</Tag> : <Tag bordered={false}>普通用户</Tag>,
+      render: (v) => {
+        if (v === "super_admin") return <Tag bordered={false} color="purple">VIP 超级管理员</Tag>;
+        if (v === "admin") return <Tag bordered={false} color="red">管理员</Tag>;
+        return <Tag bordered={false}>普通用户</Tag>;
+      },
     },
     {
       title: "新人",
@@ -235,9 +241,9 @@ export default function UsersTab() {
       fixed: "right",
       render: (_, row) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} loading={modalLoading && editingUser?.id === row.id} onClick={() => handleEdit(row)}>编辑</Button>
+          <Button size="small" icon={<EditOutlined />} disabled={row.role === "super_admin" && !canManageSuperAdmin} loading={modalLoading && editingUser?.id === row.id} onClick={() => handleEdit(row)}>编辑</Button>
           <Popconfirm title="确认删除该用户？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
-            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            <Button size="small" danger disabled={row.role === "super_admin" && !canManageSuperAdmin} icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -330,6 +336,7 @@ export default function UsersTab() {
               options={[
                 { value: "user", label: "普通用户" },
                 { value: "admin", label: "管理员" },
+                ...(canManageSuperAdmin ? [{ value: "super_admin", label: "VIP 超级管理员" }] : []),
               ]}
             />
           </Form.Item>

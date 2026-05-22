@@ -74,6 +74,20 @@ export function buildUsersTemplateUrl() {
   return url.toString();
 }
 
+// ---- 白名单 ----
+export async function adminListWhitelist() {
+  return getJson("/api/whitelist", "白名单列表加载失败。");
+}
+export async function adminCreateWhitelist(payload) {
+  return postJson("/api/whitelist", payload, "新建白名单失败。");
+}
+export async function adminUpdateWhitelist(id, payload) {
+  return putJson(`/api/whitelist/${id}`, payload, "更新白名单失败。");
+}
+export async function adminDeleteWhitelist(id) {
+  return deleteJson(`/api/whitelist/${id}`, "删除白名单失败。");
+}
+
 // ---- AI 通关 ----
 export async function adminListExams() {
   return getJson("/api/admin/exams", "通关列表加载失败。");

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .access import ensure_super_admin, is_admin_like, is_super_admin
 from .config import get_settings
 from .db import get_db
 from .models import User
@@ -88,12 +89,53 @@ async def get_current_user(
 
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
-    if (user.role or "").lower() != "admin":
+    if not is_admin_like(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可访问该接口。",
         )
     return user
+
+
+async def require_super_admin(user: User = Depends(get_current_user)) -> User:
+    return ensure_super_admin(user)
+
+
+async def ensure_builtin_super_admin(db: AsyncSession) -> None:
+    username = (_settings.super_admin_username or "").strip()
+    password = (_settings.super_admin_password or "").strip()
+    display_name = (_settings.super_admin_name or "").strip()
+    if not username or not password:
+        return
+
+    result = await db.execute(select(User).where(User.username == username))
+    existing = result.scalar_one_or_none()
+    if existing:
+        if not is_super_admin(existing):
+            existing.role = "super_admin"
+            if not existing.display_name:
+                existing.display_name = display_name or username
+            if not existing.real_name:
+                existing.real_name = display_name or username
+            existing.disabled = False
+            existing.status = "active"
+            await db.flush()
+        return
+
+    user = User(
+        username=username,
+        password_md5=md5_password(password),
+        display_name=display_name or username,
+        real_name=display_name or username,
+        department="",
+        position="",
+        role="super_admin",
+        is_newcomer=False,
+        status="active",
+        disabled=False,
+    )
+    db.add(user)
+    await db.flush()
 
 
 # --------- DTO ---------

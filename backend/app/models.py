@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -60,6 +60,100 @@ class ConfigOption(Base):
 
     __table_args__ = (
         Index("idx_config_options_cat", "category", "enabled", "sort_order"),
+    )
+
+
+class MagicAudioMakeupSetting(Base):
+    __tablename__ = "magic_audio_makeup_settings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    make_up_days: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MagicReadingContent(Base):
+    __tablename__ = "magic_reading_contents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    reading_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    image_object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    image_url: Mapped[str] = mapped_column(String(2048), default="")
+    image_file_name: Mapped[str] = mapped_column(String(255), default="")
+    image_mime_type: Mapped[str] = mapped_column(String(128), default="")
+    image_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MagicReadingContentTarget(Base):
+    __tablename__ = "magic_reading_content_targets"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    content_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_magic_reading_content_targets_lookup", "content_id", "target_type", "target_id"),
+    )
+
+
+class MaterialProject(Base):
+    __tablename__ = "material_projects"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    oss_prefix: Mapped[str] = mapped_column(String(255), default="")
+    visibility: Mapped[str] = mapped_column(String(16), default="admin")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MaterialAsset(Base):
+    __tablename__ = "material_assets"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(32), default="other")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(128), default="")
+    file_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    remark: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_material_assets_project_type", "project_id", "asset_type", "is_deleted"),
     )
 
 
@@ -176,6 +270,7 @@ class MagicVideo(Base):
     quiz_version: Mapped[int] = mapped_column(Integer, default=1)
     upload_error: Mapped[str] = mapped_column(Text, default="")
     transcode_status: Mapped[str] = mapped_column(String(16), default="none")
+    material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     replacement_upload_id: Mapped[str] = mapped_column(String(255), default="")
     replacement_object_key: Mapped[str] = mapped_column(String(1024), default="")
     replacement_original_filename: Mapped[str] = mapped_column(String(255), default="")
@@ -188,6 +283,42 @@ class MagicVideo(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MagicVideoSeries(Base):
+    __tablename__ = "magic_video_series"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    sequential_unlock_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MagicVideoSeriesItem(Base):
+    __tablename__ = "magic_video_series_items"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    video_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("video_id", name="uk_magic_video_series_items_video"),
+        UniqueConstraint("series_id", "video_id", name="uk_magic_video_series_items_series_video"),
+        Index("idx_magic_video_series_items_order", "series_id", "sort_order"),
+    )
 
 
 class MagicVideoTarget(Base):
@@ -262,6 +393,8 @@ class MagicVideoProgress(Base):
     quiz_passed: Mapped[bool] = mapped_column(Boolean, default=False)
     quiz_version: Mapped[int] = mapped_column(Integer, default=1)
     answer_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    progress_source: Mapped[str] = mapped_column(String(32), default="manual")
+    completed_by_whitelist: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -285,6 +418,8 @@ class MagicQuizAnswer(Base):
     correct_answer_json: Mapped[str] = mapped_column(LONGTEXT, default="[]")
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
     score: Mapped[float] = mapped_column(Float, default=0)
+    answer_source: Mapped[str] = mapped_column(String(32), default="manual")
+    auto_correct_by_whitelist: Mapped[bool] = mapped_column(Boolean, default=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
     __table_args__ = (
@@ -302,11 +437,47 @@ class MagicQuizPointPassRecord(Base):
     attempt_no: Mapped[int] = mapped_column(Integer, default=1)
     score: Mapped[float] = mapped_column(Float, default=0)
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
     passed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     __table_args__ = (
         Index("idx_magic_quiz_point_pass_records", "video_id", "quiz_point_id", "user_id"),
+    )
+
+
+class MagicVideoWatchConfirmSetting(Base):
+    __tablename__ = "magic_video_watch_confirm_settings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    video_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    message: Mapped[str] = mapped_column(String(255), default="请确认你正在观看视频")
+    button_text: Mapped[str] = mapped_column(String(64), default="继续学习")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("video_id", name="uk_magic_video_watch_confirm_settings_video"),
+    )
+
+
+class MagicVideoWatchConfirmLog(Base):
+    __tablename__ = "magic_video_watch_confirm_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    video_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    progress_seconds: Mapped[float] = mapped_column(Float, default=0)
+    confirm_round: Mapped[int] = mapped_column(Integer, default=1)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_magic_video_watch_confirm_logs_video_user", "video_id", "user_id", "confirmed_at"),
     )
 
 
@@ -335,6 +506,8 @@ class MagicAudioUpload(Base):
     file_size: Mapped[int] = mapped_column(BigInteger, default=0)
     mime_type: Mapped[str] = mapped_column(String(128), default="")
     remark: Mapped[str] = mapped_column(String(255), default="")
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    auto_checkin_by_whitelist: Mapped[bool] = mapped_column(Boolean, default=False)
     uploaded_on: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     uploaded_date: Mapped[datetime] = mapped_column(Date, server_default=func.current_date(), index=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -344,6 +517,28 @@ class MagicAudioUpload(Base):
 
     __table_args__ = (
         Index("idx_magic_audio_uploads_user_month", "user_id", "uploaded_date", "is_deleted"),
+    )
+
+
+class UserWhitelist(Base):
+    __tablename__ = "user_whitelist"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_checkin_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    course_exempt_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_video_seek: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_answer_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    remark: Mapped[str] = mapped_column(String(255), default="")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uk_user_whitelist_user"),
     )
 
 

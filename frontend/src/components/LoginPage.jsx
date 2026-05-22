@@ -19,7 +19,7 @@ export default function LoginPage() {
       setToken(res.token);
       setCurrentUser(res.user);
       const role = (res.user?.role || "").toLowerCase();
-      const fallback = role === "admin" ? "/admin" : "/home";
+      const fallback = role === "admin" || role === "super_admin" ? "/admin" : "/home";
       const from = location.state?.from && location.state.from !== "/login" ? location.state.from : fallback;
       navigate(from, { replace: true });
     } catch (err) {
