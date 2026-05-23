@@ -106,7 +106,22 @@ import { adminListUsers } from "../lib/api.admin";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../lib/api.materials";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
 import QuestionFormModal from "./magicAcademy/QuestionFormModal";
+import ReadingContentFormModal from "./magicAcademy/ReadingContentFormModal";
 import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
+import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
+import {
+  QuizAnswerModal,
+  QuizPointFormModal,
+  SeriesFormModal,
+  WatchConfirmModal,
+} from "./magicAcademy/MagicAcademyMiscModals";
+import {
+  answerColumns,
+  audioColumns,
+  buildAdminVideoColumns,
+  buildWhitelistColumns,
+  statsColumns,
+} from "./magicAcademy/adminColumns";
 import {
   buildAudioCalendarMap,
   buildReadingDispatchFormValues,
@@ -136,355 +151,6 @@ import {
 } from "./magicAcademy/magicAcademyShared";
 
 const { Title, Text, Paragraph } = Typography;
-
-function VideoDispatchFormModal({ open, onCancel, onSubmit, editing, users, submitting, uploadProgress }) {
-  const [form] = Form.useForm();
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadMeta, setUploadMeta] = useState(null);
-  const [materialAssets, setMaterialAssets] = useState([]);
-  const [materialKeyword, setMaterialKeyword] = useState("");
-  const { message } = AntdApp.useApp();
-  const optionSource = useMemo(() => targetsToOptions(users), [users]);
-  const employeeUsers = useMemo(() => users.filter((item) => item.role === "user"), [users]);
-  const userOptions = useMemo(
-    () => employeeUsers.map((item) => ({
-      value: String(item.id),
-      label: `${item.real_name || item.display_name || item.username} (${item.username})`,
-    })),
-    [employeeUsers],
-  );
-  const departmentOptions = useMemo(
-    () => optionSource.departments.map((item) => ({ value: item, label: item })),
-    [optionSource.departments],
-  );
-  const positionOptions = useMemo(
-    () => optionSource.positions.map((item) => ({ value: item, label: item })),
-    [optionSource.positions],
-  );
-  const videoSource = Form.useWatch("video_source", form) || "upload";
-  const materialAssetId = Form.useWatch("material_asset_id", form);
-  const dispatchMode = Form.useWatch("dispatch_mode", form) || "user";
-  const targetUserIds = Form.useWatch("target_user_ids", form);
-  const targetDepartmentIds = Form.useWatch("target_department_ids", form);
-  const targetPositions = Form.useWatch("target_positions", form);
-  const newcomerOnly = Form.useWatch("newcomer_only", form);
-  const selectedMaterialAsset = useMemo(
-    () => materialAssets.find((item) => item.id === materialAssetId) || null,
-    [materialAssets, materialAssetId],
-  );
-  const resolvedTargetCount = useMemo(() => {
-    if (dispatchMode === "department") {
-      const values = new Set(targetDepartmentIds || []);
-      return employeeUsers.filter((item) => values.has(item.department)).length;
-    }
-    if (dispatchMode === "position") {
-      const values = new Set(targetPositions || []);
-      return employeeUsers.filter((item) => values.has(item.position)).length;
-    }
-    if (dispatchMode === "all") {
-      return employeeUsers.filter((item) => (newcomerOnly ? item.is_newcomer : true)).length;
-    }
-    return Array.isArray(targetUserIds) ? targetUserIds.length : 0;
-  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetUserIds]);
-
-  const fillVideoForm = () => {
-    const dispatchValues = buildVideoDispatchFormValues(editing?.targets);
-    if (!editing) {
-      form.resetFields();
-      form.setFieldsValue({
-        title: "",
-        description: "",
-        category: "",
-        is_required: false,
-        is_newcomer_required: false,
-        duration_seconds: undefined,
-        status: "draft",
-        video_source: "upload",
-        material_asset_id: undefined,
-        ...dispatchValues,
-      });
-      setUploadMeta(null);
-      setSelectedFile(null);
-      return;
-    }
-    form.resetFields();
-    form.setFieldsValue({
-      title: editing?.title || "",
-      description: editing?.description || "",
-      category: editing?.category || "",
-      is_required: !!editing?.is_required,
-      is_newcomer_required: !!editing?.is_newcomer_required,
-      duration_seconds: editing?.duration_seconds || editing?.duration || undefined,
-      status: editing?.status || "draft",
-      video_source: "upload",
-      material_asset_id: editing?.material_asset_id || undefined,
-      ...dispatchValues,
-    });
-    setUploadMeta({
-      file_name: editing.file_name,
-      file_path: editing.file_path,
-      mime_type: editing.mime_type,
-      file_size: editing.file_size,
-      duration_seconds: editing.duration_seconds || 0,
-      original_filename: editing.original_filename || editing.file_name,
-    });
-    setSelectedFile(null);
-  };
-
-  useEffect(() => {
-    if (!open || editing || videoSource !== "material") return;
-    listAllMaterialAssets({ asset_type: "video", keyword: materialKeyword })
-      .then((data) => setMaterialAssets(Array.isArray(data) ? data : []))
-      .catch((error) => message.error(error?.message || "素材库视频加载失败。"));
-  }, [editing, materialKeyword, message, open, videoSource]);
-
-  useEffect(() => {
-    if (!open || editing) return;
-    if (videoSource === "upload") {
-      form.setFieldValue("material_asset_id", undefined);
-      return;
-    }
-    setSelectedFile(null);
-    if (selectedMaterialAsset) {
-      if (!String(form.getFieldValue("title") || "").trim()) {
-        form.setFieldValue("title", selectedMaterialAsset.name || selectedMaterialAsset.file_name || "");
-      }
-      if (!form.getFieldValue("duration_seconds") && Number(selectedMaterialAsset.duration_seconds || 0) > 0) {
-        form.setFieldValue("duration_seconds", Number(selectedMaterialAsset.duration_seconds || 0));
-      }
-    }
-  }, [editing, form, open, selectedMaterialAsset, videoSource]);
-
-  const handleOk = async () => {
-    const values = await form.validateFields();
-    if (!editing?.id && values.video_source === "upload" && !selectedFile) {
-      message.error("请先上传视频文件。");
-      return;
-    }
-    if (!editing?.id && values.video_source === "material" && !values.material_asset_id) {
-      message.error("请选择素材库视频。");
-      return;
-    }
-    await onSubmit({
-      title: values.title,
-      description: values.description || "",
-      category: values.category || "",
-      video_source: values.video_source || "upload",
-      material_asset_id: values.material_asset_id || null,
-      file_name: uploadMeta?.file_name,
-      file_path: uploadMeta?.file_path,
-      mime_type: selectedFile?.type || uploadMeta?.mime_type,
-      file_size: selectedFile?.size || uploadMeta?.file_size || 0,
-      duration_seconds: Number(values.duration_seconds || uploadMeta?.duration_seconds || 0),
-      is_required: !!values.is_required,
-      is_newcomer_required: !!values.is_newcomer_required,
-      status: values.status,
-      targets: buildVideoTargetsFromDispatch(values),
-      original_filename: selectedFile?.name || uploadMeta?.original_filename || uploadMeta?.file_name,
-      selected_file: selectedFile,
-    });
-  };
-
-  return (
-    <Modal
-      open={open}
-      title={editing ? "编辑视频" : "新建视频"}
-      onCancel={onCancel}
-      onOk={handleOk}
-      width={860}
-      okText={submitting ? `上传中 ${uploadProgress}%` : "保存"}
-      okButtonProps={{ disabled: submitting }}
-      cancelButtonProps={{ disabled: submitting }}
-      confirmLoading={submitting}
-      afterOpenChange={(nextOpen) => {
-        if (nextOpen) fillVideoForm();
-      }}
-      destroyOnHidden={false}
-      forceRender
-    >
-      <Form form={form} layout="vertical">
-        <Form.Item label="视频标题" name="title" rules={[{ required: true, message: "请输入视频标题" }]}>
-          <Input placeholder="例如：新人必看 - 品牌介绍" />
-        </Form.Item>
-        <Form.Item label="视频简介" name="description">
-          <Input.TextArea rows={3} placeholder="选填" />
-        </Form.Item>
-        <Space style={{ display: "flex" }} align="start">
-          <Form.Item label="视频分类" name="category" style={{ minWidth: 220 }}>
-            <Input placeholder="例如：新人培训" />
-          </Form.Item>
-          <Form.Item label="状态" name="status" style={{ minWidth: 220 }}>
-            <Select options={[{ value: "draft", label: "草稿" }, { value: "published", label: "已发布" }, { value: "disabled", label: "停用" }]} />
-          </Form.Item>
-        </Space>
-        {!editing ? (
-          <Form.Item label="视频来源" name="video_source">
-            <Radio.Group
-              options={[
-                { value: "upload", label: "上传新视频" },
-                { value: "material", label: "从素材库选择" },
-              ]}
-            />
-          </Form.Item>
-        ) : null}
-        {editing || videoSource === "upload" ? (
-          <Form.Item label="视频文件">
-            <Upload
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={(file) => {
-                setSelectedFile(file);
-                setUploadMeta({
-                  file_name: file.name,
-                  original_filename: file.name,
-                  mime_type: file.type || "video/mp4",
-                  file_size: file.size,
-                  duration_seconds: Number(form.getFieldValue("duration_seconds") || 0),
-                });
-                return false;
-              }}
-              accept=".mp4,.mov,.webm,.m4v,video/mp4,video/quicktime,video/webm"
-              disabled={submitting}
-            >
-              <Button icon={<UploadOutlined />} loading={submitting}>
-                {editing
-                  ? (selectedFile ? `已选择新视频：${selectedFile.name}` : "重新上传并覆盖")
-                  : (selectedFile ? `已选择视频：${selectedFile.name}` : "选择视频文件")}
-              </Button>
-            </Upload>
-            <Space direction="vertical" size={4} style={{ marginTop: 8, color: "var(--text-mute)" }}>
-              <Text type="secondary">
-                {uploadMeta
-                  ? `${editing ? "当前文件" : "文件名"}：${uploadMeta.original_filename || uploadMeta.file_name}`
-                  : "尚未选择文件"}
-              </Text>
-              {uploadMeta ? <Text type="secondary">文件大小：{formatFileSize(uploadMeta.file_size)}</Text> : null}
-              {uploadMeta ? <Text type="secondary">文件类型：{uploadMeta.mime_type || "未知"}</Text> : null}
-              {submitting ? <Progress percent={uploadProgress} size="small" /> : null}
-            </Space>
-          </Form.Item>
-        ) : (
-          <Card size="small" title="从素材库选择视频">
-            <Space direction="vertical" style={{ width: "100%" }} size={12}>
-              <Input.Search
-                placeholder="搜索素材名称 / 文件夹"
-                value={materialKeyword}
-                onChange={(e) => setMaterialKeyword(e.target.value)}
-                onSearch={setMaterialKeyword}
-              />
-              <Form.Item
-                label="选择视频素材"
-                name="material_asset_id"
-                rules={[{ required: true, message: "请选择素材库视频" }]}
-                style={{ marginBottom: 0 }}
-              >
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="选择素材库中的视频素材"
-                  options={materialAssets.map((item) => ({
-                    value: item.id,
-                    label: `${item.name} / ${item.project_name || "未分组"}`,
-                  }))}
-                />
-              </Form.Item>
-              {selectedMaterialAsset ? (
-                <Space direction="vertical" size={4}>
-                  <Text type="secondary">已选素材：{selectedMaterialAsset.name}</Text>
-                  <Text type="secondary">原文件名：{selectedMaterialAsset.file_name}</Text>
-                  <Text type="secondary">所属文件夹：{selectedMaterialAsset.project_name || "—"}</Text>
-                  <Text type="secondary">文件大小：{formatFileSize(selectedMaterialAsset.file_size || 0)}</Text>
-                  <Text type="secondary">上传时间：{selectedMaterialAsset.created_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
-                </Space>
-              ) : null}
-            </Space>
-          </Card>
-        )}
-        <Space size={24}>
-          <Form.Item label="是否必修" name="is_required" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item label="是否新人默认必修" name="is_newcomer_required" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Space>
-        <Card size="small" title="派发范围">
-          <Form.Item label="派发维度" name="dispatch_mode">
-            <Radio.Group
-              options={[
-                { value: "user", label: "指定员工" },
-                { value: "department", label: "按部门" },
-                { value: "position", label: "按岗位" },
-                { value: "all", label: "全员" },
-              ]}
-              optionType="button"
-              buttonStyle="solid"
-            />
-          </Form.Item>
-          {dispatchMode === "user" ? (
-            <Form.Item label="员工" name="target_user_ids" rules={[{ required: true, message: "请选择至少一个员工" }]}>
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={userOptions}
-                placeholder="选择员工"
-                maxTagCount="responsive"
-              />
-            </Form.Item>
-          ) : null}
-          {dispatchMode === "department" ? (
-            <Form.Item label="部门" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门" }]}>
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={departmentOptions}
-                placeholder={departmentOptions.length ? "选择部门" : "当前暂无可选部门"}
-                disabled={!departmentOptions.length}
-                maxTagCount="responsive"
-              />
-            </Form.Item>
-          ) : null}
-          {dispatchMode === "position" ? (
-            <Form.Item label="岗位" name="target_positions" rules={[{ required: true, message: "请选择至少一个岗位" }]}>
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={positionOptions}
-                placeholder={positionOptions.length ? "选择岗位" : "当前暂无可选岗位"}
-                disabled={!positionOptions.length}
-                maxTagCount="responsive"
-              />
-            </Form.Item>
-          ) : null}
-          {dispatchMode === "all" ? (
-            <Form.Item
-              label="范围"
-              name="newcomer_only"
-              getValueProps={(value) => ({ value: value ? "newcomer" : "all" })}
-              normalize={(value) => value === "newcomer"}
-            >
-              <Radio.Group
-                options={[
-                  { value: "all", label: "全部员工" },
-                  { value: "newcomer", label: "仅新人" },
-                ]}
-                optionType="button"
-              />
-            </Form.Item>
-          ) : null}
-          <Alert
-            type={resolvedTargetCount ? "info" : "warning"}
-            showIcon
-            message={resolvedTargetCount ? `当前将命中 ${resolvedTargetCount} 位员工` : "当前尚未命中任何员工"}
-          />
-        </Card>
-      </Form>
-    </Modal>
-  );
-}
 
 export default function MagicAcademyPage({ embedded = false }) {
   const adminMode = isAdmin();
@@ -1584,110 +1250,24 @@ export default function MagicAcademyPage({ embedded = false }) {
     }
   };
 
-  const adminVideoColumns = [
-    { title: "标题", dataIndex: "title" },
-    { title: "分类", dataIndex: "category", render: (v) => v || "—" },
-    {
-      title: "系列",
-      key: "series",
-      render: (_, row) => row.series_id ? `${row.series_title} / 第 ${row.series_order} 节` : "—",
-    },
-    { title: "时长", dataIndex: "duration_seconds", render: (v) => formatTime(v) },
-    {
-      title: "状态",
-      dataIndex: "status",
-      render: (_, row) => {
-        const meta = getVideoStatusMeta(row);
-        return <Tag color={meta.color}>{meta.label}</Tag>;
-      },
-    },
-    { title: "上传", dataIndex: "upload_status", render: (v) => <Tag color={v === "completed" ? "success" : v === "failed" ? "error" : "processing"}>{v || "completed"}</Tag> },
-    { title: "必修", dataIndex: "is_required", render: (v) => v ? <Tag color="gold">必修</Tag> : "—" },
-    {
-      title: "操作",
-      key: "action",
-      width: 280,
-      render: (_, row) => (
-        <Space wrap>
-          <Button size="small" type="link" onClick={() => openAdminVideoDetail(row.id)}>查看 / 配置</Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => setVideoModal(row)}>编辑</Button>
-          {row.status === "published" ? (
-            <Tag color="success">已发布</Tag>
-          ) : (
-            <Button
-              size="small"
-              type="primary"
-              loading={publishingVideoId === row.id}
-              disabled={!row.can_publish || disablingVideoId === row.id}
-              onClick={() => handlePublishVideo(row.id)}
-            >
-              发布
-            </Button>
-          )}
-          {row.status === "published" ? (
-            <Button
-              size="small"
-              loading={disablingVideoId === row.id}
-              disabled={publishingVideoId === row.id}
-              onClick={() => handleDisableVideo(row.id)}
-            >
-              下架
-            </Button>
-          ) : null}
-          <Popconfirm title="确认删除该视频？" onConfirm={async () => { await deleteMagicVideo(row.id); await reloadAdminData(); }}>
-            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const adminVideoColumns = useMemo(
+    () => buildAdminVideoColumns({
+      openAdminVideoDetail,
+      setVideoModal,
+      handlePublishVideo,
+      handleDisableVideo,
+      deleteMagicVideo,
+      reloadAdminData,
+      publishingVideoId,
+      disablingVideoId,
+    }),
+    [disablingVideoId, publishingVideoId],
+  );
 
-  const statsColumns = [
-    { title: "姓名", dataIndex: "name" },
-    { title: "部门", dataIndex: "department", render: (v) => v || "未分配部门" },
-    { title: "已观看", dataIndex: "watched_seconds", render: (v) => formatTime(v) },
-    { title: "进度", dataIndex: "progress_percent", render: (v) => `${Math.round(v || 0)}%` },
-    { title: "完成", dataIndex: "is_completed", render: (v) => v ? <Tag color="success">已完成</Tag> : <Tag>未完成</Tag> },
-    { title: "答题通过", dataIndex: "quiz_passed", render: (v) => v ? "是" : "否" },
-    { title: "答题次数", dataIndex: "answer_attempt_count" },
-    { title: "白名单", dataIndex: "is_whitelist_user", render: (v) => v ? <Tag color="purple">白名单</Tag> : "—" },
-  ];
-
-  const answerColumns = [
-    { title: "姓名", dataIndex: "name" },
-    { title: "节点", dataIndex: "quiz_point", render: (v) => `${formatTime(v)}` },
-    { title: "题目", dataIndex: "question", ellipsis: true },
-    { title: "用户答案", dataIndex: "user_answer", render: (v) => Array.isArray(v) ? v.join(" / ") : "" },
-    { title: "是否正确", dataIndex: "is_correct", render: (v) => v ? "是" : "否" },
-    { title: "提交次数", dataIndex: "attempt_no" },
-  ];
-
-  const whitelistColumns = [
-    { title: "视频", dataIndex: "video_title" },
-    { title: "用户", dataIndex: "user_name" },
-    { title: "部门", dataIndex: "department", render: (v) => v || "—" },
-    { title: "备注", dataIndex: "note", render: (v) => v || "—" },
-    {
-      title: "操作",
-      render: (_, row) => (
-        <Popconfirm title="移出白名单？" onConfirm={async () => { await deleteMagicWhitelist(row.id); await reloadAdminData(); }}>
-          <Button size="small" danger>删除</Button>
-        </Popconfirm>
-      ),
-    },
-  ];
-
-  const audioColumns = [
-    { title: "姓名", dataIndex: "name" },
-    { title: "部门", dataIndex: "department", render: (v) => v || "—" },
-    { title: "月份", dataIndex: "month" },
-    { title: "应上传天数", dataIndex: "expected_upload_days" },
-    { title: "实际上传天数", dataIndex: "actual_upload_days" },
-    { title: "实际上传次数", dataIndex: "actual_upload_count" },
-    { title: "补卡次数", dataIndex: "makeup_count" },
-    { title: "缺少次数", dataIndex: "missing_count" },
-    { title: "上传率", dataIndex: "upload_rate", render: (v) => `${v}%` },
-  ];
+  const whitelistColumns = useMemo(
+    () => buildWhitelistColumns({ deleteMagicWhitelist, reloadAdminData }),
+    [],
+  );
 
   const audioExportPath = useMemo(() => {
     const params = new URLSearchParams();
@@ -3160,9 +2740,22 @@ export default function MagicAcademyPage({ embedded = false }) {
         onSubmit={submitVideo}
       />
 
-      <Modal
+      <ReadingContentFormModal
         open={readingContentModalOpen}
-        title={readingContentModalMode === "edit" ? "编辑读书内容" : "新增读书内容"}
+        mode={readingContentModalMode}
+        submitting={readingContentSubmitting}
+        form={readingContentForm}
+        imageSource={readingImageSource}
+        editing={readingContentEditing}
+        imageFile={readingContentImageFile}
+        setImageFile={setReadingContentImageFile}
+        imageKeyword={readingImageKeyword}
+        setImageKeyword={setReadingImageKeyword}
+        imageAssets={readingImageAssets}
+        selectedAsset={selectedReadingImageAsset}
+        employeeUsers={employeeUsers}
+        employeeDepartmentOptions={employeeDepartmentOptions}
+        employeePositionOptions={employeePositionOptions}
         onCancel={() => {
           if (readingContentSubmitting) return;
           setReadingContentModalOpen(false);
@@ -3170,227 +2763,28 @@ export default function MagicAcademyPage({ embedded = false }) {
           setReadingContentImageFile(null);
         }}
         onOk={handleSubmitReadingContent}
-        okText="保存"
-        confirmLoading={readingContentSubmitting}
-        width={760}
-        destroyOnHidden
-      >
-        <Form
-          form={readingContentForm}
-          layout="vertical"
-          preserve={false}
-          initialValues={{
-            reading_date: dayjs(),
-            title: "",
-            description: "",
-            target_user_ids: [],
-            target_department_ids: [],
-            target_position_ids: [],
-            dispatch_mode: "user",
-            newcomer_only: false,
-          }}
-        >
-          <Form.Item label="阅读日期" name="reading_date" rules={[{ required: true, message: "请选择阅读日期" }]}>
-            <DatePicker style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="标题" name="title" rules={[{ required: true, message: "请输入标题" }]}>
-            <Input placeholder="例如：今日阅读：第一章" />
-          </Form.Item>
-          <Form.Item label="描述" name="description">
-            <Input.TextArea rows={3} placeholder="选填" />
-          </Form.Item>
-          <Form.Item label="图片来源" name="image_source">
-            <Radio.Group
-              options={[
-                { value: "upload", label: "上传新图片" },
-                { value: "material", label: "从素材库选择图片" },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item label="派发维度" name="dispatch_mode" rules={[{ required: true, message: "请选择派发维度" }]}>
-            <Radio.Group
-              options={[
-                { value: "user", label: "指定员工" },
-                { value: "department", label: "按部门" },
-                { value: "position", label: "按岗位" },
-                { value: "all", label: "全员" },
-              ]}
-              optionType="button"
-              buttonStyle="solid"
-            />
-          </Form.Item>
-          <Form.Item noStyle shouldUpdate>
-            {({ getFieldValue }) => {
-              const targetType = getFieldValue("dispatch_mode");
-              if (targetType === "department") {
-                return (
-                  <Form.Item label="推送部门" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门" }]}>
-                    <Select mode="multiple" options={employeeDepartmentOptions} placeholder="选择部门" />
-                  </Form.Item>
-                );
-              }
-              if (targetType === "position") {
-                return (
-                  <Form.Item label="推送岗位" name="target_position_ids" rules={[{ required: true, message: "请选择至少一个岗位" }]}>
-                    <Select mode="multiple" options={employeePositionOptions} placeholder="选择岗位" />
-                  </Form.Item>
-                );
-              }
-              if (targetType === "user") {
-                return (
-                  <Form.Item label="推送员工" name="target_user_ids" rules={[{ required: true, message: "请选择至少一个员工" }]}>
-                    <Select
-                      mode="multiple"
-                      showSearch
-                      optionFilterProp="label"
-                      options={employeeUsers.map((item) => ({
-                        value: item.id,
-                        label: `${item.real_name || item.display_name || item.username} (${item.username})`,
-                      }))}
-                      placeholder="选择员工"
-                    />
-                  </Form.Item>
-                );
-              }
-              return (
-                <Form.Item
-                  label="范围"
-                  name="newcomer_only"
-                  getValueProps={(value) => ({ value: value ? "newcomer" : "all" })}
-                  normalize={(value) => value === "newcomer"}
-                >
-                  <Radio.Group
-                    options={[
-                      { value: "all", label: "全部员工" },
-                      { value: "newcomer", label: "仅新人" },
-                    ]}
-                    optionType="button"
-                  />
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
-          {readingImageSource === "upload" ? (
-            <Form.Item label="图片" required>
-              <Upload
-                maxCount={1}
-                showUploadList={false}
-                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                beforeUpload={(file) => {
-                  setReadingContentImageFile(file);
-                  readingContentForm.setFieldValue("material_asset_id", undefined);
-                  return false;
-                }}
-              >
-                <Button icon={<UploadOutlined />}>
-                  {readingContentImageFile ? `已选择图片：${readingContentImageFile.name}` : "选择图片"}
-                </Button>
-              </Upload>
-              <Space direction="vertical" size={6} style={{ marginTop: 8 }}>
-                {readingContentEditing?.image_url && !readingContentImageFile ? (
-                  <Image src={readingContentEditing.image_url} alt={readingContentEditing.title} width={120} />
-                ) : null}
-                <Text type="secondary">仅支持 jpg / jpeg / png / webp，文件不超过 10MB，图片会直接上传到 OSS。</Text>
-              </Space>
-            </Form.Item>
-          ) : (
-            <Card size="small" title="从素材库选择图片">
-              <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                <Input.Search
-                  placeholder="搜索图片素材名称 / 项目名"
-                  value={readingImageKeyword}
-                  onChange={(e) => setReadingImageKeyword(e.target.value)}
-                  onSearch={setReadingImageKeyword}
-                />
-                <Form.Item
-                  label="选择图片素材"
-                  name="material_asset_id"
-                  rules={[{ required: true, message: "请选择素材库图片" }]}
-                  style={{ marginBottom: 0 }}
-                >
-                  <Select
-                    showSearch
-                    optionFilterProp="label"
-                    placeholder="选择素材库中的图片素材"
-                    options={readingImageAssets.map((item) => ({
-                      value: item.id,
-                      label: `${item.name} / ${item.project_name || "未分组"}`,
-                    }))}
-                  />
-                </Form.Item>
-                {selectedReadingImageAsset ? (
-                  <Space direction="vertical" size={6}>
-                    <Image
-                      src={buildMaterialAssetPreviewUrl(selectedReadingImageAsset.id)}
-                      alt={selectedReadingImageAsset.name}
-                      width={140}
-                    />
-                    <Text type="secondary">已选素材：{selectedReadingImageAsset.name}</Text>
-                    <Text type="secondary">原文件名：{selectedReadingImageAsset.file_name}</Text>
-                    <Text type="secondary">所属项目：{selectedReadingImageAsset.project_name || "—"}</Text>
-                  </Space>
-                ) : null}
-              </Space>
-            </Card>
-          )}
-        </Form>
-      </Modal>
+      />
 
-      <Modal
+      <WatchConfirmModal
         open={watchConfirmState.open}
-        title="观看确认"
-        closable={false}
-        maskClosable={false}
-        keyboard={false}
-        footer={[
-          <Button key="continue" type="primary" onClick={handleWatchConfirmContinue}>
-            {videoDetail?.watch_confirm_setting?.button_text || "继续学习"}
-          </Button>,
-        ]}
-      >
-        <Paragraph style={{ marginBottom: 0 }}>
-          {videoDetail?.watch_confirm_setting?.message || "请确认你正在观看视频"}
-        </Paragraph>
-      </Modal>
+        message={videoDetail?.watch_confirm_setting?.message}
+        buttonText={videoDetail?.watch_confirm_setting?.button_text}
+        onContinue={handleWatchConfirmContinue}
+      />
 
-      <Modal
-        open={!!seriesModal}
-        title={seriesModal?.id ? "编辑系列" : "新增系列"}
+      <SeriesFormModal
+        editing={seriesModal}
+        form={seriesForm}
         onCancel={() => setSeriesModal(null)}
         onOk={submitSeries}
-        okText="保存"
-        cancelText="取消"
-        destroyOnHidden
-      >
-        <Form form={seriesForm} layout="vertical" preserve={false} initialValues={seriesModal || { enabled: true, sequential_unlock_enabled: true }}>
-          <Form.Item label="系列名称" name="title" rules={[{ required: true, message: "请输入系列名称" }]}>
-            <Input placeholder="例如：新人入职系列" />
-          </Form.Item>
-          <Form.Item label="系列描述" name="description">
-            <Input.TextArea rows={3} placeholder="系列说明（选填）" />
-          </Form.Item>
-          <Form.Item label="启用顺序解锁" name="sequential_unlock_enabled" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item label="启用系列" name="enabled" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
+      />
 
-      <Modal open={!!pointModal} title={pointModal?.id ? "编辑答题节点" : "新增答题节点"} onCancel={() => setPointModal(null)} onOk={submitPoint} destroyOnHidden>
-        <Form form={pointForm} layout="vertical" preserve={false} initialValues={pointModal || { trigger_second: 0, question_count: 0, pass_score: 100, enabled: true }}>
-          <Form.Item label="触发时间（秒）" name="trigger_second" rules={[{ required: true, message: "请输入触发时间" }]}>
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="题目数量" name="question_count">
-            <InputNumber min={0} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item label="启用" name="enabled" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
+      <QuizPointFormModal
+        editing={pointModal}
+        form={pointForm}
+        onCancel={() => setPointModal(null)}
+        onOk={submitPoint}
+      />
 
       <QuestionFormModal
         open={!!questionModal}
@@ -3400,30 +2794,11 @@ export default function MagicAcademyPage({ embedded = false }) {
         onSubmit={submitQuestion}
       />
 
-      <Modal
-        open={quizAnswerState.open}
-        title={quizAnswerState.point ? `答题节点 ${formatTime(quizAnswerState.point.trigger_second)}` : "答题"}
-        onCancel={() => {}}
-        onOk={handleQuizSubmit}
-        closable={false}
-        maskClosable={false}
-        okText="提交答案"
-        cancelButtonProps={{ style: { display: "none" } }}
-        width={720}
-      >
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          {(quizAnswerState.point?.questions || []).map((question, index) => (
-            <Card key={question.id} size="small" title={`${index + 1}. ${question.stem}`}>
-              {renderQuestionAnswer(question, quizAnswerState.values[question.id], (value) => {
-                setQuizAnswerState((prev) => ({
-                  ...prev,
-                  values: { ...prev.values, [question.id]: value },
-                }));
-              })}
-            </Card>
-          ))}
-        </Space>
-      </Modal>
+      <QuizAnswerModal
+        state={quizAnswerState}
+        setState={setQuizAnswerState}
+        onSubmit={handleQuizSubmit}
+      />
     </div>
   );
 }
