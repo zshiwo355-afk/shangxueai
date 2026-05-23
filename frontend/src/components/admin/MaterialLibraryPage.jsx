@@ -342,8 +342,8 @@ export default function MaterialLibraryPage() {
       const payload = {
         name: values.name,
         description: values.description || "",
-        oss_prefix: values.oss_prefix || "",
-        visibility: values.visibility || "admin",
+        oss_prefix: projectEditing?.oss_prefix || "",
+        visibility: projectEditing?.visibility || "admin",
         parent_id: values.parent_id || null,
       };
       if (projectEditing?.id) {
@@ -833,18 +833,6 @@ export default function MaterialLibraryPage() {
           <Form.Item label="文件夹描述" name="description">
             <Input.TextArea rows={3} placeholder="选填" />
           </Form.Item>
-          <Form.Item label="OSS 存储路径" name="oss_prefix">
-            <Input placeholder="例如：materials/course-assets" />
-          </Form.Item>
-          <Form.Item label="可见性" name="visibility">
-            <Select
-              options={[
-                { value: "private", label: "仅自己 / 超级管理员" },
-                { value: "admin", label: "管理员可见" },
-                { value: "shared", label: "共享文件夹" },
-              ]}
-            />
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -883,6 +871,7 @@ export default function MaterialLibraryPage() {
               <Upload
                 maxCount={1}
                 showUploadList={false}
+                accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.md,.csv,.jpg,.jpeg,.png,.webp,.gif,.bmp,.svg,.mp4,.mov,.webm,.m4v,.mp3,.m4a,.wav,.aac,.ogg,.amr,.flac"
                 beforeUpload={(file) => {
                   setSelectedUploadFile(file);
                   if (!assetForm.getFieldValue("name")) {
@@ -895,6 +884,9 @@ export default function MaterialLibraryPage() {
                   {selectedUploadFile ? `已选择：${selectedUploadFile.name}` : "选择文件"}
                 </Button>
               </Upload>
+              <Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+                支持上传 Word、Excel、PPT、PDF、文本、图片、视频和音频文件。
+              </Text>
             </Form.Item>
           ) : null}
           <Form.Item label="标签" name="tags">

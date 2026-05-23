@@ -58,6 +58,17 @@ from ._video_helpers import (
 )
 
 
+async def _commit_refresh_and_serialize_video(
+    db: AsyncSession,
+    video: MagicVideo,
+) -> dict[str, Any]:
+    """Persist DB-side defaults/onupdate columns before serializing the ORM row."""
+    await db.commit()
+    await db.refresh(video)
+    targets_map = await _get_video_targets(db, [video.id])
+    return _video_to_dict(video, targets_map.get(video.id, []))
+
+
 @magic_video_router.post("/videos/upload/init")
 async def init_magic_video_upload(
     payload: MagicVideoUploadInitPayload,
@@ -158,10 +169,7 @@ async def complete_magic_video_upload(
     video.upload_status = "completed"
     video.upload_id = ""
     video.upload_error = ""
-    await db.commit()
-    await db.refresh(video)
-    targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    return await _commit_refresh_and_serialize_video(db, video)
 
 
 @magic_video_router.post("/videos/upload/fail")
@@ -524,8 +532,7 @@ async def create_video(
             )
         )
     await db.flush()
-    targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    return await _commit_refresh_and_serialize_video(db, video)
 
 
 @router.get("/videos/{video_id}")
@@ -554,22 +561,76 @@ async def update_video(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     video = await _get_video_or_404(db, video_id)
     next_file_name = payload.file_name.strip() or video.file_name
     next_file_path = payload.file_path.strip() or video.file_path
+    next_original_filename = next_file_name
+    next_stored_filename = Path(next_file_path).name if next_file_path else video.stored_filename
+    next_storage_type = video.storage_type or "local"
+    next_mime_type = payload.mime_type.strip() or video.mime_type
+    next_file_size = int(payload.file_size or video.file_size or 0)
+    next_duration_seconds = int(payload.duration_seconds or video.duration_seconds or 0)
+    next_duration = int(payload.duration_seconds or video.duration or video.duration_seconds or 0)
+    next_oss_bucket = video.oss_bucket or ""
+    next_oss_endpoint = video.oss_endpoint or ""
+    next_oss_object_key = video.oss_object_key or ""
+    next_oss_url = video.oss_url or ""
+    next_cdn_url = video.cdn_url or ""
+    next_play_url = video.play_url or ""
+    next_material_asset_id = video.material_asset_id
+
+    if payload.video_source == "material":
+        if not payload.material_asset_id:
+            raise HTTPException(status_code=400, detail="请选择素材库视频。")
+        material_asset = await _get_material_asset_or_403(
+            db,
+            payload.material_asset_id,
+            admin,
+            expected_type="video",
+        )
+        oss_settings = _ensure_oss_settings()
+        public_base_url = _build_public_base_url(
+            oss_settings["bucket"],
+            oss_settings["endpoint"],
+            settings.oss_public_base_url,
+        )
+        object_url = _build_oss_object_url(public_base_url, material_asset.object_key)
+        next_file_name = material_asset.file_name
+        next_file_path = material_asset.object_key
+        next_original_filename = material_asset.file_name
+        next_stored_filename = Path(material_asset.object_key).name
+        next_storage_type = "oss"
+        next_mime_type = material_asset.mime_type or "video/mp4"
+        next_file_size = int(material_asset.file_size or 0)
+        next_duration_seconds = int(material_asset.duration_seconds or 0)
+        next_duration = next_duration_seconds
+        next_oss_bucket = oss_settings["bucket"]
+        next_oss_endpoint = oss_settings["endpoint"]
+        next_oss_object_key = material_asset.object_key
+        next_oss_url = object_url
+        next_cdn_url = object_url
+        next_play_url = object_url
+        next_material_asset_id = int(material_asset.id)
+
     video.title = payload.title.strip()
     video.description = payload.description.strip()
     video.category = payload.category.strip()
     video.file_name = next_file_name
     video.file_path = next_file_path
-    video.original_filename = next_file_name
-    video.stored_filename = Path(next_file_path).name if next_file_path else video.stored_filename
-    video.storage_type = video.storage_type or "local"
-    video.mime_type = payload.mime_type.strip() or video.mime_type
-    video.file_size = int(payload.file_size or video.file_size or 0)
-    video.duration_seconds = int(payload.duration_seconds or video.duration_seconds or 0)
-    video.duration = int(payload.duration_seconds or video.duration or video.duration_seconds or 0)
+    video.original_filename = next_original_filename
+    video.stored_filename = next_stored_filename
+    video.storage_type = next_storage_type
+    video.mime_type = next_mime_type
+    video.file_size = next_file_size
+    video.duration_seconds = next_duration_seconds
+    video.duration = next_duration
+    video.oss_bucket = next_oss_bucket
+    video.oss_endpoint = next_oss_endpoint
+    video.oss_object_key = next_oss_object_key
+    video.oss_url = next_oss_url
+    video.cdn_url = next_cdn_url
+    video.play_url = next_play_url
+    video.material_asset_id = next_material_asset_id
     video.is_required = payload.is_required
     video.is_newcomer_required = payload.is_newcomer_required
     video.deadline_at = payload.deadline_at
@@ -586,8 +647,7 @@ async def update_video(
             )
         )
     await db.flush()
-    targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    return await _commit_refresh_and_serialize_video(db, video)
 
 
 @router.delete("/videos/{video_id}")
@@ -648,10 +708,7 @@ async def publish_video(
     if not _is_video_upload_ready(video):
         raise HTTPException(status_code=400, detail="视频尚未上传完成，不能发布。")
     video.status = "published"
-    await db.commit()
-    await db.refresh(video)
-    targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    return await _commit_refresh_and_serialize_video(db, video)
 
 
 @router.post("/videos/{video_id}/disable")
@@ -663,7 +720,4 @@ async def disable_video(
     del admin
     video = await _get_video_or_404(db, video_id)
     video.status = "disabled"
-    await db.commit()
-    await db.refresh(video)
-    targets_map = await _get_video_targets(db, [video.id])
-    return _video_to_dict(video, targets_map.get(video.id, []))
+    return await _commit_refresh_and_serialize_video(db, video)
