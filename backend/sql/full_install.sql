@@ -458,13 +458,16 @@ CREATE TABLE `material_projects` (
   `description` TEXT         NULL,
   `oss_prefix`  VARCHAR(255) NOT NULL DEFAULT '',
   `visibility`  VARCHAR(16)  NOT NULL DEFAULT 'admin',
+  `parent_id`   BIGINT       NULL DEFAULT NULL,
+  `sort_order`  INT          NOT NULL DEFAULT 0,
   `created_by`  BIGINT       NOT NULL,
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `is_deleted`  TINYINT(1)   NOT NULL DEFAULT 0,
   `deleted_at`  DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx_material_projects_creator` (`created_by`, `is_deleted`)
+  KEY `idx_material_projects_creator` (`created_by`, `is_deleted`),
+  KEY `idx_material_projects_parent_sort` (`parent_id`, `sort_order`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材项目';
 
 -- ---------------------------------------------------------------------
@@ -474,6 +477,7 @@ DROP TABLE IF EXISTS `material_assets`;
 CREATE TABLE `material_assets` (
   `id`               BIGINT        NOT NULL AUTO_INCREMENT,
   `project_id`       BIGINT        NOT NULL,
+  `sort_order`       INT           NOT NULL DEFAULT 0,
   `name`             VARCHAR(255)  NOT NULL,
   `asset_type`       VARCHAR(32)   NOT NULL DEFAULT 'other',
   `file_name`        VARCHAR(255)  NOT NULL,
@@ -490,7 +494,8 @@ CREATE TABLE `material_assets` (
   `is_deleted`       TINYINT(1)    NOT NULL DEFAULT 0,
   `deleted_at`       DATETIME      NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx_material_assets_project_type` (`project_id`, `asset_type`, `is_deleted`)
+  KEY `idx_material_assets_project_type` (`project_id`, `asset_type`, `is_deleted`),
+  KEY `idx_material_assets_project_sort` (`project_id`, `sort_order`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材文件';
 
 -- ---------------------------------------------------------------------

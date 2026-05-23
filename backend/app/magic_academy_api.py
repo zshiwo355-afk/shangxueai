@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 import oss2
 from oss2.models import PartInfo
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, delete as sql_delete, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +26,30 @@ from .access import get_user_whitelist_permissions, is_super_admin
 from .auth import get_current_user, require_admin, require_super_admin
 from .config import get_settings
 from .db import get_db
+from .magic_academy_schemas import (
+    AudioMakeupPayload,
+    AudioMakeupSettingPayload,
+    MagicAudioUploadPayload,
+    MagicVideoPayload,
+    MagicVideoReplaceCompletePayload,
+    MagicVideoReplaceFailPayload,
+    MagicVideoReplaceInitPayload,
+    MagicVideoUploadCompletePayload,
+    MagicVideoUploadFailPayload,
+    MagicVideoUploadInitPayload,
+    MagicVideoUploadPartPayload,
+    ProgressPayload,
+    QuestionPayload,
+    QuizPointPayload,
+    QuizSubmitPayload,
+    VideoSeriesAddItemPayload,
+    VideoSeriesPayload,
+    VideoSeriesReorderPayload,
+    VideoTargetInput,
+    VideoWhitelistCreatePayload,
+    WatchConfirmLogPayload,
+    WatchConfirmSettingPayload,
+)
 from .models import (
     MagicAudioMakeupSetting,
     MagicAudioUpload,
@@ -66,7 +89,7 @@ TRANSCODE_STATUSES = {"none", "pending", "processing", "completed", "failed"}
 TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "role", "user"}
 VIDEO_SOURCE_TYPES = {"upload", "material"}
 IMAGE_SOURCE_TYPES = {"upload", "material"}
-READING_TARGET_TYPES = {"all", "department", "user"}
+READING_TARGET_TYPES = {"all", "all_newcomers", "department", "position", "user"}
 QUESTION_TYPES = {"single", "multiple", "judge", "blank", "short_answer"}
 QUESTION_TYPE_ALIASES = {
     "fill": "blank",
@@ -126,6 +149,10 @@ def _user_name(user: User) -> str:
 
 def _user_department(user: User) -> str:
     return (user.department or "").strip()
+
+
+def _user_position(user: User) -> str:
+    return (user.position or "").strip()
 
 
 def _department_matches_filter(user: User, department: str) -> bool:
@@ -650,8 +677,12 @@ def _reading_target_matches_user(user: User, target: MagicReadingContentTarget) 
     target_id = (target.target_id or "").strip()
     if ttype == "all":
         return user.role == "user"
+    if ttype == "all_newcomers":
+        return user.role == "user" and bool(user.is_newcomer)
     if ttype == "department":
         return user.role == "user" and _user_department(user) == target_id
+    if ttype == "position":
+        return user.role == "user" and _user_position(user) == target_id
     if ttype == "user":
         return str(user.id) == target_id
     return False
@@ -678,15 +709,23 @@ async def _replace_reading_targets(
     target_type: str,
     user_ids: list[int],
     department_names: list[str],
+    position_names: list[str],
 ) -> list[MagicReadingContentTarget]:
     await db.execute(sql_delete(MagicReadingContentTarget).where(MagicReadingContentTarget.content_id == content_id))
     rows: list[MagicReadingContentTarget] = []
     if target_type == "all":
         rows.append(MagicReadingContentTarget(content_id=content_id, target_type="all", target_id="0"))
+    elif target_type == "all_newcomers":
+        rows.append(MagicReadingContentTarget(content_id=content_id, target_type="all_newcomers", target_id="1"))
     elif target_type == "department":
         rows.extend(
             MagicReadingContentTarget(content_id=content_id, target_type="department", target_id=name)
             for name in department_names
+        )
+    elif target_type == "position":
+        rows.extend(
+            MagicReadingContentTarget(content_id=content_id, target_type="position", target_id=name)
+            for name in position_names
         )
     else:
         rows.extend(
@@ -705,11 +744,17 @@ async def _validate_reading_recipients(
     target_type: str,
     target_user_ids: list[int],
     target_department_names: list[str],
-) -> tuple[list[int], list[str], int]:
+    target_position_names: list[str],
+) -> tuple[list[int], list[str], list[str], int]:
     target_type = _normalize_reading_target_type(target_type)
     if target_type == "all":
         result = await db.execute(select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False)))
-        return [], [], int(result.scalar_one() or 0)
+        return [], [], [], int(result.scalar_one() or 0)
+    if target_type == "all_newcomers":
+        result = await db.execute(
+            select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False), User.is_newcomer.is_(True))
+        )
+        return [], [], [], int(result.scalar_one() or 0)
     if target_type == "department":
         names = sorted({(name or "").strip() for name in target_department_names if (name or "").strip()})
         if not names:
@@ -722,7 +767,20 @@ async def _validate_reading_recipients(
         matched_departments = sorted({(department or "").strip() for _, department in rows if (department or "").strip()})
         if not rows:
             raise HTTPException(status_code=400, detail="所选部门下没有可推送员工。")
-        return [], matched_departments, len(rows)
+        return [], matched_departments, [], len(rows)
+    if target_type == "position":
+        names = sorted({(name or "").strip() for name in target_position_names if (name or "").strip()})
+        if not names:
+            raise HTTPException(status_code=400, detail="请选择至少一个岗位。")
+        result = await db.execute(
+            select(User.id, User.position)
+            .where(User.role == "user", User.disabled.is_(False), User.position.in_(names))
+        )
+        rows = result.all()
+        matched_positions = sorted({(position or "").strip() for _, position in rows if (position or "").strip()})
+        if not rows:
+            raise HTTPException(status_code=400, detail="所选岗位下没有可推送员工。")
+        return [], [], matched_positions, len(rows)
     user_ids = sorted(set(target_user_ids))
     if not user_ids:
         raise HTTPException(status_code=400, detail="请选择至少一个员工。")
@@ -732,7 +790,7 @@ async def _validate_reading_recipients(
     existing_ids = sorted({int(item[0]) for item in result.all()})
     if len(existing_ids) != len(user_ids):
         raise HTTPException(status_code=400, detail="推送对象里包含无效员工。")
-    return existing_ids, [], len(existing_ids)
+    return existing_ids, [], [], len(existing_ids)
 
 
 async def _count_reading_targets(
@@ -743,6 +801,11 @@ async def _count_reading_targets(
         return 0
     if any((item.target_type or "").lower() == "all" for item in targets):
         result = await db.execute(select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False)))
+        return int(result.scalar_one() or 0)
+    if any((item.target_type or "").lower() == "all_newcomers" for item in targets):
+        result = await db.execute(
+            select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False), User.is_newcomer.is_(True))
+        )
         return int(result.scalar_one() or 0)
     departments = sorted({
         (item.target_id or "").strip()
@@ -755,6 +818,20 @@ async def _count_reading_targets(
                 User.role == "user",
                 User.disabled.is_(False),
                 User.department.in_(departments),
+            )
+        )
+        return int(result.scalar_one() or 0)
+    positions = sorted({
+        (item.target_id or "").strip()
+        for item in targets
+        if (item.target_type or "").lower() == "position" and (item.target_id or "").strip()
+    })
+    if positions:
+        result = await db.execute(
+            select(func.count(User.id)).where(
+                User.role == "user",
+                User.disabled.is_(False),
+                User.position.in_(positions),
             )
         )
         return int(result.scalar_one() or 0)
@@ -1378,217 +1455,6 @@ async def _ensure_video_access(
     if series_meta and series_meta.get("is_locked"):
         raise HTTPException(status_code=403, detail=series_meta.get("locked_reason") or "请先完成上一节视频。")
     return targets, whitelisted
-
-
-class VideoTargetInput(BaseModel):
-    target_type: str
-    target_value: str = ""
-
-    @field_validator("target_type")
-    @classmethod
-    def _validate_type(cls, value: str) -> str:
-        return _normalize_target_type(value)
-
-    @field_validator("target_value", mode="before")
-    @classmethod
-    def _strip_value(cls, value: Any) -> str:
-        return str(value or "").strip()
-
-
-class MagicVideoPayload(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(default="", max_length=5000)
-    category: str = Field(default="", max_length=128)
-    file_name: str = Field(default="", max_length=255)
-    file_path: str = Field(default="", max_length=512)
-    mime_type: str = Field(default="video/mp4", max_length=128)
-    file_size: int = Field(default=0, ge=0)
-    duration_seconds: int = Field(default=0, ge=0)
-    is_required: bool = False
-    is_newcomer_required: bool = False
-    deadline_at: datetime | None = None
-    status: str = "draft"
-    video_source: str = "upload"
-    material_asset_id: int | None = Field(default=None, ge=1)
-    targets: list[VideoTargetInput] = Field(default_factory=list)
-
-    @field_validator("status")
-    @classmethod
-    def _status(cls, value: str) -> str:
-        return _ensure_status(value)
-
-    @field_validator("video_source")
-    @classmethod
-    def _video_source(cls, value: str) -> str:
-        return _normalize_video_source(value)
-
-
-class MagicVideoUploadInitPayload(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(default="", max_length=5000)
-    category: str = Field(default="", max_length=128)
-    original_filename: str = Field(..., min_length=1, max_length=255)
-    file_size: int = Field(..., gt=0)
-    mime_type: str = Field(default="video/mp4", max_length=128)
-    duration_seconds: int = Field(default=0, ge=0)
-    is_required: bool = False
-    is_newcomer_required: bool = False
-    deadline_at: datetime | None = None
-    status: str = "draft"
-    targets: list[VideoTargetInput] = Field(default_factory=list)
-
-    @field_validator("status")
-    @classmethod
-    def _upload_init_status(cls, value: str) -> str:
-        return _ensure_status(value)
-
-
-class MagicVideoUploadPartPayload(BaseModel):
-    part_number: int = Field(..., ge=1)
-    etag: str = Field(..., min_length=1, max_length=255)
-
-
-class MagicVideoUploadCompletePayload(BaseModel):
-    video_id: int = Field(..., ge=1)
-    oss_object_key: str = Field(..., min_length=1, max_length=1024)
-    file_size: int = Field(..., gt=0)
-    upload_id: str = Field(..., min_length=1, max_length=255)
-    parts: list[MagicVideoUploadPartPayload] = Field(default_factory=list)
-
-
-class MagicVideoUploadFailPayload(BaseModel):
-    video_id: int = Field(..., ge=1)
-    oss_object_key: str = Field(..., min_length=1, max_length=1024)
-    upload_id: str = Field(..., min_length=1, max_length=255)
-    reason: str = Field(default="上传失败", max_length=5000)
-
-
-class MagicVideoReplaceInitPayload(BaseModel):
-    original_filename: str = Field(..., min_length=1, max_length=255)
-    file_size: int = Field(..., gt=0)
-    mime_type: str = Field(default="video/mp4", max_length=128)
-    duration_seconds: int = Field(default=0, ge=0)
-
-
-class MagicVideoReplaceCompletePayload(BaseModel):
-    oss_object_key: str = Field(..., min_length=1, max_length=1024)
-    file_size: int = Field(..., gt=0)
-    upload_id: str = Field(..., min_length=1, max_length=255)
-    parts: list[MagicVideoUploadPartPayload] = Field(default_factory=list)
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(default="", max_length=5000)
-    category: str = Field(default="", max_length=128)
-    duration_seconds: int = Field(default=0, ge=0)
-    is_required: bool = False
-    is_newcomer_required: bool = False
-    deadline_at: datetime | None = None
-    status: str = "draft"
-    targets: list[VideoTargetInput] = Field(default_factory=list)
-
-    @field_validator("status")
-    @classmethod
-    def _replace_complete_status(cls, value: str) -> str:
-        return _ensure_status(value)
-
-
-class MagicVideoReplaceFailPayload(BaseModel):
-    oss_object_key: str = Field(..., min_length=1, max_length=1024)
-    upload_id: str = Field(..., min_length=1, max_length=255)
-    reason: str = Field(default="替换上传失败", max_length=5000)
-
-
-class QuizPointPayload(BaseModel):
-    trigger_second: int = Field(..., ge=0)
-    question_count: int = Field(default=0, ge=0)
-    pass_score: int = Field(default=60, ge=0, le=100)
-    enabled: bool = True
-
-
-class QuestionPayload(BaseModel):
-    question_type: str
-    stem: str = Field(..., min_length=1, max_length=5000)
-    options: list[str] = Field(default_factory=list)
-    correct_answers: list[str] = Field(default_factory=list)
-    score: float = Field(default=1.0, ge=0)
-    sort_order: int = Field(default=0, ge=0)
-    is_required: bool = True
-
-    @field_validator("question_type")
-    @classmethod
-    def _question_type(cls, value: str) -> str:
-        return _normalize_question_type(value)
-
-
-class ProgressPayload(BaseModel):
-    current_position: float = Field(default=0, ge=0)
-    max_watched_position: float = Field(default=0, ge=0)
-    duration_seconds: float = Field(default=0, ge=0)
-    page_visible: bool = True
-
-
-class QuizSubmitAnswer(BaseModel):
-    question_id: int
-    answer: Any = None
-
-
-class QuizSubmitPayload(BaseModel):
-    quiz_point_id: int
-    answers: list[QuizSubmitAnswer] = Field(default_factory=list)
-    skip_by_whitelist: bool = False
-
-
-class VideoWhitelistCreatePayload(BaseModel):
-    video_id: int
-    user_id: int
-    note: str = Field(default="", max_length=255)
-
-
-class MagicAudioUploadPayload(BaseModel):
-    file_name: str = Field(..., min_length=1, max_length=255)
-    file_size: int = Field(default=0, ge=0)
-    mime_type: str = Field(default="", max_length=128)
-    remark: str = Field(default="", max_length=255)
-
-
-class AudioMakeupSettingPayload(BaseModel):
-    enabled: bool = False
-    make_up_days: int = Field(default=0, ge=0, le=365)
-
-
-class AudioMakeupPayload(BaseModel):
-    makeup_date: date
-    file_name: str = Field(..., min_length=1, max_length=255)
-    file_size: int = Field(default=0, ge=0)
-    mime_type: str = Field(default="", max_length=128)
-    remark: str = Field(default="", max_length=255)
-
-
-class VideoSeriesPayload(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(default="", max_length=5000)
-    sequential_unlock_enabled: bool = True
-    enabled: bool = True
-
-
-class VideoSeriesAddItemPayload(BaseModel):
-    video_id: int = Field(..., ge=1)
-    sort_order: int | None = Field(default=None, ge=0)
-
-
-class VideoSeriesReorderPayload(BaseModel):
-    video_ids: list[int] = Field(default_factory=list)
-
-
-class WatchConfirmSettingPayload(BaseModel):
-    enabled: bool = False
-    interval_seconds: int = Field(default=300, ge=30, le=86400)
-    message: str = Field(default=WATCH_CONFIRM_DEFAULT_MESSAGE, max_length=255)
-    button_text: str = Field(default=WATCH_CONFIRM_DEFAULT_BUTTON, max_length=64)
-
-
-class WatchConfirmLogPayload(BaseModel):
-    progress_seconds: float = Field(default=0, ge=0)
-    confirm_round: int = Field(default=1, ge=1)
 
 
 def _series_to_dict(
@@ -3380,6 +3246,7 @@ async def create_admin_reading_content(
     target_type: str = Form(...),
     target_user_ids: str = Form(default=""),
     target_department_ids: str = Form(default=""),
+    target_position_ids: str = Form(default=""),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -3395,11 +3262,17 @@ async def create_admin_reading_content(
         for item in (_json_loads(target_department_ids, []) if (target_department_ids or "").strip().startswith("[") else (target_department_ids or "").split(","))
         if str(item).strip()
     })
-    valid_user_ids, valid_departments, push_count = await _validate_reading_recipients(
+    position_names = sorted({
+        item.strip()
+        for item in (_json_loads(target_position_ids, []) if (target_position_ids or "").strip().startswith("[") else (target_position_ids or "").split(","))
+        if str(item).strip()
+    })
+    valid_user_ids, valid_departments, valid_positions, push_count = await _validate_reading_recipients(
         db,
         target_type=normalized_target_type,
         target_user_ids=user_ids,
         target_department_names=department_names,
+        target_position_names=position_names,
     )
     if normalized_image_source == "material":
         if not material_asset_id:
@@ -3448,6 +3321,7 @@ async def create_admin_reading_content(
         target_type=normalized_target_type,
         user_ids=valid_user_ids,
         department_names=valid_departments,
+        position_names=valid_positions,
     )
     await db.refresh(row)
     return _reading_content_to_dict(
@@ -3470,6 +3344,7 @@ async def update_admin_reading_content(
     target_type: str = Form(...),
     target_user_ids: str = Form(default=""),
     target_department_ids: str = Form(default=""),
+    target_position_ids: str = Form(default=""),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -3488,11 +3363,17 @@ async def update_admin_reading_content(
         for item in (_json_loads(target_department_ids, []) if (target_department_ids or "").strip().startswith("[") else (target_department_ids or "").split(","))
         if str(item).strip()
     })
-    valid_user_ids, valid_departments, push_count = await _validate_reading_recipients(
+    position_names = sorted({
+        item.strip()
+        for item in (_json_loads(target_position_ids, []) if (target_position_ids or "").strip().startswith("[") else (target_position_ids or "").split(","))
+        if str(item).strip()
+    })
+    valid_user_ids, valid_departments, valid_positions, push_count = await _validate_reading_recipients(
         db,
         target_type=normalized_target_type,
         target_user_ids=user_ids,
         target_department_names=department_names,
+        target_position_names=position_names,
     )
     row.reading_date = reading_date
     row.title = normalized_title
@@ -3529,6 +3410,7 @@ async def update_admin_reading_content(
         target_type=normalized_target_type,
         user_ids=valid_user_ids,
         department_names=valid_departments,
+        position_names=valid_positions,
     )
     await db.flush()
     await db.refresh(row)

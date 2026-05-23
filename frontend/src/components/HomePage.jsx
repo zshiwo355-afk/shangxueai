@@ -295,6 +295,7 @@ export default function HomePage() {
                 type="button"
                 className="cta-arrow-btn cta-arrow-btn--ghost"
                 onClick={() => navigate("/workspace/magic")}
+                style={{ display: "none" }}
               >
                 <ReadOutlined />
                 <span>进入课程管理</span>

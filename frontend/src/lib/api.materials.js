@@ -22,7 +22,7 @@ export async function listMaterialProjects(keyword = "") {
   const search = new URLSearchParams();
   if (keyword) search.set("keyword", keyword);
   const suffix = search.toString() ? `?${search.toString()}` : "";
-  return getJson(`/api/materials/projects${suffix}`, "素材项目加载失败。");
+  return getJson(`/api/materials/projects${suffix}`, "素材文件夹加载失败。");
 }
 
 export async function createMaterialProject(payload) {
@@ -30,21 +30,25 @@ export async function createMaterialProject(payload) {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload || {}),
-  }, "创建素材项目失败。");
-  if (!response.ok) await throwRequestError(response, "创建素材项目失败。");
-  return parseJsonResponse(response, "创建素材项目失败。");
+  }, "创建素材文件夹失败。");
+  if (!response.ok) await throwRequestError(response, "创建素材文件夹失败。");
+  return parseJsonResponse(response, "创建素材文件夹失败。");
 }
 
 export async function getMaterialProject(id) {
-  return getJson(`/api/materials/projects/${id}`, "素材项目详情加载失败。");
+  return getJson(`/api/materials/projects/${id}`, "素材文件夹详情加载失败。");
 }
 
 export async function updateMaterialProject(id, payload) {
-  return putJson(`/api/materials/projects/${id}`, payload, "更新素材项目失败。");
+  return putJson(`/api/materials/projects/${id}`, payload, "更新素材文件夹失败。");
 }
 
 export async function deleteMaterialProject(id) {
-  return deleteJson(`/api/materials/projects/${id}`, "删除素材项目失败。");
+  return deleteJson(`/api/materials/projects/${id}`, "删除素材文件夹失败。");
+}
+
+export async function moveMaterialProject(id, payload) {
+  return putJson(`/api/materials/projects/${id}/move`, payload, "移动素材文件夹失败。");
 }
 
 export async function listMaterialAssets(projectId, params = {}) {
@@ -88,4 +92,8 @@ export async function updateMaterialAsset(id, payload) {
 
 export async function deleteMaterialAsset(id) {
   return deleteJson(`/api/materials/assets/${id}`, "删除素材失败。");
+}
+
+export async function moveMaterialAsset(id, payload) {
+  return putJson(`/api/materials/assets/${id}/move`, payload, "移动素材失败。");
 }

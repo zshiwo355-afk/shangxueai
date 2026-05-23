@@ -237,36 +237,24 @@ export default function UserPapersListPage() {
         </div>
       </div>
 
-      <Card className="paper-page-hero" bordered={false}>
-        <div className="paper-page-hero__grid">
-          <div className="paper-page-hero__copy">
-            <span className="paper-page-hero__eyebrow">考试中心</span>
-            <h3>把待完成任务、历史成绩和补考机会放在同一页里。</h3>
-            <Paragraph>
-              列表会自动按待完成和已结束分区展示。你可以直接进入答题，也可以回看最近一次提交结果。
-            </Paragraph>
-          </div>
-
-          <div className="paper-page-hero__stats">
-            <div className="paper-page-hero__stat">
-              <span>全部任务</span>
-              <strong>{summary.total}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>待处理</span>
-              <strong>{summary.todo}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>可立即答题</span>
-              <strong>{summary.available}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>可重做</span>
-              <strong>{summary.retry}</strong>
-            </div>
-          </div>
-        </div>
-      </Card>
+      <div className="paper-summary">
+        <Card className="paper-summary__card" bordered={false}>
+          <span>全部任务</span>
+          <strong>{summary.total}</strong>
+        </Card>
+        <Card className="paper-summary__card" bordered={false}>
+          <span>待处理</span>
+          <strong>{summary.todo}</strong>
+        </Card>
+        <Card className="paper-summary__card" bordered={false}>
+          <span>可立即答题</span>
+          <strong>{summary.available}</strong>
+        </Card>
+        <Card className="paper-summary__card" bordered={false}>
+          <span>可重做</span>
+          <strong>{summary.retry}</strong>
+        </Card>
+      </div>
 
       {loading ? (
         <Card className="paper-assignment-card" loading bordered={false} />

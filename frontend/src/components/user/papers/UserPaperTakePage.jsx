@@ -291,33 +291,33 @@ export default function UserPaperTakePage() {
         </header>
       </Affix>
 
-      <section className="paper-take__hero">
-        <div className="paper-take__hero-copy">
-          <span className="paper-take__hero-eyebrow">正在作答</span>
+      <div className="paper-take__intro">
+        <div>
           <h2>{assignment.paper_title}</h2>
-          <Paragraph>
-            先完成当前题目，再通过右侧题号快速跳转。标记功能适合稍后回看不确定的题。
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            通过右侧题号导航切题，标记功能适合稍后回看不确定的题目。
           </Paragraph>
         </div>
-        <div className="paper-take__hero-stats">
-          <div className="paper-take__hero-stat">
-            <span>已完成</span>
-            <strong>{answeredCount}</strong>
-          </div>
-          <div className="paper-take__hero-stat">
-            <span>未作答</span>
-            <strong>{Math.max(unanswered, 0)}</strong>
-          </div>
-          <div className="paper-take__hero-stat">
-            <span>已标记</span>
-            <strong>{markedCount}</strong>
-          </div>
-          <div className="paper-take__hero-stat">
-            <span>完成进度</span>
-            <strong>{`${answeredRatio}%`}</strong>
-          </div>
+      </div>
+
+      <div className="paper-summary paper-summary--compact">
+        <div className="paper-summary__card">
+          <span>已完成</span>
+          <strong>{answeredCount}</strong>
         </div>
-      </section>
+        <div className="paper-summary__card">
+          <span>未作答</span>
+          <strong>{Math.max(unanswered, 0)}</strong>
+        </div>
+        <div className="paper-summary__card">
+          <span>已标记</span>
+          <strong>{markedCount}</strong>
+        </div>
+        <div className="paper-summary__card">
+          <span>完成进度</span>
+          <strong>{`${answeredRatio}%`}</strong>
+        </div>
+      </div>
 
       <div className="paper-take__body">
         <aside className="paper-take__sidebar">

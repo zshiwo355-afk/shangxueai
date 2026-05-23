@@ -120,6 +120,8 @@ class MaterialProject(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     oss_prefix: Mapped[str] = mapped_column(String(255), default="")
     visibility: Mapped[str] = mapped_column(String(16), default="admin")
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -134,6 +136,7 @@ class MaterialAsset(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     asset_type: Mapped[str] = mapped_column(String(32), default="other")
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -154,6 +157,7 @@ class MaterialAsset(Base):
 
     __table_args__ = (
         Index("idx_material_assets_project_type", "project_id", "asset_type", "is_deleted"),
+        Index("idx_material_assets_project_sort", "project_id", "sort_order", "is_deleted"),
     )
 
 

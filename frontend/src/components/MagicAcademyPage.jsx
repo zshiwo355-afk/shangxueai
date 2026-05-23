@@ -16,11 +16,11 @@ import {
   UploadOutlined,
 } from "@ant-design/icons";
 import {
+  Alert,
   App as AntdApp,
   Button,
   Calendar,
   Card,
-  Checkbox,
   Empty,
   Form,
   DatePicker,
@@ -105,471 +105,90 @@ import {
 import { adminListUsers } from "../lib/api.admin";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../lib/api.materials";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
+import QuestionFormModal from "./magicAcademy/QuestionFormModal";
+import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
+import {
+  buildAudioCalendarMap,
+  buildReadingDispatchFormValues,
+  buildReadingDispatchPayload,
+  buildSeriesSections,
+  buildVideoDispatchFormValues,
+  buildVideoTargetsFromDispatch,
+  formatFileSize,
+  formatTime,
+  getAudioDayStatus,
+  getAudioSourceMeta,
+  getCurrentMonthText,
+  getReadingTargetSummary,
+  getTodayText,
+  getVideoSourceLabel,
+  getVideoStatusMeta,
+  logMagicUploadStageError,
+  logOssUploadError,
+  multipartUploadToOss,
+  normalizeQuestionType,
+  QUESTION_TYPE_LABELS,
+  renderAudioStatusTag,
+  renderQuestionAnswer,
+  saveBlob,
+  targetsToOptions,
+  UNASSIGNED_DEPARTMENT_FILTER,
+} from "./magicAcademy/magicAcademyShared";
 
 const { Title, Text, Paragraph } = Typography;
 
-function formatTime(totalSeconds) {
-  const seconds = Math.max(0, Math.floor(totalSeconds || 0));
-  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
-}
-
-function saveBlob({ blob, filename }) {
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.URL.revokeObjectURL(url);
-}
-
-function formatFileSize(bytes) {
-  const value = Number(bytes || 0);
-  if (value <= 0) return "0 B";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
-  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-function getCurrentMonthText() {
-  return dayjs().format("YYYY-MM");
-}
-
-function getTodayText() {
-  return dayjs().format("YYYY-MM-DD");
-}
-
-function buildAudioCalendarMap(days) {
-  return Object.fromEntries((Array.isArray(days) ? days : []).map((item) => [item.date, item]));
-}
-
-function getAudioDayStatus(dateText, dayData) {
-  const todayText = getTodayText();
-  if (dateText > todayText) return "future";
-  if (dayData?.uploaded) {
-    return dateText === todayText ? "today_uploaded" : "uploaded";
-  }
-  return dateText === todayText ? "today_missing" : "missing";
-}
-
-function renderAudioStatusTag(status, count = 0, uploadedUsers = 0) {
-  if (status === "future") return <Tag bordered={false} color="default">未来</Tag>;
-  if (status === "makeup_available") return <Tag bordered={false} color="processing">可补卡</Tag>;
-  if (status === "makeup_expired") return <Tag bordered={false} color="default">已过期</Tag>;
-  if (status === "today_uploaded") return <Tag bordered={false} color="success">今日已上传</Tag>;
-  if (status === "today_missing") return <Tag bordered={false} color="error">今日未上传</Tag>;
-  if (status === "uploaded") {
-    return <Tag bordered={false} color="success">{uploadedUsers > 0 ? `已上传 ${uploadedUsers} 人` : `已上传${count > 1 ? ` ${count} 条` : ""}`}</Tag>;
-  }
-  return <Tag bordered={false} color="default">未上传</Tag>;
-}
-
-function logOssUploadError(error) {
-  console.error("Magic video OSS multipart upload error", {
-    name: error?.name,
-    code: error?.code,
-    status: error?.status,
-    message: error?.message,
-    requestId: error?.requestId,
-    hostId: error?.hostId,
-    stack: error?.stack,
-    error,
-  });
-}
-
-function logMagicUploadStageError(stage, error) {
-  console.error(`Magic video ${stage} failed`, {
-    name: error?.name,
-    code: error?.code,
-    status: error?.status,
-    message: error?.message,
-    requestId: error?.requestId,
-    hostId: error?.hostId,
-    stack: error?.stack,
-    error,
-  });
-}
-
-function uploadOssPart({ url, blob, onProgress }) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag");
-        if (!etag) {
-          reject(new Error("OSS 分片上传成功，但未返回 ETag。"));
-          return;
-        }
-        resolve(etag.replaceAll("\"", ""));
-        return;
-      }
-      reject(new Error(`OSS 分片上传失败（HTTP ${xhr.status}）。`));
-    };
-    xhr.onerror = () => reject(new Error("OSS 分片上传网络异常。"));
-    xhr.send(blob);
-  });
-}
-
-async function uploadOssPartWithRetry(task, retryCount = 2) {
-  let lastError = null;
-  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-    try {
-      return await task();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("OSS 分片上传失败。");
-}
-
-async function multipartUploadToOss(file, uploadPlan, onPercentChange) {
-  const uploadedParts = [];
-  let committedBytes = 0;
-  for (const part of uploadPlan.part_urls || []) {
-    const start = (part.part_number - 1) * uploadPlan.part_size;
-    const end = Math.min(start + uploadPlan.part_size, file.size);
-    const blob = file.slice(start, end);
-    const etag = await uploadOssPartWithRetry(() => (
-      uploadOssPart({
-        url: part.url,
-        blob,
-        onProgress: (loaded) => {
-          const current = committedBytes + loaded;
-          const percent = Math.min(99, Math.round((current / file.size) * 100));
-          onPercentChange?.(percent);
-        },
-      })
-    ));
-    committedBytes += blob.size;
-    onPercentChange?.(Math.min(99, Math.round((committedBytes / file.size) * 100)));
-    uploadedParts.push({ part_number: part.part_number, etag });
-  }
-  return uploadedParts;
-}
-
-function targetsToOptions(users) {
-  const departments = Array.from(new Set(users.map((item) => item.department).filter(Boolean)));
-  const positions = Array.from(new Set(users.map((item) => item.position).filter(Boolean)));
-  return { departments, positions };
-}
-
-const QUESTION_TYPE_OPTIONS = [
-  { value: "single", label: "单选" },
-  { value: "multiple", label: "多选" },
-  { value: "judge", label: "判断" },
-  { value: "fill", label: "填空" },
-  { value: "short", label: "简答" },
-];
-
-const QUESTION_TYPE_LABELS = Object.fromEntries(
-  QUESTION_TYPE_OPTIONS.map((item) => [item.value, item.label]),
-);
-const UNASSIGNED_DEPARTMENT_FILTER = "__UNASSIGNED__";
-
-const VIDEO_STATUS_META = {
-  draft: { label: "草稿", color: "default" },
-  uploading: { label: "上传中", color: "processing" },
-  uploaded: { label: "已上传未发布", color: "blue" },
-  published: { label: "已发布", color: "success" },
-  failed: { label: "上传失败", color: "error" },
-  offline: { label: "已下架", color: "default" },
-  disabled: { label: "已下架", color: "default" },
-};
-
-function getVideoStatusMeta(videoOrStatus, uploadStatus) {
-  if (videoOrStatus && typeof videoOrStatus === "object") {
-    const status = videoOrStatus.status || "draft";
-    const statusLabel = videoOrStatus.status_label;
-    if (statusLabel) {
-      return {
-        label: statusLabel,
-        color: VIDEO_STATUS_META[status]?.color || "default",
-      };
-    }
-    return getVideoStatusMeta(status, videoOrStatus.upload_status);
-  }
-  if (uploadStatus === "failed") return VIDEO_STATUS_META.failed;
-  if (uploadStatus && uploadStatus !== "completed") return VIDEO_STATUS_META.uploading;
-  if (videoOrStatus === "published") return VIDEO_STATUS_META.published;
-  if (videoOrStatus === "disabled") return VIDEO_STATUS_META.disabled;
-  if (uploadStatus === "completed" && videoOrStatus === "draft") return VIDEO_STATUS_META.uploaded;
-  return VIDEO_STATUS_META[videoOrStatus] || { label: videoOrStatus || "草稿", color: "default" };
-}
-
-function buildSeriesSections(videos) {
-  const seriesMap = new Map();
-  const standalone = [];
-  (Array.isArray(videos) ? videos : []).forEach((item) => {
-    if (item.series_id) {
-      const key = String(item.series_id);
-      if (!seriesMap.has(key)) {
-        seriesMap.set(key, {
-          key,
-          seriesId: item.series_id,
-          title: item.series_title || "未命名系列",
-          description: item.series_description || "",
-          sequentialUnlockEnabled: !!item.sequential_unlock_enabled,
-          items: [],
-        });
-      }
-      seriesMap.get(key).items.push(item);
-      return;
-    }
-    standalone.push(item);
-  });
-  const seriesSections = Array.from(seriesMap.values()).map((section) => ({
-    ...section,
-    items: section.items.sort((a, b) => Number(a.series_order || 0) - Number(b.series_order || 0)),
-  }));
-  standalone.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
-  return { seriesSections, standalone };
-}
-
-function getVideoSourceLabel(item) {
-  const source = item?.progress?.source || "";
-  if (source === "whitelist_exempt") return "白名单豁免";
-  return "";
-}
-
-function getAudioSourceMeta(source) {
-  if (source === "makeup") return { label: "补卡", color: "processing" };
-  if (source === "whitelist_auto") return { label: "白名单自动", color: "purple" };
-  return { label: "用户上传", color: "success" };
-}
-
-function getReadingTargetSummary(content) {
-  const targets = Array.isArray(content?.targets) ? content.targets : [];
-  if (targets.some((item) => item.target_type === "all")) return "全部员工";
-  const departments = targets.filter((item) => item.target_type === "department").map((item) => item.target_id).filter(Boolean);
-  if (departments.length) return `部门：${departments.join("、")}`;
-  const users = targets.filter((item) => item.target_type === "user");
-  if (users.length) return `指定员工 ${users.length} 人`;
-  return "未设置";
-}
-
-function normalizeQuestionType(value) {
-  if (value === "blank") return "fill";
-  if (value === "short_answer") return "short";
-  return value || "single";
-}
-
-function toApiQuestionType(value) {
-  if (value === "fill") return "blank";
-  if (value === "short") return "short_answer";
-  return value || "single";
-}
-
-function normalizeStringList(value) {
-  if (value == null) return [];
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  const text = String(value || "").trim();
-  if (!text) return [];
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed !== text) return normalizeStringList(parsed);
-  } catch {
-    // Ignore old non-JSON values and continue with fallback parsing.
-  }
-  if (text.includes("\n")) {
-    return text.split("\n").map((item) => item.trim()).filter(Boolean);
-  }
-  if (text.includes(",") || text.includes("，")) {
-    return text.replaceAll("，", ",").split(",").map((item) => item.trim()).filter(Boolean);
-  }
-  return [text];
-}
-
-function buildOptionItems(values, minCount = 0) {
-  const items = normalizeStringList(values).map((item) => ({ value: item }));
-  while (items.length < minCount) items.push({ value: "" });
-  return items;
-}
-
-function buildAnswerItems(values, minCount = 0) {
-  const items = normalizeStringList(values).map((item) => ({ value: item }));
-  while (items.length < minCount) items.push({ value: "" });
-  return items;
-}
-
-function resolveCorrectIndexes(options, correctAnswers, multiple = false) {
-  const optionTexts = normalizeStringList(options);
-  const answers = normalizeStringList(correctAnswers);
-  const matchedIndexes = answers.map((answer) => {
-    const numericIndex = Number(answer);
-    if (Number.isInteger(numericIndex) && numericIndex >= 0 && numericIndex < optionTexts.length) {
-      return numericIndex;
-    }
-    return optionTexts.findIndex((item) => item === answer);
-  }).filter((index) => index >= 0);
-  const uniqueIndexes = Array.from(new Set(matchedIndexes));
-  if (multiple) return uniqueIndexes;
-  return uniqueIndexes[0];
-}
-
-function buildQuestionFormValues(editing) {
-  const questionType = normalizeQuestionType(editing?.question_type || "single");
-  const options = normalizeStringList(editing?.options);
-  const correctAnswers = normalizeStringList(editing?.correct_answers);
-
-  if (questionType === "judge") {
-    const judgeOptions = buildOptionItems(options.length ? options.slice(0, 2) : ["正确", "错误"], 2).slice(0, 2);
-    return {
-      question_type: questionType,
-      stem: editing?.stem || "",
-      options: judgeOptions,
-      correct_indexes: resolveCorrectIndexes(judgeOptions.map((item) => item.value), correctAnswers, false),
-      correct_answers: [],
-      reference_answer: "",
-    };
-  }
-
-  if (questionType === "fill") {
-    return {
-      question_type: questionType,
-      stem: editing?.stem || "",
-      options: [],
-      correct_indexes: [],
-      correct_answers: buildAnswerItems(correctAnswers, 1),
-      reference_answer: "",
-    };
-  }
-
-  if (questionType === "short") {
-    return {
-      question_type: questionType,
-      stem: editing?.stem || "",
-      options: [],
-      correct_indexes: [],
-      correct_answers: [],
-      reference_answer: correctAnswers[0] || "",
-    };
-  }
-
-  const choiceOptions = buildOptionItems(options, 4);
-  return {
-    question_type: questionType,
-    stem: editing?.stem || "",
-    options: choiceOptions,
-    correct_indexes: resolveCorrectIndexes(
-      choiceOptions.map((item) => item.value),
-      correctAnswers,
-      questionType === "multiple",
-    ),
-    correct_answers: [],
-    reference_answer: "",
-  };
-}
-
-function applyQuestionTypeDefaults(form, questionType) {
-  if (questionType === "judge") {
-    form.setFieldsValue({
-      options: [{ value: "正确" }, { value: "错误" }],
-      correct_indexes: undefined,
-      correct_answers: [],
-      reference_answer: "",
-    });
-    return;
-  }
-  if (questionType === "fill") {
-    form.setFieldsValue({
-      options: [],
-      correct_indexes: [],
-      correct_answers: [{ value: "" }],
-      reference_answer: "",
-    });
-    return;
-  }
-  if (questionType === "short") {
-    form.setFieldsValue({
-      options: [],
-      correct_indexes: [],
-      correct_answers: [],
-      reference_answer: "",
-    });
-    return;
-  }
-  form.setFieldsValue({
-    options: [{ value: "" }, { value: "" }, { value: "" }, { value: "" }],
-    correct_indexes: questionType === "multiple" ? [] : undefined,
-    correct_answers: [],
-    reference_answer: "",
-  });
-}
-
-function buildQuestionPayload(values, editing) {
-  const questionType = normalizeQuestionType(values.question_type);
-  const stem = String(values.stem || "").trim();
-  if (!stem) throw new Error("请输入题目内容。");
-
-  const optionTexts = (values.options || []).map((item) => String(item?.value || "").trim());
-  const answerTexts = (values.correct_answers || []).map((item) => String(item?.value || "").trim()).filter(Boolean);
-  let options = [];
-  let correctAnswers = [];
-
-  if (questionType === "single" || questionType === "multiple" || questionType === "judge") {
-    if ((questionType === "judge" && optionTexts.length !== 2) || (questionType !== "judge" && optionTexts.length < 2)) {
-      throw new Error(questionType === "judge" ? "判断题必须保留两个选项。" : "请至少保留两个选项。");
-    }
-    if (optionTexts.some((item) => !item)) {
-      throw new Error("请填写完整的选项内容。");
-    }
-    options = questionType === "judge" ? optionTexts.slice(0, 2) : optionTexts;
-    if (questionType === "multiple") {
-      const selectedIndexes = Array.isArray(values.correct_indexes) ? values.correct_indexes.map((item) => Number(item)) : [];
-      correctAnswers = selectedIndexes
-        .filter((index) => Number.isInteger(index) && index >= 0 && index < options.length)
-        .map((index) => options[index]);
-      if (!correctAnswers.length) throw new Error("请至少选择一个正确答案。");
-    } else {
-      const selectedIndex = Number(values.correct_indexes);
-      if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= options.length) {
-        throw new Error("请选择正确答案。");
-      }
-      correctAnswers = [options[selectedIndex]];
-    }
-  } else if (questionType === "fill") {
-    if (!answerTexts.length) throw new Error("请至少填写一个正确答案。");
-    correctAnswers = answerTexts;
-  } else if (questionType === "short") {
-    const referenceAnswer = String(values.reference_answer || "").trim();
-    correctAnswers = referenceAnswer ? [referenceAnswer] : [];
-  }
-
-  return {
-    question_type: toApiQuestionType(questionType),
-    stem,
-    options,
-    correct_answers: correctAnswers,
-    score: Number(editing?.score || 1),
-    sort_order: Number(editing?.sort_order || 0),
-    is_required: editing?.is_required ?? true,
-  };
-}
-
-function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, uploadProgress }) {
+function VideoDispatchFormModal({ open, onCancel, onSubmit, editing, users, submitting, uploadProgress }) {
   const [form] = Form.useForm();
-  const [uploadMeta, setUploadMeta] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadMeta, setUploadMeta] = useState(null);
   const [materialAssets, setMaterialAssets] = useState([]);
   const [materialKeyword, setMaterialKeyword] = useState("");
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
+  const employeeUsers = useMemo(() => users.filter((item) => item.role === "user"), [users]);
+  const userOptions = useMemo(
+    () => employeeUsers.map((item) => ({
+      value: String(item.id),
+      label: `${item.real_name || item.display_name || item.username} (${item.username})`,
+    })),
+    [employeeUsers],
+  );
+  const departmentOptions = useMemo(
+    () => optionSource.departments.map((item) => ({ value: item, label: item })),
+    [optionSource.departments],
+  );
+  const positionOptions = useMemo(
+    () => optionSource.positions.map((item) => ({ value: item, label: item })),
+    [optionSource.positions],
+  );
   const videoSource = Form.useWatch("video_source", form) || "upload";
   const materialAssetId = Form.useWatch("material_asset_id", form);
+  const dispatchMode = Form.useWatch("dispatch_mode", form) || "user";
+  const targetUserIds = Form.useWatch("target_user_ids", form);
+  const targetDepartmentIds = Form.useWatch("target_department_ids", form);
+  const targetPositions = Form.useWatch("target_positions", form);
+  const newcomerOnly = Form.useWatch("newcomer_only", form);
   const selectedMaterialAsset = useMemo(
     () => materialAssets.find((item) => item.id === materialAssetId) || null,
     [materialAssets, materialAssetId],
   );
+  const resolvedTargetCount = useMemo(() => {
+    if (dispatchMode === "department") {
+      const values = new Set(targetDepartmentIds || []);
+      return employeeUsers.filter((item) => values.has(item.department)).length;
+    }
+    if (dispatchMode === "position") {
+      const values = new Set(targetPositions || []);
+      return employeeUsers.filter((item) => values.has(item.position)).length;
+    }
+    if (dispatchMode === "all") {
+      return employeeUsers.filter((item) => (newcomerOnly ? item.is_newcomer : true)).length;
+    }
+    return Array.isArray(targetUserIds) ? targetUserIds.length : 0;
+  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetUserIds]);
 
   const fillVideoForm = () => {
+    const dispatchValues = buildVideoDispatchFormValues(editing?.targets);
     if (!editing) {
       form.resetFields();
       form.setFieldsValue({
@@ -582,15 +201,14 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
         status: "draft",
         video_source: "upload",
         material_asset_id: undefined,
-        targets: [{ target_type: "all_users", target_value: "" }],
+        ...dispatchValues,
       });
       setUploadMeta(null);
       setSelectedFile(null);
       return;
     }
-
-    const currentTargets = editing?.targets || [{ target_type: "all_users", target_value: "" }];
-    const values = {
+    form.resetFields();
+    form.setFieldsValue({
       title: editing?.title || "",
       description: editing?.description || "",
       category: editing?.category || "",
@@ -600,15 +218,8 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
       status: editing?.status || "draft",
       video_source: "upload",
       material_asset_id: editing?.material_asset_id || undefined,
-      targets: currentTargets.length ? currentTargets : [{ target_type: "all_users", target_value: "" }],
-    };
-    console.log("edit video record:", editing);
-    console.log("set edit video form values:", values);
-    form.resetFields();
-    form.setFieldsValue(values);
-    window.setTimeout(() => {
-      console.log("video form values after set:", form.getFieldsValue());
-    }, 0);
+      ...dispatchValues,
+    });
     setUploadMeta({
       file_name: editing.file_name,
       file_path: editing.file_path,
@@ -654,7 +265,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
       message.error("请选择素材库视频。");
       return;
     }
-    const payload = {
+    await onSubmit({
       title: values.title,
       description: values.description || "",
       category: values.category || "",
@@ -668,40 +279,10 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
       is_required: !!values.is_required,
       is_newcomer_required: !!values.is_newcomer_required,
       status: values.status,
-      targets: (values.targets || []).map((item) => ({
-        target_type: item.target_type,
-        target_value: item.target_value || "",
-      })),
+      targets: buildVideoTargetsFromDispatch(values),
       original_filename: selectedFile?.name || uploadMeta?.original_filename || uploadMeta?.file_name,
       selected_file: selectedFile,
-    };
-    await onSubmit(payload);
-  };
-
-  const targetValueInput = (field) => {
-    const type = form.getFieldValue(["targets", field.name, "target_type"]);
-    if (type === "user") {
-      return (
-        <Select
-          showSearch
-          optionFilterProp="label"
-          options={users.filter((item) => item.role === "user").map((item) => ({
-            value: String(item.id),
-            label: `${item.real_name || item.display_name || item.username} (${item.username})`,
-          }))}
-        />
-      );
-    }
-    if (type === "department") {
-      return <Select allowClear options={optionSource.departments.map((item) => ({ value: item, label: item }))} />;
-    }
-    if (type === "position") {
-      return <Select allowClear options={optionSource.positions.map((item) => ({ value: item, label: item }))} />;
-    }
-    if (type === "role") {
-      return <Select options={[{ value: "user", label: "普通员工" }, { value: "admin", label: "管理员" }]} />;
-    }
-    return <Input disabled placeholder="该类型不需要填写值" />;
+    });
   };
 
   return (
@@ -786,7 +367,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
           <Card size="small" title="从素材库选择视频">
             <Space direction="vertical" style={{ width: "100%" }} size={12}>
               <Input.Search
-                placeholder="搜索素材名称 / 项目名"
+                placeholder="搜索素材名称 / 文件夹"
                 value={materialKeyword}
                 onChange={(e) => setMaterialKeyword(e.target.value)}
                 onSearch={setMaterialKeyword}
@@ -811,7 +392,7 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
                 <Space direction="vertical" size={4}>
                   <Text type="secondary">已选素材：{selectedMaterialAsset.name}</Text>
                   <Text type="secondary">原文件名：{selectedMaterialAsset.file_name}</Text>
-                  <Text type="secondary">所属项目：{selectedMaterialAsset.project_name || "—"}</Text>
+                  <Text type="secondary">所属文件夹：{selectedMaterialAsset.project_name || "—"}</Text>
                   <Text type="secondary">文件大小：{formatFileSize(selectedMaterialAsset.file_size || 0)}</Text>
                   <Text type="secondary">上传时间：{selectedMaterialAsset.created_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
                 </Space>
@@ -827,276 +408,81 @@ function VideoFormModal({ open, onCancel, onSubmit, editing, users, submitting, 
             <Switch />
           </Form.Item>
         </Space>
-        <Form.List name="targets">
-          {(fields, { add, remove }) => (
-            <Card size="small" title="适用对象" extra={<Button size="small" onClick={() => add({ target_type: "all_users", target_value: "" })}>新增对象</Button>}>
-              {fields.map((field) => (
-                <Space key={field.key} align="start" style={{ display: "flex", marginBottom: 12 }}>
-                  <Form.Item
-                    name={[field.name, "target_type"]}
-                    rules={[{ required: true, message: "请选择类型" }]}
-                    style={{ minWidth: 180 }}
-                  >
-                    <Select
-                      options={[
-                        { value: "all_users", label: "全部员工" },
-                        { value: "all_newcomers", label: "全部新人" },
-                        { value: "department", label: "指定部门" },
-                        { value: "position", label: "指定岗位" },
-                        { value: "role", label: "指定角色" },
-                        { value: "user", label: "指定用户" },
-                      ]}
-                    />
-                  </Form.Item>
-                  <Form.Item name={[field.name, "target_value"]} style={{ minWidth: 260 }}>
-                    {targetValueInput(field)}
-                  </Form.Item>
-                  <Button danger onClick={() => remove(field.name)}>删除</Button>
-                </Space>
-              ))}
-            </Card>
-          )}
-        </Form.List>
-      </Form>
-    </Modal>
-  );
-}
-
-function QuestionFormModal({ open, editing, pointId, onCancel, onSubmit }) {
-  const [form] = Form.useForm();
-  const { message } = AntdApp.useApp();
-  const questionType = Form.useWatch("question_type", form);
-  const correctIndexes = Form.useWatch("correct_indexes", form);
-  const previousTypeRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) {
-      previousTypeRef.current = null;
-      return;
-    }
-    const initialValues = buildQuestionFormValues(editing);
-    form.setFieldsValue(initialValues);
-    previousTypeRef.current = initialValues.question_type;
-  }, [editing, form, open]);
-
-  useEffect(() => {
-    if (!open || !questionType) return;
-    if (previousTypeRef.current == null) {
-      previousTypeRef.current = questionType;
-      return;
-    }
-    if (previousTypeRef.current === questionType) return;
-    applyQuestionTypeDefaults(form, questionType);
-    previousTypeRef.current = questionType;
-  }, [form, open, questionType]);
-
-  const handleOk = async () => {
-    try {
-      const values = await form.validateFields();
-      await onSubmit(pointId, buildQuestionPayload(values, editing), editing);
-    } catch (error) {
-      if (!error?.errorFields) {
-        message.error(error?.message || "请检查题目配置后再保存。");
-      }
-    }
-  };
-
-  const handleRemoveOption = (index, remove) => {
-    const currentType = normalizeQuestionType(form.getFieldValue("question_type"));
-    const currentValue = form.getFieldValue("correct_indexes");
-    if (currentType === "multiple") {
-      const nextValue = (Array.isArray(currentValue) ? currentValue : [])
-        .map((item) => Number(item))
-        .filter((item) => item !== index)
-        .map((item) => (item > index ? item - 1 : item));
-      remove(index);
-      form.setFieldValue("correct_indexes", nextValue);
-      return;
-    }
-    const selectedIndex = Number(currentValue);
-    remove(index);
-    if (!Number.isInteger(selectedIndex)) {
-      form.setFieldValue("correct_indexes", undefined);
-      return;
-    }
-    if (selectedIndex === index) {
-      form.setFieldValue("correct_indexes", undefined);
-      return;
-    }
-    form.setFieldValue("correct_indexes", selectedIndex > index ? selectedIndex - 1 : selectedIndex);
-  };
-
-  const renderQuestionConfig = () => {
-    if (questionType === "fill") {
-      return (
-        <>
-          <Text type="secondary">支持多个可接受答案，每行/每项一个，学生填写任一答案即视为正确。</Text>
-          <Form.List name="correct_answers">
-            {(fields, { add, remove }) => (
-              <Space direction="vertical" style={{ display: "flex", marginTop: 12 }}>
-                {fields.map((field) => (
-                  <Space key={field.key} align="start" style={{ display: "flex" }}>
-                    <Form.Item
-                      name={[field.name, "value"]}
-                      rules={[{
-                        validator: async (_, value) => {
-                          if (String(value || "").trim()) return;
-                          throw new Error("请输入可接受答案");
-                        },
-                      }]}
-                      style={{ flex: 1, marginBottom: 0 }}
-                    >
-                      <Input placeholder="请输入一个可接受答案" />
-                    </Form.Item>
-                    <Button danger onClick={() => remove(field.name)} disabled={fields.length <= 1}>删除</Button>
-                  </Space>
-                ))}
-                <Button icon={<PlusOutlined />} onClick={() => add({ value: "" })}>添加答案</Button>
-              </Space>
-            )}
-          </Form.List>
-        </>
-      );
-    }
-
-    if (questionType === "short") {
-      return (
-        <>
-          <Text type="secondary">简答题可填写参考答案，后续可用于人工批改或关键词判断。</Text>
-          <Form.Item label="参考答案" name="reference_answer" style={{ marginTop: 12, marginBottom: 0 }}>
-            <Input.TextArea rows={4} placeholder="可选填参考答案" />
+        <Card size="small" title="派发范围">
+          <Form.Item label="派发维度" name="dispatch_mode">
+            <Radio.Group
+              options={[
+                { value: "user", label: "指定员工" },
+                { value: "department", label: "按部门" },
+                { value: "position", label: "按岗位" },
+                { value: "all", label: "全员" },
+              ]}
+              optionType="button"
+              buttonStyle="solid"
+            />
           </Form.Item>
-        </>
-      );
-    }
-
-    return (
-      <>
-        <Form.List name="options">
-          {(fields, { add, remove }) => (
-            <Space direction="vertical" style={{ display: "flex" }}>
-              {fields.map((field, index) => {
-                const selectedSet = new Set(Array.isArray(correctIndexes) ? correctIndexes.map((item) => Number(item)) : []);
-                const isRadioChecked = Number(correctIndexes) === index;
-                const isJudge = questionType === "judge";
-                return (
-                  <Space key={field.key} align="start" style={{ display: "flex" }}>
-                    {questionType === "multiple" ? (
-                      <Checkbox
-                        checked={selectedSet.has(index)}
-                        onChange={(event) => {
-                          const current = Array.isArray(correctIndexes) ? correctIndexes.map((item) => Number(item)) : [];
-                          const next = event.target.checked
-                            ? Array.from(new Set([...current, index])).sort((a, b) => a - b)
-                            : current.filter((item) => item !== index);
-                          form.setFieldValue("correct_indexes", next);
-                        }}
-                      />
-                    ) : (
-                      <Radio checked={isRadioChecked} onChange={() => form.setFieldValue("correct_indexes", index)} />
-                    )}
-                    <Form.Item
-                      name={[field.name, "value"]}
-                      rules={[{
-                        validator: async (_, value) => {
-                          if (String(value || "").trim()) return;
-                          throw new Error("请输入选项内容");
-                        },
-                      }]}
-                      style={{ flex: 1, marginBottom: 0 }}
-                    >
-                      <Input placeholder={isJudge ? "请输入判断选项文本" : `请输入选项 ${index + 1}`} />
-                    </Form.Item>
-                    {!isJudge ? (
-                      <Button danger onClick={() => handleRemoveOption(field.name, remove)} disabled={fields.length <= 2}>删除</Button>
-                    ) : null}
-                  </Space>
-                );
-              })}
-              {!questionType || questionType === "judge" ? null : (
-                <Button icon={<PlusOutlined />} onClick={() => add({ value: "" })}>添加选项</Button>
-              )}
-            </Space>
-          )}
-        </Form.List>
-        <Form.Item noStyle shouldUpdate>
-          {() => (
-            <Form.Item
-              name="correct_indexes"
-              style={{ marginTop: 12, marginBottom: 0 }}
-              rules={[{
-                validator: async (_, value) => {
-                  if (questionType === "multiple") {
-                    if (Array.isArray(value) && value.length > 0) return;
-                    throw new Error("请至少选择一个正确答案");
-                  }
-                  if (Number.isInteger(Number(value))) return;
-                  throw new Error("请选择正确答案");
-                },
-              }]}
-            >
-              <Input type="hidden" />
+          {dispatchMode === "user" ? (
+            <Form.Item label="员工" name="target_user_ids" rules={[{ required: true, message: "请选择至少一个员工" }]}>
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={userOptions}
+                placeholder="选择员工"
+                maxTagCount="responsive"
+              />
             </Form.Item>
-          )}
-        </Form.Item>
-      </>
-    );
-  };
-
-  return (
-    <Modal open={open} title={editing ? "编辑题目" : "新增题目"} onCancel={onCancel} onOk={handleOk} destroyOnHidden>
-      <Form form={form} layout="vertical" preserve={false}>
-        <Form.Item label="题型" name="question_type" rules={[{ required: true, message: "请选择题型" }]}>
-          <Select options={QUESTION_TYPE_OPTIONS} />
-        </Form.Item>
-        <Form.Item label="题目内容" name="stem" rules={[{ required: true, message: "请输入题目内容" }]}>
-          <Input.TextArea rows={3} placeholder="请输入题目内容" />
-        </Form.Item>
-        <Form.Item
-          label={questionType === "fill" ? "正确答案列表" : questionType === "short" ? "参考答案配置" : "选项配置"}
-          style={{ marginBottom: 0 }}
-        >
-          {renderQuestionConfig()}
-        </Form.Item>
+          ) : null}
+          {dispatchMode === "department" ? (
+            <Form.Item label="部门" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门" }]}>
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={departmentOptions}
+                placeholder={departmentOptions.length ? "选择部门" : "当前暂无可选部门"}
+                disabled={!departmentOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+          {dispatchMode === "position" ? (
+            <Form.Item label="岗位" name="target_positions" rules={[{ required: true, message: "请选择至少一个岗位" }]}>
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={positionOptions}
+                placeholder={positionOptions.length ? "选择岗位" : "当前暂无可选岗位"}
+                disabled={!positionOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+          {dispatchMode === "all" ? (
+            <Form.Item
+              label="范围"
+              name="newcomer_only"
+              getValueProps={(value) => ({ value: value ? "newcomer" : "all" })}
+              normalize={(value) => value === "newcomer"}
+            >
+              <Radio.Group
+                options={[
+                  { value: "all", label: "全部员工" },
+                  { value: "newcomer", label: "仅新人" },
+                ]}
+                optionType="button"
+              />
+            </Form.Item>
+          ) : null}
+          <Alert
+            type={resolvedTargetCount ? "info" : "warning"}
+            showIcon
+            message={resolvedTargetCount ? `当前将命中 ${resolvedTargetCount} 位员工` : "当前尚未命中任何员工"}
+          />
+        </Card>
       </Form>
     </Modal>
-  );
-}
-
-function renderQuestionAnswer(question, value, onChange) {
-  const questionType = normalizeQuestionType(question.question_type);
-  if (questionType === "single") {
-    return <Radio.Group value={value} onChange={(e) => onChange(e.target.value)} options={(question.options || []).map((item) => ({ value: item, label: item }))} />;
-  }
-  if (questionType === "multiple") {
-    return <Checkbox.Group value={value || []} onChange={onChange} options={(question.options || []).map((item) => ({ value: item, label: item }))} />;
-  }
-  if (questionType === "judge") {
-    const judgeOptions = (question.options || []).length ? question.options : ["正确", "错误"];
-    return <Radio.Group value={value} onChange={(e) => onChange(e.target.value)} options={judgeOptions.map((item) => ({ value: item, label: item }))} />;
-  }
-  if (questionType === "fill") {
-    return <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder="请输入答案" />;
-  }
-  return <Input.TextArea value={value} onChange={(e) => onChange(e.target.value)} rows={3} placeholder="请输入简答内容" />;
-}
-
-function ResponsiveVideoPlayer({ videoRef, src, onLoadedMetadata, onTimeUpdate, onSeeking, onPause, onEnded, onPlay }) {
-  return (
-    <div className="magic-video-player-wrap">
-      <video
-        ref={videoRef}
-        src={src}
-        controls
-        className="magic-video-player"
-        onLoadedMetadata={onLoadedMetadata}
-        onTimeUpdate={onTimeUpdate}
-        onSeeking={onSeeking}
-        onPlay={onPlay}
-        onPause={onPause}
-        onEnded={onEnded}
-      />
-    </div>
   );
 }
 
@@ -1223,6 +609,13 @@ export default function MagicAcademyPage({ embedded = false }) {
   );
   const employeeDepartmentOptions = useMemo(
     () => Array.from(new Set(employeeUsers.map((item) => item.department).filter(Boolean))).map((item) => ({
+      value: item,
+      label: item,
+    })),
+    [employeeUsers],
+  );
+  const employeePositionOptions = useMemo(
+    () => Array.from(new Set(employeeUsers.map((item) => item.position).filter(Boolean))).map((item) => ({
       value: item,
       label: item,
     })),
@@ -2379,9 +1772,11 @@ export default function MagicAcademyPage({ embedded = false }) {
       description: "",
       image_source: "upload",
       material_asset_id: undefined,
-      target_type: "user",
+      dispatch_mode: "user",
       target_user_ids: [],
       target_department_ids: [],
+      target_position_ids: [],
+      newcomer_only: false,
     });
     setReadingContentModalOpen(true);
   };
@@ -2401,9 +1796,7 @@ export default function MagicAcademyPage({ embedded = false }) {
         description: detail?.description || "",
         image_source: "upload",
         material_asset_id: undefined,
-        target_type: detail?.targets?.[0]?.target_type || "user",
-        target_user_ids: (detail?.targets || []).filter((item) => item.target_type === "user").map((item) => Number(item.target_id)),
-        target_department_ids: (detail?.targets || []).filter((item) => item.target_type === "department").map((item) => item.target_id),
+        ...buildReadingDispatchFormValues(detail?.targets || []),
       });
       setReadingContentModalOpen(true);
     } catch (error) {
@@ -2425,9 +1818,7 @@ export default function MagicAcademyPage({ embedded = false }) {
         description: values.description || "",
         image_source: values.image_source || "upload",
         material_asset_id: values.material_asset_id || null,
-        target_type: values.target_type,
-        target_user_ids: values.target_user_ids || [],
-        target_department_ids: values.target_department_ids || [],
+        ...buildReadingDispatchPayload(values),
         image: values.image_source === "upload" ? (readingContentImageFile || undefined) : undefined,
       };
       if (readingContentModalMode === "edit" && readingContentEditing?.id) {
@@ -3759,7 +3150,7 @@ export default function MagicAcademyPage({ embedded = false }) {
         userViewContent
       )}
 
-      <VideoFormModal
+      <VideoDispatchFormModal
         open={!!videoModal}
         editing={videoModal && videoModal.id ? videoModal : null}
         users={users}
@@ -3792,9 +3183,11 @@ export default function MagicAcademyPage({ embedded = false }) {
             reading_date: dayjs(),
             title: "",
             description: "",
-            target_type: "user",
             target_user_ids: [],
             target_department_ids: [],
+            target_position_ids: [],
+            dispatch_mode: "user",
+            newcomer_only: false,
           }}
         >
           <Form.Item label="阅读日期" name="reading_date" rules={[{ required: true, message: "请选择阅读日期" }]}>
@@ -3814,22 +3207,32 @@ export default function MagicAcademyPage({ embedded = false }) {
               ]}
             />
           </Form.Item>
-          <Form.Item label="推送范围" name="target_type" rules={[{ required: true, message: "请选择推送范围" }]}>
-            <Select
+          <Form.Item label="派发维度" name="dispatch_mode" rules={[{ required: true, message: "请选择派发维度" }]}>
+            <Radio.Group
               options={[
-                { value: "all", label: "全部员工" },
-                { value: "department", label: "按部门" },
                 { value: "user", label: "指定员工" },
+                { value: "department", label: "按部门" },
+                { value: "position", label: "按岗位" },
+                { value: "all", label: "全员" },
               ]}
+              optionType="button"
+              buttonStyle="solid"
             />
           </Form.Item>
           <Form.Item noStyle shouldUpdate>
             {({ getFieldValue }) => {
-              const targetType = getFieldValue("target_type");
+              const targetType = getFieldValue("dispatch_mode");
               if (targetType === "department") {
                 return (
                   <Form.Item label="推送部门" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门" }]}>
                     <Select mode="multiple" options={employeeDepartmentOptions} placeholder="选择部门" />
+                  </Form.Item>
+                );
+              }
+              if (targetType === "position") {
+                return (
+                  <Form.Item label="推送岗位" name="target_position_ids" rules={[{ required: true, message: "请选择至少一个岗位" }]}>
+                    <Select mode="multiple" options={employeePositionOptions} placeholder="选择岗位" />
                   </Form.Item>
                 );
               }
@@ -3849,7 +3252,22 @@ export default function MagicAcademyPage({ embedded = false }) {
                   </Form.Item>
                 );
               }
-              return <Form.Item label="推送对象"><Text type="secondary">当前将推送给全部普通员工。</Text></Form.Item>;
+              return (
+                <Form.Item
+                  label="范围"
+                  name="newcomer_only"
+                  getValueProps={(value) => ({ value: value ? "newcomer" : "all" })}
+                  normalize={(value) => value === "newcomer"}
+                >
+                  <Radio.Group
+                    options={[
+                      { value: "all", label: "全部员工" },
+                      { value: "newcomer", label: "仅新人" },
+                    ]}
+                    optionType="button"
+                  />
+                </Form.Item>
+              );
             }}
           </Form.Item>
           {readingImageSource === "upload" ? (

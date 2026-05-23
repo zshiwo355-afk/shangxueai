@@ -274,6 +274,7 @@ async function submitReadingContentForm(url, method, payload, errorMessage) {
   formData.append("target_type", payload.target_type || "user");
   formData.append("target_user_ids", JSON.stringify(payload.target_user_ids || []));
   formData.append("target_department_ids", JSON.stringify(payload.target_department_ids || []));
+  formData.append("target_position_ids", JSON.stringify(payload.target_position_ids || []));
   if (payload.image) formData.append("image", payload.image);
   const response = await safeFetch(buildApiUrl(url), {
     method,

@@ -132,59 +132,51 @@ export default function UserPaperResultPage() {
         </div>
       </div>
 
-      <Card className="paper-page-hero paper-page-hero--result" bordered={false}>
-        <div className="paper-page-hero__grid">
-          <div className="paper-page-hero__copy">
-            <Space size={[8, 8]} wrap>
-              <Tag bordered={false} color={isGraded ? (submission.is_pass ? "success" : "error") : "processing"}>
-                {isGraded ? (submission.is_pass ? "已通过" : "未通过") : "待复核"}
-              </Tag>
-              <Tag bordered={false}>第 {submission.attempt_no} 次提交</Tag>
-              <Tag bordered={false}>{formatTime(submission.submitted_at)}</Tag>
-            </Space>
-            <h3>这次作答的成绩和批注都在这里，方便你直接回看。</h3>
-            <Paragraph>
-              {isPending
-                ? "当前成绩还在等待人工复核，客观题分数已经先展示给你。"
-                : "你可以结合分数、老师评语和逐题解析，快速定位需要补强的知识点。"}
-            </Paragraph>
-          </div>
-
-          <div className="paper-page-hero__stats">
-            <div className="paper-page-hero__stat">
-              <span>最终成绩</span>
-              <strong style={{ color: scoreTone(submission.status, submission.is_pass) }}>{finalScoreText}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>客观题得分</span>
-              <strong>{fmtScore(submission.auto_score)}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>总分 / 及格线</span>
-              <strong>{`${paper.total_score} / ${paper.pass_score}`}</strong>
-            </div>
-            <div className="paper-page-hero__stat">
-              <span>主观题数量</span>
-              <strong>{answerSummary.subjective}</strong>
-            </div>
-          </div>
-        </div>
+      <Card className="paper-header-card" bordered={false}>
+        <Space size={[8, 8]} wrap style={{ marginBottom: 12 }}>
+          <Tag bordered={false} color={isGraded ? (submission.is_pass ? "success" : "error") : "processing"}>
+            {isGraded ? (submission.is_pass ? "已通过" : "未通过") : "待复核"}
+          </Tag>
+          <Tag bordered={false}>第 {submission.attempt_no} 次提交</Tag>
+          <Tag bordered={false}>{formatTime(submission.submitted_at)}</Tag>
+        </Space>
+        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          {isPending
+            ? "当前成绩仍在等待人工复核，客观题分数已先展示。"
+            : "你可以结合分数、老师评语和逐题解析回看本次作答。"}
+        </Paragraph>
       </Card>
 
-      <div className="paper-result-overview">
-        <div className="paper-result-overview__metric">
+      <div className="paper-summary">
+        <div className="paper-summary__card paper-summary__card--score">
+          <span>最终成绩</span>
+          <strong style={{ color: scoreTone(submission.status, submission.is_pass) }}>{finalScoreText}</strong>
+        </div>
+        <div className="paper-summary__card">
+          <span>客观题得分</span>
+          <strong>{fmtScore(submission.auto_score)}</strong>
+        </div>
+        <div className="paper-summary__card">
+          <span>总分 / 及格线</span>
+          <strong>{`${paper.total_score} / ${paper.pass_score}`}</strong>
+        </div>
+        <div className="paper-summary__card">
+          <span>主观题数量</span>
+          <strong>{answerSummary.subjective}</strong>
+        </div>
+        <div className="paper-summary__card">
           <span>答对题目</span>
           <strong>{answerSummary.correct}</strong>
         </div>
-        <div className="paper-result-overview__metric">
+        <div className="paper-summary__card">
           <span>答错题目</span>
           <strong>{answerSummary.incorrect}</strong>
         </div>
-        <div className="paper-result-overview__metric">
+        <div className="paper-summary__card">
           <span>总题量</span>
           <strong>{answers?.length || 0}</strong>
         </div>
-        <div className="paper-result-overview__metric">
+        <div className="paper-summary__card">
           <span>答案开放</span>
           <strong>{showAnswer ? "已展示" : "未展示"}</strong>
         </div>

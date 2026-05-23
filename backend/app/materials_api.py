@@ -216,16 +216,110 @@ async def _ensure_asset_manage_access(db: AsyncSession, asset_id: int, user: Use
     return asset, project
 
 
-def _project_to_dict(project: MaterialProject, *, asset_count: int = 0, creator: User | None = None) -> dict[str, Any]:
+async def _list_visible_projects(db: AsyncSession, user: User) -> list[MaterialProject]:
+    stmt = select(MaterialProject).where(MaterialProject.is_deleted.is_(False))
+    if not is_super_admin(user):
+        stmt = stmt.where(
+            or_(
+                MaterialProject.created_by == user.id,
+                MaterialProject.visibility.in_(["admin", "shared"]),
+            )
+        )
+    stmt = stmt.order_by(MaterialProject.sort_order.asc(), MaterialProject.id.asc())
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _next_project_sort_order(db: AsyncSession, parent_id: int | None) -> int:
+    value = (
+        await db.execute(
+            select(func.max(MaterialProject.sort_order)).where(
+                MaterialProject.parent_id == parent_id,
+                MaterialProject.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    return int(value or 0) + 1
+
+
+async def _next_asset_sort_order(db: AsyncSession, project_id: int) -> int:
+    value = (
+        await db.execute(
+            select(func.max(MaterialAsset.sort_order)).where(
+                MaterialAsset.project_id == project_id,
+                MaterialAsset.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    return int(value or 0) + 1
+
+
+async def _ensure_valid_parent(
+    db: AsyncSession,
+    *,
+    parent_id: int | None,
+    admin: User,
+    current_id: int | None = None,
+) -> MaterialProject | None:
+    if parent_id in (None, 0):
+        return None
+    parent = await _ensure_project_manage_access(db, int(parent_id), admin)
+    if current_id and int(parent.id) == int(current_id):
+        raise HTTPException(status_code=400, detail="文件夹不能移动到自己下面。")
+    if current_id:
+        projects = (
+            await db.execute(select(MaterialProject.id, MaterialProject.parent_id).where(MaterialProject.is_deleted.is_(False)))
+        ).all()
+        parent_map = {int(project_id): (int(parent_value) if parent_value is not None else None) for project_id, parent_value in projects}
+        probe = int(parent.id)
+        while probe is not None:
+            if int(probe) == int(current_id):
+                raise HTTPException(status_code=400, detail="不能把文件夹移动到自己的子文件夹下。")
+            probe = parent_map.get(int(probe))
+    return parent
+
+
+def _build_project_path_ids(project: MaterialProject, project_map: dict[int, MaterialProject]) -> list[int]:
+    path: list[int] = []
+    current: MaterialProject | None = project
+    visited: set[int] = set()
+    while current:
+        current_id = int(current.id)
+        if current_id in visited:
+            break
+        visited.add(current_id)
+        path.append(current_id)
+        parent_id = int(current.parent_id) if current.parent_id is not None else None
+        current = project_map.get(parent_id) if parent_id is not None else None
+    return list(reversed(path))
+
+
+def _project_to_dict(
+    project: MaterialProject,
+    *,
+    asset_count: int = 0,
+    child_count: int = 0,
+    creator: User | None = None,
+    project_map: dict[int, MaterialProject] | None = None,
+) -> dict[str, Any]:
+    path_ids = _build_project_path_ids(project, project_map or {int(project.id): project})
+    path_names = [
+        (project_map or {}).get(path_id).name if (project_map or {}).get(path_id) else project.name
+        for path_id in path_ids
+    ]
     return {
         "id": int(project.id),
         "name": project.name,
         "description": project.description or "",
         "oss_prefix": project.oss_prefix or "",
         "visibility": project.visibility or "admin",
+        "parent_id": int(project.parent_id) if project.parent_id is not None else None,
+        "sort_order": int(project.sort_order or 0),
         "created_by": int(project.created_by),
         "creator_name": _user_name(creator),
         "asset_count": int(asset_count),
+        "child_count": int(child_count),
+        "path_ids": path_ids,
+        "path_names": path_names,
         "created_at": _iso(project.created_at),
         "updated_at": _iso(project.updated_at),
     }
@@ -236,6 +330,7 @@ def _asset_to_dict(asset: MaterialAsset, *, project: MaterialProject | None = No
         "id": int(asset.id),
         "project_id": int(asset.project_id),
         "project_name": project.name if project else "",
+        "sort_order": int(asset.sort_order or 0),
         "name": asset.name,
         "asset_type": asset.asset_type or "other",
         "file_name": asset.file_name,
@@ -258,6 +353,7 @@ class MaterialProjectPayload(BaseModel):
     description: str = Field(default="", max_length=5000)
     oss_prefix: str = Field(default="", max_length=255)
     visibility: str = Field(default="admin", max_length=16)
+    parent_id: int | None = None
 
     @field_validator("visibility")
     @classmethod
@@ -274,27 +370,34 @@ class MaterialAssetUpdatePayload(BaseModel):
     tags: str = Field(default="", max_length=5000)
 
 
+class MaterialProjectMovePayload(BaseModel):
+    parent_id: int | None = None
+
+
+class MaterialAssetMovePayload(BaseModel):
+    project_id: int = Field(..., gt=0)
+
+
 @router.get("/projects")
 async def list_material_projects(
     keyword: str | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    stmt = select(MaterialProject).where(MaterialProject.is_deleted.is_(False))
-    if not is_super_admin(admin):
-        stmt = stmt.where(
-            or_(
-                MaterialProject.created_by == admin.id,
-                MaterialProject.visibility.in_(["admin", "shared"]),
-            )
-        )
-    if (keyword or "").strip():
-        like_value = f"%{keyword.strip()}%"
-        stmt = stmt.where(or_(MaterialProject.name.like(like_value), MaterialProject.description.like(like_value)))
-    stmt = stmt.order_by(desc(MaterialProject.updated_at), desc(MaterialProject.id))
-    projects = (await db.execute(stmt)).scalars().all()
+    projects = await _list_visible_projects(db, admin)
     if not projects:
         return []
+    if (keyword or "").strip():
+        like_value = keyword.strip().lower()
+        projects = [
+            item
+            for item in projects
+            if like_value in (item.name or "").lower()
+            or like_value in (item.description or "").lower()
+        ]
+        if not projects:
+            return []
+    project_map = {int(item.id): item for item in projects}
     project_ids = [item.id for item in projects]
     count_rows = (
         await db.execute(
@@ -304,11 +407,31 @@ async def list_material_projects(
         )
     ).all()
     count_map = {int(project_id): int(count) for project_id, count in count_rows}
+    child_rows = (
+        await db.execute(
+            select(MaterialProject.parent_id, func.count(MaterialProject.id))
+            .where(
+                MaterialProject.parent_id.in_(project_ids),
+                MaterialProject.is_deleted.is_(False),
+            )
+            .group_by(MaterialProject.parent_id)
+        )
+    ).all()
+    child_map = {int(parent_id): int(count) for parent_id, count in child_rows if parent_id is not None}
     creator_ids = sorted({int(item.created_by) for item in projects})
     creators = {}
     if creator_ids:
         creators = {item.id: item for item in (await db.execute(select(User).where(User.id.in_(creator_ids)))).scalars().all()}
-    return [_project_to_dict(item, asset_count=count_map.get(int(item.id), 0), creator=creators.get(item.created_by)) for item in projects]
+    return [
+        _project_to_dict(
+            item,
+            asset_count=count_map.get(int(item.id), 0),
+            child_count=child_map.get(int(item.id), 0),
+            creator=creators.get(item.created_by),
+            project_map=project_map,
+        )
+        for item in projects
+    ]
 
 
 @router.post("/projects")
@@ -318,11 +441,14 @@ async def create_material_project(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     prefix = _validate_oss_prefix(payload.oss_prefix)
+    parent = await _ensure_valid_parent(db, parent_id=payload.parent_id, admin=admin)
     row = MaterialProject(
         name=payload.name.strip(),
         description=payload.description.strip(),
         oss_prefix=prefix,
         visibility=_normalize_visibility(payload.visibility),
+        parent_id=int(parent.id) if parent else None,
+        sort_order=await _next_project_sort_order(db, int(parent.id) if parent else None),
         created_by=admin.id,
         is_deleted=False,
     )
@@ -333,7 +459,10 @@ async def create_material_project(
         row.oss_prefix = f"{oss_settings['default_prefix']}/project-{row.id}"
         await db.flush()
     await db.refresh(row)
-    return _project_to_dict(row, asset_count=0, creator=admin)
+    project_map = {int(row.id): row}
+    if parent:
+        project_map[int(parent.id)] = parent
+    return _project_to_dict(row, asset_count=0, creator=admin, project_map=project_map)
 
 
 @router.get("/projects/{project_id}")
@@ -343,6 +472,8 @@ async def get_material_project(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     row = await _ensure_project_view_access(db, project_id, admin)
+    visible_projects = await _list_visible_projects(db, admin)
+    project_map = {int(item.id): item for item in visible_projects}
     creator = await db.get(User, row.created_by)
     count = int(
         (
@@ -355,7 +486,18 @@ async def get_material_project(
         ).scalar_one()
         or 0
     )
-    return _project_to_dict(row, asset_count=count, creator=creator)
+    child_count = int(
+        (
+            await db.execute(
+                select(func.count(MaterialProject.id)).where(
+                    MaterialProject.parent_id == project_id,
+                    MaterialProject.is_deleted.is_(False),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    return _project_to_dict(row, asset_count=count, child_count=child_count, creator=creator, project_map=project_map)
 
 
 @router.put("/projects/{project_id}")
@@ -366,12 +508,16 @@ async def update_material_project(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     row = await _ensure_project_manage_access(db, project_id, admin)
+    parent = await _ensure_valid_parent(db, parent_id=payload.parent_id, admin=admin, current_id=project_id)
     row.name = payload.name.strip()
     row.description = payload.description.strip()
     row.visibility = _normalize_visibility(payload.visibility)
+    row.parent_id = int(parent.id) if parent else None
     row.oss_prefix = _validate_oss_prefix(payload.oss_prefix) or row.oss_prefix
     await db.flush()
     await db.refresh(row)
+    visible_projects = await _list_visible_projects(db, admin)
+    project_map = {int(item.id): item for item in visible_projects}
     creator = await db.get(User, row.created_by)
     count = int(
         (
@@ -384,7 +530,18 @@ async def update_material_project(
         ).scalar_one()
         or 0
     )
-    return _project_to_dict(row, asset_count=count, creator=creator)
+    child_count = int(
+        (
+            await db.execute(
+                select(func.count(MaterialProject.id)).where(
+                    MaterialProject.parent_id == project_id,
+                    MaterialProject.is_deleted.is_(False),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    return _project_to_dict(row, asset_count=count, child_count=child_count, creator=creator, project_map=project_map)
 
 
 @router.delete("/projects/{project_id}")
@@ -407,6 +564,21 @@ async def delete_material_project(
     )
     if asset_count > 0:
         raise HTTPException(status_code=400, detail="项目下仍有素材文件，请先删除或迁移文件。")
+    if asset_count > 0:
+        raise HTTPException(status_code=400, detail="当前文件夹下还有素材文件，请先移动或删除。")
+    child_count = int(
+        (
+            await db.execute(
+                select(func.count(MaterialProject.id)).where(
+                    MaterialProject.parent_id == project_id,
+                    MaterialProject.is_deleted.is_(False),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    if child_count > 0:
+        raise HTTPException(status_code=400, detail="当前文件夹下还有子文件夹，请先清空后再删除。")
     row.is_deleted = True
     row.deleted_at = _now()
     await db.flush()
@@ -441,7 +613,7 @@ async def list_material_assets(
         if normalized_type not in ASSET_TYPE_VALUES:
             raise HTTPException(status_code=400, detail="不支持的素材类型。")
         stmt = stmt.where(MaterialAsset.asset_type == normalized_type)
-    stmt = stmt.order_by(desc(MaterialAsset.created_at), desc(MaterialAsset.id))
+    stmt = stmt.order_by(MaterialAsset.sort_order.asc(), MaterialAsset.created_at.desc(), MaterialAsset.id.desc())
     assets = (await db.execute(stmt)).scalars().all()
     creator_ids = sorted({int(item.created_by) for item in assets})
     creators = {}
@@ -487,7 +659,7 @@ async def list_all_material_assets(
         if normalized_type not in ASSET_TYPE_VALUES:
             raise HTTPException(status_code=400, detail="不支持的素材类型。")
         stmt = stmt.where(MaterialAsset.asset_type == normalized_type)
-    stmt = stmt.order_by(desc(MaterialAsset.created_at), desc(MaterialAsset.id))
+    stmt = stmt.order_by(MaterialAsset.created_at.desc(), MaterialAsset.id.desc())
     rows = (await db.execute(stmt)).all()
     creator_ids = sorted({int(asset.created_by) for asset, _project in rows})
     creators = {}
@@ -519,6 +691,7 @@ async def create_material_asset(
     await asyncio.to_thread(_upload_binary_to_oss, object_key, content, mime_type)
     row = MaterialAsset(
         project_id=project_id,
+        sort_order=await _next_asset_sort_order(db, project_id),
         name=(name or "").strip() or Path(safe_name).stem,
         asset_type=_detect_asset_type(mime_type, safe_name),
         file_name=safe_name,
@@ -593,6 +766,67 @@ async def delete_material_asset(
     asset.deleted_at = _now()
     await db.flush()
     return {"success": True}
+
+
+@router.put("/projects/{project_id}/move")
+async def move_material_project(
+    project_id: int,
+    payload: MaterialProjectMovePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _ensure_project_manage_access(db, project_id, admin)
+    parent = await _ensure_valid_parent(db, parent_id=payload.parent_id, admin=admin, current_id=project_id)
+    next_parent_id = int(parent.id) if parent else None
+    if row.parent_id != next_parent_id:
+        row.parent_id = next_parent_id
+        row.sort_order = await _next_project_sort_order(db, next_parent_id)
+    await db.flush()
+    await db.refresh(row)
+    visible_projects = await _list_visible_projects(db, admin)
+    project_map = {int(item.id): item for item in visible_projects}
+    creator = await db.get(User, row.created_by)
+    asset_count = int(
+        (
+            await db.execute(
+                select(func.count(MaterialAsset.id)).where(
+                    MaterialAsset.project_id == project_id,
+                    MaterialAsset.is_deleted.is_(False),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    child_count = int(
+        (
+            await db.execute(
+                select(func.count(MaterialProject.id)).where(
+                    MaterialProject.parent_id == project_id,
+                    MaterialProject.is_deleted.is_(False),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    return _project_to_dict(row, asset_count=asset_count, child_count=child_count, creator=creator, project_map=project_map)
+
+
+@router.put("/assets/{asset_id}/move")
+async def move_material_asset(
+    asset_id: int,
+    payload: MaterialAssetMovePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    asset, _current_project = await _ensure_asset_manage_access(db, asset_id, admin)
+    target_project = await _ensure_project_manage_access(db, payload.project_id, admin)
+    if int(asset.project_id) != int(target_project.id):
+        asset.project_id = int(target_project.id)
+        asset.sort_order = await _next_asset_sort_order(db, int(target_project.id))
+        await db.flush()
+        await db.refresh(asset)
+    creator = await db.get(User, asset.created_by)
+    return _asset_to_dict(asset, project=target_project, creator=creator)
 
 
 @router.get("/assets/{asset_id}/preview", response_model=None)
