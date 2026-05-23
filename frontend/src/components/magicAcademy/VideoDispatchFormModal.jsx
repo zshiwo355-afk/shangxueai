@@ -1,4 +1,4 @@
-import { UploadOutlined } from "@ant-design/icons";
+import { FolderOpenOutlined, UploadOutlined } from "@ant-design/icons";
 import {
   Alert,
   App as AntdApp,
@@ -17,6 +17,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { listAllMaterialAssets } from "../../lib/api.materials";
+import MaterialAssetPickerModal from "../common/MaterialAssetPickerModal";
 import {
   buildVideoDispatchFormValues,
   buildVideoTargetsFromDispatch,
@@ -32,6 +33,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const [uploadMeta, setUploadMeta] = useState(null);
   const [materialAssets, setMaterialAssets] = useState([]);
   const [materialKeyword, setMaterialKeyword] = useState("");
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
   const employeeUsers = useMemo(() => users.filter((item) => item.role === "user"), [users]);
@@ -255,12 +257,22 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
         ) : (
           <Card size="small" title="从素材库选择视频">
             <Space direction="vertical" style={{ width: "100%" }} size={12}>
-              <Input.Search
-                placeholder="搜索素材名称 / 文件夹"
-                value={materialKeyword}
-                onChange={(e) => setMaterialKeyword(e.target.value)}
-                onSearch={setMaterialKeyword}
-              />
+              <Space wrap>
+                <Button
+                  type="primary"
+                  icon={<FolderOpenOutlined />}
+                  onClick={() => setMaterialPickerOpen(true)}
+                >
+                  打开素材库搜索
+                </Button>
+                <Input.Search
+                  style={{ minWidth: 220 }}
+                  placeholder="或在下拉里直接搜索"
+                  value={materialKeyword}
+                  onChange={(e) => setMaterialKeyword(e.target.value)}
+                  onSearch={setMaterialKeyword}
+                />
+              </Space>
               <Form.Item
                 label="选择视频素材"
                 name="material_asset_id"
@@ -371,6 +383,29 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
           />
         </Card>
       </Form>
+
+      <MaterialAssetPickerModal
+        open={materialPickerOpen}
+        onCancel={() => setMaterialPickerOpen(false)}
+        onPick={(asset) => {
+          setMaterialAssets((prev) => {
+            const exists = prev.some((item) => Number(item.id) === Number(asset.id));
+            return exists ? prev : [asset, ...prev];
+          });
+          form.setFieldValue("material_asset_id", asset.id);
+          if (!String(form.getFieldValue("title") || "").trim()) {
+            form.setFieldValue("title", asset.name || asset.file_name || "");
+          }
+          if (!form.getFieldValue("duration_seconds") && Number(asset.duration_seconds || 0) > 0) {
+            form.setFieldValue("duration_seconds", Number(asset.duration_seconds || 0));
+          }
+          setMaterialPickerOpen(false);
+        }}
+        title="从素材库选择视频"
+        assetType="video"
+        hint="仅展示素材库中的视频文件，可按名称 / 文件名搜索。"
+        pickButtonText="使用此视频"
+      />
     </Modal>
   );
 }

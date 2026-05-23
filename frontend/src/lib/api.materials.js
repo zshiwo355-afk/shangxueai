@@ -11,10 +11,11 @@ function authHeaders(extra = {}) {
   return headers;
 }
 
-export function buildMaterialAssetPreviewUrl(assetId) {
+export function buildMaterialAssetPreviewUrl(assetId, { download = false } = {}) {
   const url = new URL(buildApiUrl(`/api/materials/assets/${assetId}/preview`), window.location.origin);
   const token = getToken();
   if (token) url.searchParams.set("access_token", token);
+  if (download) url.searchParams.set("download", "1");
   return url.toString();
 }
 

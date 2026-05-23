@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, CloseCircleOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, CloseCircleOutlined, FolderOpenOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import {
   Alert,
   App as AntdApp,
@@ -25,6 +25,7 @@ import {
   updateImportRow,
   uploadImportFile,
 } from "../../../lib/api.papers";
+import MaterialAssetPickerModal, { fetchMaterialAssetAsFile } from "../../common/MaterialAssetPickerModal";
 
 const { Step } = Steps;
 const { Dragger } = Upload;
@@ -47,6 +48,7 @@ export default function ImportQuestionsModal({ open, onClose, onCommitted, paper
   const [job, setJob] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const reset = () => {
     setStep(0);
@@ -72,6 +74,16 @@ export default function ImportQuestionsModal({ open, onClose, onCommitted, paper
       setUploading(false);
     }
     return false;
+  };
+
+  const onPickFromMaterial = async (asset) => {
+    try {
+      const file = await fetchMaterialAssetAsFile(asset);
+      setPickerOpen(false);
+      await onUpload(file);
+    } catch (err) {
+      message.error(err?.message || "从素材库导入失败。");
+    }
   };
 
   const refreshJob = async () => {
@@ -180,6 +192,15 @@ export default function ImportQuestionsModal({ open, onClose, onCommitted, paper
             }
             style={{ marginBottom: 16 }}
           />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <Button
+              icon={<FolderOpenOutlined />}
+              onClick={() => setPickerOpen(true)}
+              disabled={uploading}
+            >
+              从素材库选择
+            </Button>
+          </div>
           <Dragger
             multiple={false}
             accept=".xlsx,.docx"
@@ -189,7 +210,7 @@ export default function ImportQuestionsModal({ open, onClose, onCommitted, paper
           >
             <p className="ant-upload-drag-icon"><InboxOutlined /></p>
             <p className="ant-upload-text">点击或拖拽文件到此区域</p>
-            <p className="ant-upload-hint">仅接受 .xlsx / .docx，单文件 ≤ 20MB</p>
+            <p className="ant-upload-hint">仅接受 .xlsx / .docx，单文件 ≤ 20MB；也可点击右上角从素材库选择已上传的文件</p>
           </Dragger>
         </div>
       ) : null}
@@ -266,6 +287,16 @@ export default function ImportQuestionsModal({ open, onClose, onCommitted, paper
           }}
         />
       ) : null}
+
+      <MaterialAssetPickerModal
+        open={pickerOpen}
+        onCancel={() => setPickerOpen(false)}
+        onPick={onPickFromMaterial}
+        title="从素材库选择导入文件"
+        acceptExtensions={["xlsx", "docx"]}
+        hint="仅展示素材库中的 .xlsx / .docx 文件。"
+        pickButtonText="使用此文件"
+      />
     </Modal>
   );
 }

@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 import oss2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete as sql_delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,6 +105,42 @@ def _build_signed_stream_url(object_key: str) -> str:
     bucket = _build_oss_bucket()
     expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
     return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
+
+
+def _build_signed_inline_url(
+    object_key: str,
+    *,
+    mime_type: str | None = None,
+    filename: str | None = None,
+) -> str:
+    """Sign a GET URL that asks OSS to respond with inline disposition so
+    browsers render the file in <img>/<video>/<iframe> instead of downloading.
+
+    Note: we deliberately avoid `response-content-type` because some OSS
+    buckets / sub-accounts reject it (error 0017-00000902). The Content-Type
+    stored at upload time is what the browser sees -- making sure that's
+    correct is the upload path's job.
+    """
+    del mime_type  # kept for backwards-compat, intentionally unused
+    bucket = _build_oss_bucket()
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    inline_name = (filename or "").strip()
+    if inline_name:
+        try:
+            ascii_name = inline_name.encode("ascii").decode("ascii")
+            disposition = f'inline; filename="{ascii_name}"'
+        except UnicodeEncodeError:
+            quoted = quote(inline_name)
+            disposition = f"inline; filename*=UTF-8''{quoted}"
+    else:
+        disposition = "inline"
+    return bucket.sign_url(
+        "GET",
+        object_key,
+        expire_seconds,
+        params={"response-content-disposition": disposition},
+        slash_safe=True,
+    )
 
 
 def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> None:
@@ -686,7 +722,14 @@ async def create_material_asset(
     if file_size > MAX_MATERIAL_FILE_SIZE:
         raise HTTPException(status_code=400, detail="文件大小超过限制。")
     safe_name = _safe_filename(file.filename or "asset")
-    mime_type = (file.content_type or "").strip() or mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    raw_browser_mime = (file.content_type or "").strip().lower()
+    guessed_by_ext = (mimetypes.guess_type(safe_name)[0] or "").strip().lower()
+    # Prefer extension-based guess when the browser is unsure or wrong
+    # (e.g. some browsers send "application/octet-stream" for everything).
+    if not raw_browser_mime or raw_browser_mime == "application/octet-stream":
+        mime_type = guessed_by_ext or raw_browser_mime or "application/octet-stream"
+    else:
+        mime_type = raw_browser_mime
     object_key = _build_material_object_key(project.oss_prefix or "materials", safe_name)
     await asyncio.to_thread(_upload_binary_to_oss, object_key, content, mime_type)
     row = MaterialAsset(
@@ -832,11 +875,76 @@ async def move_material_asset(
 @router.get("/assets/{asset_id}/preview", response_model=None)
 async def preview_material_asset(
     asset_id: int,
+    download: bool = False,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_user),
-) -> RedirectResponse:
+):
     if not (admin.role or "").strip().lower() in {"admin", "super_admin"}:
         raise HTTPException(status_code=403, detail="仅管理员可访问该素材。")
     asset, _project = await _ensure_asset_view_access(db, asset_id, admin)
-    signed_url = await asyncio.to_thread(_build_signed_stream_url, asset.object_key)
-    return RedirectResponse(signed_url, status_code=307)
+
+    object_key = asset.object_key
+    file_name = asset.file_name or ""
+    asset_type = (asset.asset_type or "").strip().lower()
+
+    # Resolve a sane Content-Type. Prefer extension-based guess so that legacy
+    # uploads stored with application/octet-stream still preview correctly.
+    guessed_mime = (mimetypes.guess_type(file_name)[0] or "").strip().lower()
+    stored_mime = (asset.mime_type or "").strip().lower()
+    resolved_mime = guessed_mime or stored_mime or "application/octet-stream"
+    if stored_mime and stored_mime != "application/octet-stream" and not guessed_mime:
+        resolved_mime = stored_mime
+
+    # Videos are typically large + need byte-range seeking; redirect to OSS so
+    # the player streams directly from OSS with native range support.
+    if asset_type == "video" and not download:
+        signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+        return RedirectResponse(signed_url, status_code=307)
+
+    # For everything else (and for explicit downloads) we proxy through the
+    # backend so that we can override Content-Type and Content-Disposition --
+    # OSS query-string overrides are unreliable on some buckets, and legacy
+    # objects often have the wrong Content-Type stored.
+    bucket = await asyncio.to_thread(_build_oss_bucket)
+    try:
+        oss_object = await asyncio.to_thread(bucket.get_object, object_key)
+    except oss2.exceptions.NoSuchKey as exc:
+        raise HTTPException(status_code=404, detail="素材文件不存在或已过期。") from exc
+    except oss2.exceptions.OssError as exc:
+        raise HTTPException(status_code=502, detail=f"素材读取失败：{exc}") from exc
+
+    inline_name = file_name or f"asset-{asset_id}"
+    try:
+        ascii_name = inline_name.encode("ascii").decode("ascii")
+        disposition_filename = f'filename="{ascii_name}"'
+    except UnicodeEncodeError:
+        disposition_filename = f"filename*=UTF-8''{quote(inline_name)}"
+    disposition_kind = "attachment" if download else "inline"
+    disposition = f"{disposition_kind}; {disposition_filename}"
+
+    headers = {"Content-Disposition": disposition}
+    content_length = getattr(oss_object, "content_length", None)
+    if content_length:
+        headers["Content-Length"] = str(content_length)
+    headers["Cache-Control"] = "private, max-age=300"
+
+    def iter_chunks(stream, chunk_size: int = 64 * 1024):
+        try:
+            while True:
+                chunk = stream.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    return StreamingResponse(
+        iter_chunks(oss_object),
+        media_type=resolved_mime,
+        headers=headers,
+    )
