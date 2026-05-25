@@ -6,8 +6,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import delete as sql_delete, desc, select, update
+from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import delete as sql_delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_admin
@@ -58,6 +58,13 @@ from ._video_helpers import (
 )
 
 
+def _page_payload(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
+    return {"items": items, "total": int(total), "page": int(page), "page_size": int(page_size)}
+
+
+UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+
+
 async def _commit_refresh_and_serialize_video(
     db: AsyncSession,
     video: MagicVideo,
@@ -67,6 +74,24 @@ async def _commit_refresh_and_serialize_video(
     await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+async def _write_upload_to_disk(file: UploadFile, stored_path: Path, max_size: int) -> int:
+    total_size = 0
+    try:
+        with stored_path.open("wb") as output:
+            while True:
+                chunk = await file.read(UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if max_size > 0 and total_size > max_size:
+                    raise HTTPException(status_code=400, detail="视频大小超过限制。")
+                await asyncio.to_thread(output.write, chunk)
+    except Exception:
+        stored_path.unlink(missing_ok=True)
+        raise
+    return total_size
 
 
 @magic_video_router.post("/videos/upload/init")
@@ -375,16 +400,27 @@ async def fail_magic_video_replace_upload(
 
 @magic_video_router.get("/videos")
 async def list_magic_video_uploads(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     del admin
-    result = await db.execute(
-        select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
-    )
+    stmt = select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
+    total = 0
+    if page is not None:
+        total = int(
+            (await db.execute(select(func.count()).select_from(MagicVideo).where(MagicVideo.deleted_at.is_(None)))).scalar_one()
+            or 0
+        )
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    result = await db.execute(stmt)
     videos = result.scalars().all()
     targets_map = await _get_video_targets(db, [item.id for item in videos])
-    return [_video_to_dict(video, targets_map.get(video.id, [])) for video in videos]
+    items = [_video_to_dict(video, targets_map.get(video.id, [])) for video in videos]
+    if page is None:
+        return items
+    return _page_payload(items, total, page, page_size)
 
 
 @router.post("/upload/video")
@@ -398,33 +434,44 @@ async def upload_video(
     safe_name = _safe_filename(file.filename or f"video{suffix}")
     stored_name = f"{uuid.uuid4().hex}{suffix}"
     stored_path = VIDEO_DIR / stored_name
-    content = await file.read()
-    stored_path.write_bytes(content)
+    max_size = int(settings.magic_video_max_size_mb or 10240) * 1024 * 1024
+    file_size = await _write_upload_to_disk(file, stored_path, max_size)
+    if file_size <= 0:
+        stored_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="视频内容不能为空。")
     mime_type = file.content_type or mimetypes.guess_type(safe_name)[0] or "video/mp4"
     return {
         "file_name": safe_name,
         "file_path": str(stored_path.relative_to(UPLOAD_ROOT)),
         "mime_type": mime_type,
-        "file_size": len(content),
+        "file_size": file_size,
         "duration_seconds": max(int(duration_seconds or 0), 0),
     }
 
 
 @router.get("/videos")
 async def list_videos(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     del admin
-    result = await db.execute(
-        select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
-    )
+    stmt = select(MagicVideo).where(MagicVideo.deleted_at.is_(None)).order_by(desc(MagicVideo.created_at))
+    total = 0
+    if page is not None:
+        total = int(
+            (await db.execute(select(func.count()).select_from(MagicVideo).where(MagicVideo.deleted_at.is_(None)))).scalar_one()
+            or 0
+        )
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    result = await db.execute(stmt)
     videos = result.scalars().all()
     video_ids = [item.id for item in videos]
     targets_map = await _get_video_targets(db, [item.id for item in videos])
     series_context_map = await _get_series_context_map(db, video_ids)
     watch_confirm_settings = await _get_watch_confirm_settings_map(db, video_ids)
-    return [
+    items = [
         _video_to_dict(
             video,
             targets_map.get(video.id, []),
@@ -433,6 +480,9 @@ async def list_videos(
         )
         for video in videos
     ]
+    if page is None:
+        return items
+    return _page_payload(items, total, page, page_size)
 
 
 @router.post("/videos")

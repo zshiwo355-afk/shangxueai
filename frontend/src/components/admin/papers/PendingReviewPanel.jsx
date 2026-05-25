@@ -8,14 +8,18 @@ import GradeSubmissionDrawer from "./GradeSubmissionDrawer";
 export default function PendingReviewPanel() {
   const { message } = AntdApp.useApp();
   const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [gradingId, setGradingId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const reload = async () => {
     setLoading(true);
     try {
-      const data = await listPendingSubmissions();
-      setItems(Array.isArray(data) ? data : []);
+      const data = await listPendingSubmissions({ page, page_size: pageSize });
+      setItems(Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []));
+      setTotal(Number(data?.total ?? (Array.isArray(data) ? data.length : 0)));
     } catch (err) {
       message.error(err?.message || "加载失败。");
     } finally {
@@ -23,7 +27,7 @@ export default function PendingReviewPanel() {
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [page, pageSize]);
 
   const columns = [
     { title: "提交ID", dataIndex: "id", width: 90 },
@@ -58,13 +62,29 @@ export default function PendingReviewPanel() {
     <>
       <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between" }}>
         <Space>
-          <Tag color="gold" bordered={false}>待复核 {items.length}</Tag>
+          <Tag color="gold" bordered={false}>待复核 {total}</Tag>
           <Button size="small" icon={<ReloadOutlined />} onClick={reload}>刷新</Button>
         </Space>
       </div>
 
       {items.length ? (
-        <Table rowKey="id" loading={loading} dataSource={items} columns={columns} pagination={{ pageSize: 20 }} />
+        <Table
+          rowKey="id"
+          loading={loading}
+          dataSource={items}
+          columns={columns}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: ["20", "50", "100"],
+            onChange: (pageValue, sizeValue) => {
+              setPage(pageValue);
+              setPageSize(sizeValue);
+            },
+          }}
+        />
       ) : (
         <Empty description={loading ? "加载中…" : "暂无待复核记录"} />
       )}

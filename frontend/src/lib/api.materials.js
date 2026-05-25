@@ -56,6 +56,8 @@ export async function listMaterialAssets(projectId, params = {}) {
   const search = new URLSearchParams();
   if (params.keyword) search.set("keyword", params.keyword);
   if (params.asset_type) search.set("asset_type", params.asset_type);
+  if (params.page) search.set("page", String(params.page));
+  if (params.page_size) search.set("page_size", String(params.page_size));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/materials/projects/${projectId}/assets${suffix}`, "素材文件加载失败。");
 }
@@ -64,6 +66,8 @@ export async function listAllMaterialAssets(params = {}) {
   const search = new URLSearchParams();
   if (params.keyword) search.set("keyword", params.keyword);
   if (params.asset_type) search.set("asset_type", params.asset_type);
+  if (params.page) search.set("page", String(params.page));
+  if (params.page_size) search.set("page_size", String(params.page_size));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/materials/assets${suffix}`, "素材文件加载失败。");
 }

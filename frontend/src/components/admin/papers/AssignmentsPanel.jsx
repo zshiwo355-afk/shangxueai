@@ -66,16 +66,18 @@ export default function AssignmentsPanel() {
   const [gradingId, setGradingId] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
 
   const reload = async () => {
     setLoading(true);
     try {
       const [a, p, u] = await Promise.all([
-        listAssignments(),
+        listAssignments({ page, page_size: pageSize }),
         listPapers({ status: "published" }).catch(() => []),
         adminListUsers().catch(() => []),
       ]);
-      setItems(Array.isArray(a) ? a : []);
+      setItems(Array.isArray(a?.items) ? a.items : (Array.isArray(a) ? a : []));
+      setTotal(Number(a?.total ?? (Array.isArray(a) ? a.length : 0)));
       setPapers(Array.isArray(p) ? p : []);
       setUsers(Array.isArray(u) ? u : []);
     } catch (err) {
@@ -85,7 +87,7 @@ export default function AssignmentsPanel() {
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [page, pageSize]);
 
   const userOptions = useMemo(
     () => users.filter((u) => u.role === "user").map((u) => ({
@@ -369,7 +371,7 @@ export default function AssignmentsPanel() {
         pagination={{
           current: page,
           pageSize,
-          total: items.length,
+          total,
           showSizeChanger: true,
           showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
           pageSizeOptions: ["10", "20", "50", "100"],

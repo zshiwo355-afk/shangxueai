@@ -31,6 +31,8 @@ from .paper_importers import (
 
 router = APIRouter(prefix="/api/admin/question-imports", tags=["admin-question-imports"])
 
+MAX_IMPORT_FILE_SIZE = 20 * 1024 * 1024
+
 
 # ---------------- DTO ----------------
 
@@ -50,6 +52,23 @@ class JobResponse(BaseModel):
     committed: bool = False
     committed_count: int = 0
     committed_at: str | None = None
+
+
+async def _read_upload_with_limit(file: UploadFile, *, limit: int = MAX_IMPORT_FILE_SIZE) -> bytes:
+    try:
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        if size > limit:
+            raise HTTPException(status_code=413, detail="上传文件不能超过 20MB。")
+    except HTTPException:
+        raise
+    except (AttributeError, OSError):
+        await file.seek(0)
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status_code=413, detail="上传文件不能超过 20MB。")
+    return content
 
 
 class UpdateRowPayload(BaseModel):
@@ -123,7 +142,7 @@ async def upload_file(
 ) -> JobResponse:
     filename = file.filename or ""
     suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    content = await file.read()
+    content = await _read_upload_with_limit(file)
 
     if suffix in {"xlsx", "xls"}:
         rows = parse_excel(content)

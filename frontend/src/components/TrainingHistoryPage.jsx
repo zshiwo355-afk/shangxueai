@@ -1,5 +1,5 @@
 import { DeleteOutlined, FilterOutlined, TrophyOutlined } from "@ant-design/icons";
-import { App as AntdApp, Button, Card, Empty, Popconfirm, Space, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Card, Empty, Popconfirm, Skeleton, Space, Tag, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { deleteTrainingRecord, fetchMyTrainingRecords } from "../lib/api.training";
@@ -118,7 +118,19 @@ export default function TrainingHistoryPage() {
         </div>
       </Card>
 
-      {!loading && filteredRecords.length === 0 ? (
+      {loading ? (
+        <div className="history-card-list history-card-list--minimal">
+          {[0, 1, 2, 3].map((i) => (
+            <Card
+              key={i}
+              className="history-record-card history-record-card--minimal"
+              bordered={false}
+            >
+              <Skeleton active paragraph={{ rows: 3 }} />
+            </Card>
+          ))}
+        </div>
+      ) : filteredRecords.length === 0 ? (
         <Card bordered={false}>
           <Empty description="当前没有记录。" />
         </Card>
@@ -131,7 +143,6 @@ export default function TrainingHistoryPage() {
               <Card
                 key={row.id}
                 className="history-record-card history-record-card--minimal"
-                loading={loading}
                 bordered={false}
               >
                 <div className="history-record-card__top">

@@ -14,7 +14,7 @@ from sqlalchemy import delete as sql_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .access import is_admin, is_super_admin
+from .access import is_super_admin
 from .auth import md5_password, require_admin
 from .db import get_db
 from .models import User
@@ -109,6 +109,10 @@ class BulkImportSummary(BaseModel):
     skipped: int
     failed: int
     errors: list[str] = Field(default_factory=list)
+
+
+class BulkUserIdsPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
 
 
 def _digest(raw: str) -> str:
@@ -309,6 +313,23 @@ def _norm_bool(raw: Any) -> bool:
     return text in _BOOL_TRUE
 
 
+async def _read_upload_with_limit(file: UploadFile, *, limit: int = 20 * 1024 * 1024) -> bytes:
+    try:
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        if size > limit:
+            raise HTTPException(status_code=413, detail="上传文件不能超过 20MB。")
+    except HTTPException:
+        raise
+    except (AttributeError, OSError):
+        await file.seek(0)
+    content = await file.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(status_code=413, detail="上传文件不能超过 20MB。")
+    return content
+
+
 @router.post("/bulk-import", response_model=BulkImportSummary)
 async def bulk_import_users(
     file: UploadFile = File(...),
@@ -325,7 +346,7 @@ async def bulk_import_users(
     filename = (file.filename or "").lower()
     if not filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="仅支持 .xlsx 格式。")
-    content = await file.read()
+    content = await _read_upload_with_limit(file)
 
     try:
         wb = load_workbook(io.BytesIO(content), data_only=True)
@@ -400,6 +421,39 @@ async def bulk_import_users(
             )
 
     return summary
+
+
+# ---------- 批量操作 ----------
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_users(
+    payload: BulkUserIdsPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    rows = (
+        await db.execute(select(User).where(User.id.in_(payload.ids)))
+    ).scalars().all()
+
+    deletable_ids: list[int] = []
+    skipped = 0
+
+    for user in rows:
+        if user.id == admin.id or not _is_manageable_by(admin, user):
+            skipped += 1
+            continue
+        deletable_ids.append(user.id)
+
+    if not deletable_ids:
+        return {"success": True, "deleted": 0, "skipped": skipped}
+
+    res = await db.execute(sql_delete(User).where(User.id.in_(deletable_ids)))
+    return {
+        "success": True,
+        "deleted": int(res.rowcount or 0),
+        "skipped": skipped,
+    }
 
 
 # ---------- 单条 CRUD ----------

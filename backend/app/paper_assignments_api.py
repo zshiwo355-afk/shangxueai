@@ -64,6 +64,13 @@ class AssignmentDTO(BaseModel):
     created_at: str = ""
 
 
+class AssignmentListResponse(BaseModel):
+    items: list[AssignmentDTO]
+    total: int
+    page: int
+    page_size: int
+
+
 class CreateAssignmentsPayload(BaseModel):
     paper_id: int
     user_ids: list[int] = Field(..., min_length=1)
@@ -137,38 +144,15 @@ def _parse_datetime(value: str | None) -> datetime | None:
         raise HTTPException(status_code=400, detail=f"日期格式错误：{value}") from exc
 
 
-async def _build_assignment_dto(row: PaperAssignment, db: AsyncSession) -> AssignmentDTO:
-    paper_res = await db.execute(select(Paper.title).where(Paper.id == row.paper_id))
-    paper_title = paper_res.scalar_one_or_none() or ""
-    user_res = await db.execute(select(User).where(User.id == row.user_id))
-    user = user_res.scalar_one_or_none()
-
-    sub_count = (
-        await db.execute(
-            select(func.count()).select_from(PaperSubmission).where(
-                PaperSubmission.assignment_id == row.id
-            )
-        )
-    ).scalar_one()
-
-    pending = (
-        await db.execute(
-            select(func.count()).select_from(PaperSubmission).where(
-                PaperSubmission.assignment_id == row.id,
-                PaperSubmission.status == "submitted",
-            )
-        )
-    ).scalar_one()
-
-    last = (
-        await db.execute(
-            select(PaperSubmission)
-            .where(PaperSubmission.assignment_id == row.id)
-            .order_by(PaperSubmission.attempt_no.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
+def _assignment_to_dto(
+    row: PaperAssignment,
+    *,
+    paper_title: str = "",
+    user: User | None = None,
+    sub_count: int = 0,
+    pending: int = 0,
+    last: PaperSubmission | None = None,
+) -> AssignmentDTO:
     return AssignmentDTO(
         id=row.id,
         paper_id=row.paper_id,
@@ -189,6 +173,79 @@ async def _build_assignment_dto(row: PaperAssignment, db: AsyncSession) -> Assig
         last_is_pass=bool(last.is_pass) if last and last.is_pass is not None else None,
         created_at=row.created_at.isoformat() if row.created_at else "",
     )
+
+
+async def _build_assignment_dtos(rows: list[PaperAssignment], db: AsyncSession) -> list[AssignmentDTO]:
+    if not rows:
+        return []
+    assignment_ids = [row.id for row in rows]
+    paper_ids = sorted({row.paper_id for row in rows})
+    user_ids = sorted({row.user_id for row in rows})
+
+    paper_map: dict[int, str] = {}
+    if paper_ids:
+        paper_rows = await db.execute(select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids)))
+        paper_map = {int(paper_id): title or "" for paper_id, title in paper_rows.all()}
+
+    user_map: dict[int, User] = {}
+    if user_ids:
+        users = await db.execute(select(User).where(User.id.in_(user_ids)))
+        user_map = {int(user.id): user for user in users.scalars().all()}
+
+    count_rows = await db.execute(
+        select(PaperSubmission.assignment_id, func.count(PaperSubmission.id))
+        .where(PaperSubmission.assignment_id.in_(assignment_ids))
+        .group_by(PaperSubmission.assignment_id)
+    )
+    sub_count_map = {int(assignment_id): int(count) for assignment_id, count in count_rows.all()}
+
+    pending_rows = await db.execute(
+        select(PaperSubmission.assignment_id, func.count(PaperSubmission.id))
+        .where(
+            PaperSubmission.assignment_id.in_(assignment_ids),
+            PaperSubmission.status == "submitted",
+        )
+        .group_by(PaperSubmission.assignment_id)
+    )
+    pending_map = {int(assignment_id): int(count) for assignment_id, count in pending_rows.all()}
+
+    latest_subq = (
+        select(
+            PaperSubmission.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=PaperSubmission.assignment_id,
+                order_by=(PaperSubmission.attempt_no.desc(), PaperSubmission.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(PaperSubmission.assignment_id.in_(assignment_ids))
+        .subquery()
+    )
+    last_rows = await db.execute(
+        select(PaperSubmission)
+        .join(latest_subq, PaperSubmission.id == latest_subq.c.id)
+        .where(latest_subq.c.rn == 1)
+    )
+    last_map: dict[int, PaperSubmission] = {}
+    for submission in last_rows.scalars().all():
+        last_map.setdefault(int(submission.assignment_id), submission)
+
+    return [
+        _assignment_to_dto(
+            row,
+            paper_title=paper_map.get(int(row.paper_id), ""),
+            user=user_map.get(int(row.user_id)),
+            sub_count=sub_count_map.get(int(row.id), 0),
+            pending=pending_map.get(int(row.id), 0),
+            last=last_map.get(int(row.id)),
+        )
+        for row in rows
+    ]
+
+
+async def _build_assignment_dto(row: PaperAssignment, db: AsyncSession) -> AssignmentDTO:
+    return (await _build_assignment_dtos([row], db))[0]
 
 
 def _submission_to_dto(s: PaperSubmission) -> SubmissionDTO:
@@ -280,28 +337,42 @@ async def _ensure_assignment_status(assignment: PaperAssignment, db: AsyncSessio
 # ---------------- 派发管理 ----------------
 
 
-@router.get("", response_model=list[AssignmentDTO])
+@router.get("")
 async def list_assignments(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     paper_id: int | None = Query(None),
     status_: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[AssignmentDTO]:
+) -> list[AssignmentDTO] | AssignmentListResponse:
     del admin
     stmt = select(PaperAssignment).order_by(PaperAssignment.id.desc())
+    count_stmt = select(func.count()).select_from(PaperAssignment)
     if paper_id:
         stmt = stmt.where(PaperAssignment.paper_id == paper_id)
+        count_stmt = count_stmt.where(PaperAssignment.paper_id == paper_id)
     if status_:
         stmt = stmt.where(PaperAssignment.status == status_)
+        count_stmt = count_stmt.where(PaperAssignment.status == status_)
+    total = 0
+    if page is not None:
+        total = int((await db.execute(count_stmt)).scalar_one() or 0)
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
     rows = (await db.execute(stmt)).scalars().all()
-    return [await _build_assignment_dto(r, db) for r in rows]
+    items = await _build_assignment_dtos(rows, db)
+    if page is None:
+        return items
+    return AssignmentListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-@router.get("/pending-review", response_model=list[AssignmentDTO])
+@router.get("/pending-review")
 async def list_pending_review(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[AssignmentDTO]:
+) -> list[AssignmentDTO] | AssignmentListResponse:
     """待复核：包含至少一条 status=submitted 提交的派发。"""
     del admin
     stmt = (
@@ -311,8 +382,24 @@ async def list_pending_review(
         .group_by(PaperAssignment.id)
         .order_by(PaperAssignment.id.desc())
     )
+    total = 0
+    if page is not None:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count(func.distinct(PaperAssignment.id)))
+                    .join(PaperSubmission, PaperSubmission.assignment_id == PaperAssignment.id)
+                    .where(PaperSubmission.status == "submitted")
+                )
+            ).scalar_one()
+            or 0
+        )
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
     rows = (await db.execute(stmt)).scalars().all()
-    return [await _build_assignment_dto(r, db) for r in rows]
+    items = await _build_assignment_dtos(rows, db)
+    if page is None:
+        return items
+    return AssignmentListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 class PendingSubmissionDTO(BaseModel):
@@ -328,34 +415,56 @@ class PendingSubmissionDTO(BaseModel):
     submitted_at: str | None
 
 
-@router.get("/pending-submissions", response_model=list[PendingSubmissionDTO])
+class PendingSubmissionListResponse(BaseModel):
+    items: list[PendingSubmissionDTO]
+    total: int
+    page: int
+    page_size: int
+
+
+@router.get("/pending-submissions")
 async def list_pending_submissions(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[PendingSubmissionDTO]:
+) -> list[PendingSubmissionDTO] | PendingSubmissionListResponse:
     """待复核 submissions 扁平表（status=submitted）。"""
     del admin
-    rows = (
-        await db.execute(
-            select(PaperSubmission)
-            .where(PaperSubmission.status == "submitted")
-            .order_by(PaperSubmission.submitted_at.desc())
+    stmt = select(PaperSubmission).where(PaperSubmission.status == "submitted").order_by(PaperSubmission.submitted_at.desc())
+    total = 0
+    if page is not None:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count()).select_from(PaperSubmission).where(PaperSubmission.status == "submitted")
+                )
+            ).scalar_one()
+            or 0
         )
-    ).scalars().all()
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    paper_ids = sorted({row.paper_id for row in rows})
+    user_ids = sorted({row.user_id for row in rows})
+    paper_map: dict[int, str] = {}
+    if paper_ids:
+        paper_rows = await db.execute(select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids)))
+        paper_map = {int(paper_id): title or "" for paper_id, title in paper_rows.all()}
+    user_map: dict[int, User] = {}
+    if user_ids:
+        user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
+        user_map = {int(user.id): user for user in user_rows.scalars().all()}
 
     out: list[PendingSubmissionDTO] = []
     for s in rows:
-        paper_title = (
-            await db.execute(select(Paper.title).where(Paper.id == s.paper_id))
-        ).scalar_one_or_none() or ""
-        user_res = await db.execute(select(User).where(User.id == s.user_id))
-        user = user_res.scalar_one_or_none()
+        user = user_map.get(int(s.user_id))
         out.append(
             PendingSubmissionDTO(
                 id=s.id,
                 assignment_id=s.assignment_id,
                 paper_id=s.paper_id,
-                paper_title=paper_title,
+                paper_title=paper_map.get(int(s.paper_id), ""),
                 user_id=s.user_id,
                 user_username=user.username if user else "",
                 user_display_name=(user.real_name or user.display_name or user.username) if user else "",
@@ -364,7 +473,9 @@ async def list_pending_submissions(
                 submitted_at=s.submitted_at.isoformat() if s.submitted_at else None,
             )
         )
-    return out
+    if page is None:
+        return out
+    return PendingSubmissionListResponse(items=out, total=total, page=page, page_size=page_size)
 
 
 @router.post("", response_model=list[AssignmentDTO])
@@ -422,7 +533,7 @@ async def create_assignments(
         await db.refresh(row)
         created.append(row)
 
-    return [await _build_assignment_dto(r, db) for r in created]
+    return await _build_assignment_dtos(created, db)
 
 
 @router.delete("/{assignment_id}")
@@ -580,22 +691,25 @@ async def grade_submission(
     if sub.status == "in_progress":
         raise HTTPException(status_code=400, detail="尚未提交，无法评分。")
 
-    # 套用各题人工分
-    for patch in payload.answers:
-        ans_res = await db.execute(
-            select(PaperAnswer).where(
-                PaperAnswer.id == patch.answer_id,
-                PaperAnswer.submission_id == submission_id,
+    patch_map = {int(patch.answer_id): patch for patch in payload.answers}
+    answer_rows = []
+    if patch_map:
+        answer_rows = (
+            await db.execute(
+                select(PaperAnswer, PaperQuestion, QuestionBank)
+                .join(PaperQuestion, PaperQuestion.id == PaperAnswer.paper_question_id)
+                .join(QuestionBank, QuestionBank.id == PaperAnswer.question_id)
+                .where(
+                    PaperAnswer.submission_id == submission_id,
+                    PaperAnswer.id.in_(patch_map.keys()),
+                )
             )
-        )
-        ans = ans_res.scalar_one_or_none()
-        if not ans:
+        ).all()
+
+    for ans, pq, qb in answer_rows:
+        patch = patch_map.get(int(ans.id))
+        if not patch:
             continue
-        # 取允许的最大分（题目实际分）
-        pq_res = await db.execute(select(PaperQuestion).where(PaperQuestion.id == ans.paper_question_id))
-        pq = pq_res.scalar_one_or_none()
-        qb_res = await db.execute(select(QuestionBank).where(QuestionBank.id == ans.question_id))
-        qb = qb_res.scalar_one_or_none()
         if not pq or not qb:
             continue
         max_score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
@@ -732,26 +846,12 @@ def _should_show_answer(paper: Paper | None, submission: PaperSubmission | None)
     return submission.status in {"submitted", "graded"}
 
 
-async def _user_assignment_dto(
-    assignment: PaperAssignment, db: AsyncSession
+def _user_assignment_to_dto(
+    assignment: PaperAssignment,
+    *,
+    paper: Paper | None = None,
+    last: PaperSubmission | None = None,
 ) -> UserAssignmentDTO:
-    paper = (
-        await db.execute(select(Paper).where(Paper.id == assignment.paper_id))
-    ).scalar_one_or_none()
-
-    # 列表里的"最近一次"应当排除 in_progress（学员还没提交，不是一次完整尝试）
-    last = (
-        await db.execute(
-            select(PaperSubmission)
-            .where(
-                PaperSubmission.assignment_id == assignment.id,
-                PaperSubmission.status != "in_progress",
-            )
-            .order_by(PaperSubmission.attempt_no.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
     return UserAssignmentDTO(
         id=assignment.id,
         paper_id=assignment.paper_id,
@@ -774,6 +874,61 @@ async def _user_assignment_dto(
     )
 
 
+async def _user_assignment_dtos(
+    assignments: list[PaperAssignment],
+    db: AsyncSession,
+) -> list[UserAssignmentDTO]:
+    if not assignments:
+        return []
+    assignment_ids = [item.id for item in assignments]
+    paper_ids = sorted({item.paper_id for item in assignments})
+
+    paper_map: dict[int, Paper] = {}
+    if paper_ids:
+        papers = await db.execute(select(Paper).where(Paper.id.in_(paper_ids)))
+        paper_map = {int(paper.id): paper for paper in papers.scalars().all()}
+
+    latest_subq = (
+        select(
+            PaperSubmission.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=PaperSubmission.assignment_id,
+                order_by=(PaperSubmission.attempt_no.desc(), PaperSubmission.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(
+            PaperSubmission.assignment_id.in_(assignment_ids),
+            PaperSubmission.status != "in_progress",
+        )
+        .subquery()
+    )
+    last_rows = await db.execute(
+        select(PaperSubmission)
+        .join(latest_subq, PaperSubmission.id == latest_subq.c.id)
+        .where(latest_subq.c.rn == 1)
+    )
+    last_map: dict[int, PaperSubmission] = {}
+    for submission in last_rows.scalars().all():
+        last_map.setdefault(int(submission.assignment_id), submission)
+
+    return [
+        _user_assignment_to_dto(
+            assignment,
+            paper=paper_map.get(int(assignment.paper_id)),
+            last=last_map.get(int(assignment.id)),
+        )
+        for assignment in assignments
+    ]
+
+
+async def _user_assignment_dto(
+    assignment: PaperAssignment, db: AsyncSession
+) -> UserAssignmentDTO:
+    return (await _user_assignment_dtos([assignment], db))[0]
+
+
 # ---------------- 用户端：我的考试 ----------------
 
 
@@ -789,7 +944,7 @@ async def list_my_assignments(
             .order_by(PaperAssignment.id.desc())
         )
     ).scalars().all()
-    return [await _user_assignment_dto(r, db) for r in rows]
+    return await _user_assignment_dtos(rows, db)
 
 
 @submit_router.get("/assignments/{assignment_id}", response_model=UserAssignmentDetail)

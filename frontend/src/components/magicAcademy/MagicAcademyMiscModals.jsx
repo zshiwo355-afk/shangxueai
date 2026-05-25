@@ -33,7 +33,8 @@ export function SeriesFormModal({ editing, form, onCancel, onOk }) {
       onOk={onOk}
       okText="保存"
       cancelText="取消"
-      destroyOnHidden
+      destroyOnHidden={false}
+      forceRender
     >
       <Form
         form={form}
@@ -65,7 +66,8 @@ export function QuizPointFormModal({ editing, form, onCancel, onOk }) {
       title={editing?.id ? "编辑答题节点" : "新增答题节点"}
       onCancel={onCancel}
       onOk={onOk}
-      destroyOnHidden
+      destroyOnHidden={false}
+      forceRender
     >
       <Form
         form={form}

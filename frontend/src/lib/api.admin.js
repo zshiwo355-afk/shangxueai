@@ -53,6 +53,9 @@ export async function adminUpdateUser(id, payload) {
 export async function adminDeleteUser(id) {
   return deleteJson(`/api/admin/users/${id}`, "删除用户失败。");
 }
+export async function adminBulkDeleteUsers(ids) {
+  return postJson("/api/admin/users/bulk-delete", { ids }, "批量删除用户失败。");
+}
 export async function adminBulkImportUsers(file) {
   const formData = new FormData();
   formData.append("file", file);

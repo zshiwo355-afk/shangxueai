@@ -73,9 +73,16 @@ export default function MaterialAssetPickerModal({
 }) {
   const { message } = AntdApp.useApp();
   const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [loading, setLoading] = useState(false);
   const [assets, setAssets] = useState([]);
   const [picking, setPicking] = useState(null);
+
+  // 输入 debounce：用户停止输入 250ms 后再发请求，避免每个按键都打到后端
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedKeyword(keyword), 250);
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
 
   const acceptSet = useMemo(() => {
     if (!acceptExtensions || !acceptExtensions.length) return null;
@@ -84,9 +91,11 @@ export default function MaterialAssetPickerModal({
 
   useEffect(() => {
     if (!open) return;
+    let alive = true;
     setLoading(true);
-    listAllMaterialAssets({ keyword, asset_type: assetType || undefined })
+    listAllMaterialAssets({ keyword: debouncedKeyword, asset_type: assetType || undefined })
       .then((data) => {
+        if (!alive) return;
         const list = Array.isArray(data) ? data : [];
         const filtered = acceptSet
           ? list.filter((item) => acceptSet.has(getExtension(item.file_name) || getExtension(item.name)))
@@ -94,15 +103,22 @@ export default function MaterialAssetPickerModal({
         setAssets(filtered);
       })
       .catch((error) => {
+        if (!alive) return;
         message.error(error?.message || "素材加载失败。");
         setAssets([]);
       })
-      .finally(() => setLoading(false));
-  }, [open, keyword, assetType, acceptSet, message]);
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, debouncedKeyword, assetType, acceptSet, message]);
 
   useEffect(() => {
     if (!open) {
       setKeyword("");
+      setDebouncedKeyword("");
       setPicking(null);
     }
   }, [open]);

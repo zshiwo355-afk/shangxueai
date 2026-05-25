@@ -46,7 +46,8 @@ export default function ReadingContentFormModal({
       okText="保存"
       confirmLoading={submitting}
       width={760}
-      destroyOnHidden
+      destroyOnHidden={false}
+      forceRender
     >
       <Form
         form={form}

@@ -31,8 +31,12 @@ export async function uploadMagicVideoFile(file, durationSeconds = 0) {
   return parseJsonResponse(response, "视频上传失败。");
 }
 
-export async function listMagicVideos() {
-  const response = await safeFetch(buildApiUrl("/api/magic/videos"), {
+export async function listMagicVideos(params = {}) {
+  const search = new URLSearchParams();
+  if (params.page) search.set("page", String(params.page));
+  if (params.page_size) search.set("page_size", String(params.page_size));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const response = await safeFetch(buildApiUrl(`/api/magic/videos${suffix}`), {
     headers: authHeaders(),
   }, "视频列表加载失败。");
   if (!response.ok) await throwRequestError(response, "视频列表加载失败。");

@@ -463,12 +463,19 @@ def build_user_router(*, settings: Settings, rule_loader: RuleLoader) -> APIRout
             select(Exam).where(Exam.user_id == user.id).order_by(desc(Exam.created_at))
         )
         exams = result.scalars().all()
+        exam_ids = [e.id for e in exams]
+        attempts_map: dict[int, list[ExamAttemptDTO]] = {exam_id: [] for exam_id in exam_ids}
+        if exam_ids:
+            attempts_res = await db.execute(
+                select(ExamAttempt)
+                .where(ExamAttempt.exam_id.in_(exam_ids))
+                .order_by(ExamAttempt.exam_id.asc(), ExamAttempt.attempt_no.asc())
+            )
+            for attempt in attempts_res.scalars().all():
+                attempts_map.setdefault(int(attempt.exam_id), []).append(_attempt_to_dto(attempt))
         out: list[dict] = []
         for e in exams:
-            atts_res = await db.execute(
-                select(ExamAttempt).where(ExamAttempt.exam_id == e.id).order_by(ExamAttempt.attempt_no.asc())
-            )
-            atts = [_attempt_to_dto(a) for a in atts_res.scalars().all()]
+            atts = attempts_map.get(int(e.id), [])
             out.append({
                 "exam": _exam_to_dto(e).model_dump(),
                 "attempts": [a.model_dump() for a in atts],

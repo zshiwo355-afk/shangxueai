@@ -171,6 +171,10 @@ export default function MagicAcademyPage({ embedded = false }) {
   );
   const [users, setUsers] = useState([]);
   const [videos, setVideos] = useState([]);
+  const [adminVideoItems, setAdminVideoItems] = useState([]);
+  const [adminVideoTotal, setAdminVideoTotal] = useState(0);
+  const [adminVideoPage, setAdminVideoPage] = useState(1);
+  const [adminVideoPageSize, setAdminVideoPageSize] = useState(8);
   const [videoSeries, setVideoSeries] = useState([]);
   const [whitelist, setWhitelist] = useState([]);
   const [statsRows, setStatsRows] = useState([]);
@@ -415,14 +419,17 @@ export default function MagicAcademyPage({ embedded = false }) {
 
   const reloadAdminData = async () => {
     if (!adminMode) return;
-    const [userData, videoData, whitelistData, seriesData] = await Promise.all([
+    const [userData, videoData, pagedVideoData, whitelistData, seriesData] = await Promise.all([
       adminListUsers(),
       listMagicVideos(),
+      listMagicVideos({ page: adminVideoPage, page_size: adminVideoPageSize }),
       superAdminMode ? listMagicWhitelist() : Promise.resolve([]),
       listMagicVideoSeries(),
     ]);
     setUsers(Array.isArray(userData) ? userData : []);
     setVideos(Array.isArray(videoData) ? videoData : []);
+    setAdminVideoItems(Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []));
+    setAdminVideoTotal(Number(pagedVideoData?.total ?? (Array.isArray(pagedVideoData) ? pagedVideoData.length : 0)));
     setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
     setVideoSeries(Array.isArray(seriesData) ? seriesData : []);
     if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
@@ -491,6 +498,13 @@ export default function MagicAcademyPage({ embedded = false }) {
       }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!adminMode) return;
+    reloadAdminData().catch((error) => {
+      message.error(error?.message || "视频列表加载失败。");
+    });
+  }, [adminVideoPage, adminVideoPageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (academyView !== "courses") {
@@ -2047,7 +2061,22 @@ export default function MagicAcademyPage({ embedded = false }) {
             <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>
           </div>
-          <Table rowKey="id" dataSource={videos} columns={adminVideoColumns} pagination={{ pageSize: 8 }} />
+          <Table
+            rowKey="id"
+            dataSource={adminVideoItems}
+            columns={adminVideoColumns}
+            pagination={{
+              current: adminVideoPage,
+              pageSize: adminVideoPageSize,
+              total: adminVideoTotal,
+              showSizeChanger: true,
+              pageSizeOptions: ["8", "16", "32", "64"],
+              onChange: (pageValue, sizeValue) => {
+                setAdminVideoPage(pageValue);
+                setAdminVideoPageSize(sizeValue);
+              },
+            }}
+          />
         </>
       ),
     },
@@ -2440,7 +2469,6 @@ export default function MagicAcademyPage({ embedded = false }) {
                 options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))}
               />
               <Button icon={<DownloadOutlined />} onClick={async () => saveBlob(await downloadMagicFile(audioExportPath))}>导出 Excel</Button>
-              <Text type="secondary">管理员只能看统计，不返回音频地址，也不能试听和下载。</Text>
             </Space>
           </Card>
           <Card title="员工录音上传日历">

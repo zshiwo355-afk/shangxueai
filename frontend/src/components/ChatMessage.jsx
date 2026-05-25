@@ -1,4 +1,6 @@
-export default function ChatMessage({ role, content }) {
+import { memo } from "react";
+
+function ChatMessage({ role, content }) {
   if (role === "trainee") {
     return (
       <div className="chat-row chat-row--trainee">
@@ -15,7 +17,9 @@ export default function ChatMessage({ role, content }) {
   );
 }
 
-export function TypingIndicator() {
+export default memo(ChatMessage);
+
+export const TypingIndicator = memo(function TypingIndicator() {
   return (
     <div className="chat-row chat-row--customer">
       <div className="chat-avatar">客</div>
@@ -26,4 +30,4 @@ export function TypingIndicator() {
       </div>
     </div>
   );
-}
+});

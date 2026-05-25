@@ -39,12 +39,14 @@ export default function PaperListPanel() {
   const [editingPaperId, setEditingPaperId] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
 
   const reload = async () => {
     setLoading(true);
     try {
-      const data = await listPapers();
-      setItems(Array.isArray(data) ? data : []);
+      const data = await listPapers({ page, page_size: pageSize });
+      setItems(Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []));
+      setTotal(Number(data?.total ?? (Array.isArray(data) ? data.length : 0)));
     } catch (err) {
       message.error(err?.message || "加载失败。");
     } finally {
@@ -52,7 +54,7 @@ export default function PaperListPanel() {
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [page, pageSize]);
 
   const remove = async (item) => {
     try {
@@ -181,7 +183,7 @@ export default function PaperListPanel() {
         pagination={{
           current: page,
           pageSize,
-          total: items.length,
+          total,
           showSizeChanger: true,
           showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
           pageSizeOptions: ["10", "20", "50", "100"],

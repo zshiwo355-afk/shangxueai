@@ -124,9 +124,12 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
 
   useEffect(() => {
     if (!open || editing || videoSource !== "material") return;
-    listAllMaterialAssets({ asset_type: "video", keyword: materialKeyword })
-      .then((data) => setMaterialAssets(Array.isArray(data) ? data : []))
-      .catch((error) => message.error(error?.message || "素材库视频加载失败。"));
+    const timer = window.setTimeout(() => {
+      listAllMaterialAssets({ asset_type: "video", keyword: materialKeyword })
+        .then((data) => setMaterialAssets(Array.isArray(data) ? data : []))
+        .catch((error) => message.error(error?.message || "素材库视频加载失败。"));
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [editing, materialKeyword, message, open, videoSource]);
 
   useEffect(() => {

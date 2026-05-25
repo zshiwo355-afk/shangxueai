@@ -163,30 +163,41 @@ export default function HomePage() {
     };
   }, [message]);
 
-  const todoChallenges = challenges.filter((item) =>
-    ["pending", "in_progress", "pending_review"].includes(item.exam?.status),
+  const todoChallenges = useMemo(
+    () => challenges.filter((item) => ["pending", "in_progress", "pending_review"].includes(item.exam?.status)),
+    [challenges],
   );
-  const doneChallenges = challenges.filter((item) =>
-    ["passed", "failed"].includes(item.exam?.status),
+  const doneChallenges = useMemo(
+    () => challenges.filter((item) => ["passed", "failed"].includes(item.exam?.status)),
+    [challenges],
   );
-  const todoPapers = papers.filter(paperIsTodo);
-  const donePapers = papers.filter((p) => !paperIsTodo(p));
-  const pendingVideos = videos.filter((item) => item.is_required && !item.progress?.is_completed);
-  const inProgressVideos = videos.filter(
-    (item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0,
+  const todoPapers = useMemo(() => papers.filter(paperIsTodo), [papers]);
+  const donePapers = useMemo(() => papers.filter((p) => !paperIsTodo(p)), [papers]);
+  const pendingVideos = useMemo(
+    () => videos.filter((item) => item.is_required && !item.progress?.is_completed),
+    [videos],
   );
-  const continueVideo = inProgressVideos[0] || pendingVideos[0] || videos[0] || null;
-  const monthAudioCount = audios.filter(
-    (item) => dayjs(item.uploaded_date).format("YYYY-MM") === dayjs().format("YYYY-MM"),
-  ).length;
-  const todayUploaded = audios.some(
-    (item) => dayjs(item.uploaded_date).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD"),
+  const inProgressVideos = useMemo(
+    () => videos.filter((item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0),
+    [videos],
+  );
+  const continueVideo = useMemo(
+    () => inProgressVideos[0] || pendingVideos[0] || videos[0] || null,
+    [inProgressVideos, pendingVideos, videos],
+  );
+  const monthAudioCount = useMemo(
+    () => audios.filter((item) => dayjs(item.uploaded_date).format("YYYY-MM") === dayjs().format("YYYY-MM")).length,
+    [audios],
+  );
+  const todayUploaded = useMemo(
+    () => audios.some((item) => dayjs(item.uploaded_date).format("YYYY-MM-DD") === dayjs().format("YYYY-MM-DD")),
+    [audios],
   );
 
-  const recentTraining = records.slice(0, 3);
-  const recentLearning = videos.slice(0, 3);
+  const recentTraining = useMemo(() => records.slice(0, 3), [records]);
+  const recentLearning = useMemo(() => videos.slice(0, 3), [videos]);
 
-  const nextActions = [
+  const nextActions = useMemo(() => [
     activeSession?.session_id
       ? {
           key: "session",
@@ -245,25 +256,30 @@ export default function HomePage() {
       : null,
   ]
     .filter(Boolean)
-    .slice(0, 4);
+    .slice(0, 4),
+  [activeSession, todoPapers, todoChallenges, continueVideo, navigate]);
 
-  const averageScore =
-    records.length > 0
-      ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
-      : 0;
-  const completedVideoRate =
-    videos.length > 0
-      ? Math.round(
-          (videos.filter((item) => item.progress?.is_completed).length / videos.length) * 100,
-        )
-      : 0;
+  const averageScore = useMemo(
+    () =>
+      records.length > 0
+        ? Math.round(records.reduce((sum, item) => sum + Number(item.score || 0), 0) / records.length)
+        : 0,
+    [records],
+  );
+  const completedVideoRate = useMemo(
+    () =>
+      videos.length > 0
+        ? Math.round((videos.filter((item) => item.progress?.is_completed).length / videos.length) * 100)
+        : 0,
+    [videos],
+  );
 
   const yearText = dayjs().format("YYYY");
 
   return (
     <div className="portal-home portal-home--editorial portal-home--minimal">
       <section className="showcase-hero">
-        <span className="showcase-hero__year" aria-hidden="true">{yearText}</span>
+        <span className="showcase-hero__year" aria-hidden="true">学</span>
         <div className="showcase-hero__inner">
           <div className="showcase-hero__intro">
             <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>

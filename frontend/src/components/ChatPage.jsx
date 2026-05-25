@@ -29,6 +29,8 @@ const STAGE_LABELS = {
   finished: "已结束",
 };
 
+const STICK_THRESHOLD_PX = 80;
+
 function emotionTone(label) {
   if (label === "急躁" || label === "戒备" || label === "抗价") return "chip--red";
   if (label === "倾向成交" || label === "感兴趣") return "chip--blue";
@@ -49,6 +51,7 @@ export default function ChatPage() {
   const [resetting, setResetting] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
   const streamRef = useRef(null);
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
     if (!active) {
@@ -57,10 +60,28 @@ export default function ChatPage() {
     }
   }, [active, message, navigate]);
 
+  // 监听用户滚动：只要用户离开底部一定距离就停止自动跟随
   useEffect(() => {
-    if (streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
+    const el = streamRef.current;
+    if (!el) return undefined;
+    const onScroll = () => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = distance <= STICK_THRESHOLD_PX;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // 新消息到来时只在用户已贴底时跟随，否则不打扰
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = streamRef.current;
+    if (!el) return;
+    // 用 rAF 让本帧渲染完成后再滚动，避免跟 React 提交抢同一帧
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [active?.chat_history?.length, sending]);
 
   const isFinished = useMemo(
@@ -258,7 +279,7 @@ export default function ChatPage() {
             <div className="chat-empty-hint">客户即将开始对话...</div>
           ) : null}
           {(active.chat_history || []).map((entry, index) => (
-            <ChatMessage key={index} role={entry.role} content={entry.content} />
+            <ChatMessage key={`${entry.role}-${index}`} role={entry.role} content={entry.content} />
           ))}
           {sending ? <TypingIndicator /> : null}
         </div>

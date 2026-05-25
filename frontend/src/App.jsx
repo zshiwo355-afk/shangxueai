@@ -1,25 +1,43 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Spin } from "antd";
 
 import LoginPage from "./components/LoginPage";
-import HomePage from "./components/HomePage";
-import AdminLayout from "./components/AdminLayout";
-import UserLayout from "./components/UserLayout";
-import PreparePage from "./components/PreparePage";
-import ChatPage from "./components/ChatPage";
-import ReviewPage from "./components/ReviewPage";
-import ExamIntroPage from "./components/ExamIntroPage";
-import ExamResultPage from "./components/ExamResultPage";
-import TrainingHistoryPage from "./components/TrainingHistoryPage";
-import TrainingRecordDetailPage from "./components/TrainingRecordDetailPage";
-import MagicAcademyPage from "./components/MagicAcademyPage";
-import TrainingWorkspacePage from "./components/TrainingWorkspacePage";
-import MagicWorkspacePage from "./components/MagicWorkspacePage";
-import UserPapersListPage from "./components/user/papers/UserPapersListPage";
-import UserPaperTakePage from "./components/user/papers/UserPaperTakePage";
-import UserPaperResultPage from "./components/user/papers/UserPaperResultPage";
+
+const HomePage = lazy(() => import("./components/HomePage"));
+const AdminLayout = lazy(() => import("./components/AdminLayout"));
+const UserLayout = lazy(() => import("./components/UserLayout"));
+const PreparePage = lazy(() => import("./components/PreparePage"));
+const ChatPage = lazy(() => import("./components/ChatPage"));
+const ReviewPage = lazy(() => import("./components/ReviewPage"));
+const ExamIntroPage = lazy(() => import("./components/ExamIntroPage"));
+const ExamResultPage = lazy(() => import("./components/ExamResultPage"));
+const TrainingHistoryPage = lazy(() => import("./components/TrainingHistoryPage"));
+const TrainingRecordDetailPage = lazy(() => import("./components/TrainingRecordDetailPage"));
+const MagicAcademyPage = lazy(() => import("./components/MagicAcademyPage"));
+const TrainingWorkspacePage = lazy(() => import("./components/TrainingWorkspacePage"));
+const MagicWorkspacePage = lazy(() => import("./components/MagicWorkspacePage"));
+const UserPapersListPage = lazy(() => import("./components/user/papers/UserPapersListPage"));
+const UserPaperTakePage = lazy(() => import("./components/user/papers/UserPaperTakePage"));
+const UserPaperResultPage = lazy(() => import("./components/user/papers/UserPaperResultPage"));
 
 import { isAdmin, isAuthenticated, isSuperAdmin, setUnauthorizedHandler } from "./lib/auth";
+
+function RouteFallback() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--bg-canvas)",
+      }}
+    >
+      <Spin size="large" />
+    </div>
+  );
+}
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -66,40 +84,42 @@ export default function App() {
   }, [navigate]);
 
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
 
-      <Route path="/" element={<HomeRedirect />} />
+        <Route path="/" element={<HomeRedirect />} />
 
-      <Route
-        path="/admin/*"
-        element={<RequireAdmin><AdminLayout /></RequireAdmin>}
-      />
+        <Route
+          path="/admin/*"
+          element={<RequireAdmin><AdminLayout /></RequireAdmin>}
+        />
 
-      <Route
-        element={<RequireAuth><UserLayout /></RequireAuth>}
-      >
-        <Route path="/home" element={<HomePage />} />
-        <Route path="/workspace/training" element={<TrainingWorkspacePage />} />
-        <Route path="/workspace/magic" element={<MagicWorkspacePage />} />
-        <Route path="/train/prepare" element={<PreparePage />} />
-        <Route path="/review/:sid" element={<ReviewPage />} />
-        <Route path="/exam/:examId/intro" element={<ExamIntroPage />} />
-        <Route path="/exam/:examId/result" element={<ExamResultPage />} />
-        <Route path="/training/records" element={<TrainingHistoryPage />} />
-        <Route path="/training/records/:id" element={<TrainingRecordDetailPage />} />
-        <Route path="/magic-academy" element={<MagicAcademyPage />} />
-        <Route path="/papers" element={<UserPapersListPage />} />
-        <Route path="/papers/:assignmentId/take" element={<UserPaperTakePage />} />
-        <Route path="/papers/submissions/:submissionId" element={<UserPaperResultPage />} />
-      </Route>
+        <Route
+          element={<RequireAuth><UserLayout /></RequireAuth>}
+        >
+          <Route path="/home" element={<HomePage />} />
+          <Route path="/workspace/training" element={<TrainingWorkspacePage />} />
+          <Route path="/workspace/magic" element={<MagicWorkspacePage />} />
+          <Route path="/train/prepare" element={<PreparePage />} />
+          <Route path="/review/:sid" element={<ReviewPage />} />
+          <Route path="/exam/:examId/intro" element={<ExamIntroPage />} />
+          <Route path="/exam/:examId/result" element={<ExamResultPage />} />
+          <Route path="/training/records" element={<TrainingHistoryPage />} />
+          <Route path="/training/records/:id" element={<TrainingRecordDetailPage />} />
+          <Route path="/magic-academy" element={<MagicAcademyPage />} />
+          <Route path="/papers" element={<UserPapersListPage />} />
+          <Route path="/papers/:assignmentId/take" element={<UserPaperTakePage />} />
+          <Route path="/papers/submissions/:submissionId" element={<UserPaperResultPage />} />
+        </Route>
 
-      <Route
-        path="/chat/:sid"
-        element={<RequireAuth><ChatPage /></RequireAuth>}
-      />
+        <Route
+          path="/chat/:sid"
+          element={<RequireAuth><ChatPage /></RequireAuth>}
+        />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

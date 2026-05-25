@@ -45,6 +45,13 @@ class PaperDTO(BaseModel):
     updated_at: str = ""
 
 
+class PaperListResponse(BaseModel):
+    items: list[PaperDTO]
+    total: int
+    page: int
+    page_size: int
+
+
 class PaperCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(default="")
@@ -170,29 +177,63 @@ async def _count_paper_types(paper_id: int, db: AsyncSession) -> tuple[int, int]
     return obj, sub
 
 
+async def _count_paper_types_map(paper_ids: list[int], db: AsyncSession) -> dict[int, tuple[int, int]]:
+    if not paper_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(PaperQuestion.paper_id, QuestionBank.question_type)
+            .join(QuestionBank, QuestionBank.id == PaperQuestion.question_id)
+            .where(PaperQuestion.paper_id.in_(paper_ids))
+        )
+    ).all()
+    result: dict[int, tuple[int, int]] = {int(paper_id): (0, 0) for paper_id in paper_ids}
+    for paper_id, question_type in rows:
+        objective, subjective = result.get(int(paper_id), (0, 0))
+        if is_objective(question_type):
+            objective += 1
+        elif is_subjective(question_type):
+            subjective += 1
+        result[int(paper_id)] = (objective, subjective)
+    return result
+
+
 # ---------------- routes ----------------
 
 
-@router.get("", response_model=list[PaperDTO])
+@router.get("")
 async def list_papers(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     status_: str | None = Query(None, alias="status"),
     keyword: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[PaperDTO]:
+) -> list[PaperDTO] | PaperListResponse:
     del admin
     stmt = select(Paper)
+    count_stmt = select(func.count()).select_from(Paper)
     if status_:
         stmt = stmt.where(Paper.status == status_)
+        count_stmt = count_stmt.where(Paper.status == status_)
     if keyword:
-        stmt = stmt.where(Paper.title.like(f"%{keyword.strip()}%"))
+        cond = Paper.title.like(f"%{keyword.strip()}%")
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
     stmt = stmt.order_by(Paper.id.desc())
+    total = 0
+    if page is not None:
+        total = int((await db.execute(count_stmt)).scalar_one() or 0)
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
     papers = (await db.execute(stmt)).scalars().all()
 
+    counts_map = await _count_paper_types_map([p.id for p in papers], db)
     out: list[PaperDTO] = []
     for p in papers:
-        obj, sub = await _count_paper_types(p.id, db)
+        obj, sub = counts_map.get(int(p.id), (0, 0))
         out.append(_paper_to_dto(p, objective=obj, subjective=sub))
+    if page is not None:
+        return PaperListResponse(items=out, total=total, page=page, page_size=page_size)
     return out
 
 

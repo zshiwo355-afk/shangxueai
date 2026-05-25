@@ -18,6 +18,7 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   adminBulkImportUsers,
+  adminBulkDeleteUsers,
   adminCreateUser,
   adminDeleteUser,
   adminGetUserDetail,
@@ -26,7 +27,7 @@ import {
   adminUpdateUser,
   buildUsersTemplateUrl,
 } from "../../lib/api.admin";
-import { isSuperAdmin } from "../../lib/auth";
+import { getCurrentUser, isSuperAdmin } from "../../lib/auth";
 
 const { Dragger } = Upload;
 
@@ -34,12 +35,14 @@ export default function UsersTab() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const canManageSuperAdmin = isSuperAdmin();
+  const currentUser = getCurrentUser();
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [keyword, setKeyword] = useState("");
   const [department, setDepartment] = useState();
   const [departments, setDepartments] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [mode, setMode] = useState("create");
@@ -187,11 +190,35 @@ export default function UsersTab() {
     try {
       await adminDeleteUser(user.id);
       message.success("已删除。");
+      setSelectedIds((prev) => prev.filter((id) => id !== user.id));
       reload();
     } catch (err) {
       message.error(err?.message || "删除失败。");
     }
   };
+
+  const bulkDelete = async () => {
+    try {
+      const res = await adminBulkDeleteUsers(selectedIds);
+      const deleted = Number(res?.deleted || 0);
+      const skipped = Number(res?.skipped || 0);
+      if (deleted > 0 && skipped > 0) {
+        message.success(`已删除 ${deleted} 个用户，跳过 ${skipped} 个不可删除账号。`);
+      } else if (deleted > 0) {
+        message.success(`已删除 ${deleted} 个用户。`);
+      } else {
+        message.warning("所选账号均不可删除。");
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量删除失败。");
+    }
+  };
+
+  const isProtectedRow = (row) => (
+    row.id === currentUser?.id || (row.role === "super_admin" && !canManageSuperAdmin)
+  );
 
   const columns = [
     { title: "ID", dataIndex: "id", width: 70 },
@@ -243,7 +270,7 @@ export default function UsersTab() {
         <Space>
           <Button size="small" icon={<EditOutlined />} disabled={row.role === "super_admin" && !canManageSuperAdmin} loading={modalLoading && editingUser?.id === row.id} onClick={() => handleEdit(row)}>编辑</Button>
           <Popconfirm title="确认删除该用户？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
-            <Button size="small" danger disabled={row.role === "super_admin" && !canManageSuperAdmin} icon={<DeleteOutlined />}>删除</Button>
+            <Button size="small" danger disabled={isProtectedRow(row)} icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -280,6 +307,14 @@ export default function UsersTab() {
         loading={loading}
         dataSource={items}
         columns={columns}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: setSelectedIds,
+          preserveSelectedRowKeys: true,
+          getCheckboxProps: (row) => ({
+            disabled: isProtectedRow(row),
+          }),
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -291,6 +326,27 @@ export default function UsersTab() {
         }}
         scroll={{ x: 1200 }}
       />
+
+      {selectedIds.length > 0 ? (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar__count">
+            已选择 <strong>{selectedIds.length}</strong> 个账号
+          </span>
+          <div className="bulk-action-bar__actions">
+            <Button onClick={() => setSelectedIds([])}>取消选择</Button>
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 个账号？`}
+              description="该操作不可撤销。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={bulkDelete}
+            >
+              <Button danger icon={<DeleteOutlined />}>批量删除</Button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         open={modalOpen}

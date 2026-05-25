@@ -1,16 +1,17 @@
 import { LogoutOutlined, AppstoreOutlined, FormOutlined, SolutionOutlined, TeamOutlined, ReadOutlined, SafetyCertificateOutlined, FolderOpenOutlined } from "@ant-design/icons";
-import { Button, Layout, Menu, Typography } from "antd";
-import { useMemo } from "react";
+import { Button, Layout, Menu, Spin, Typography } from "antd";
+import { lazy, Suspense, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import UsersTab from "./admin/UsersTab";
-import OptionsTab from "./admin/OptionsTab";
-import ExamsTab from "./admin/ExamsTab";
-import PapersAdminPage from "./admin/papers/PapersAdminPage";
-import WhitelistTab from "./admin/WhitelistTab";
-import MagicAcademyPage from "./MagicAcademyPage";
-import MaterialLibraryPage from "./admin/MaterialLibraryPage";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, getCurrentUser, isSuperAdmin } from "../lib/auth";
+
+const UsersTab = lazy(() => import("./admin/UsersTab"));
+const OptionsTab = lazy(() => import("./admin/OptionsTab"));
+const ExamsTab = lazy(() => import("./admin/ExamsTab"));
+const PapersAdminPage = lazy(() => import("./admin/papers/PapersAdminPage"));
+const WhitelistTab = lazy(() => import("./admin/WhitelistTab"));
+const MagicAcademyPage = lazy(() => import("./MagicAcademyPage"));
+const MaterialLibraryPage = lazy(() => import("./admin/MaterialLibraryPage"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -23,6 +24,14 @@ const MENU_ITEMS = [
   { key: "materials", icon: <FolderOpenOutlined />, label: "素材库管理" },
   { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true },
 ];
+
+function TabFallback() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", padding: "120px 0" }}>
+      <Spin size="large" />
+    </div>
+  );
+}
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -52,10 +61,34 @@ export default function AdminLayout() {
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider width={220} theme="light" style={{ borderRight: "1px solid var(--line-soft)" }}>
-        <div style={{ padding: "20px 16px 16px" }}>
-          <div className="prepare-emblem" style={{ width: 40, height: 40, fontSize: 18, marginBottom: 6, borderRadius: 12 }}>怀</div>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>怀仁商学院 管理后台</div>
-          <div style={{ fontSize: 12, color: "var(--text-mute)" }}>{user?.display_name || user?.username}</div>
+        <div
+          style={{
+            padding: "20px 16px 16px",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            borderBottom: "1px solid var(--line-soft)",
+          }}
+        >
+          <div
+            className="prepare-emblem"
+            style={{
+              width: 40,
+              height: 40,
+              fontSize: 18,
+              marginBottom: 0,
+              borderRadius: 12,
+              flexShrink: 0,
+            }}
+          >
+            怀
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 2 }}>
+            <strong style={{ fontSize: 14, lineHeight: 1.3 }}>怀仁商学院</strong>
+            <span style={{ fontSize: 12, color: "var(--text-mute)", lineHeight: 1.3 }}>
+              {user?.display_name || user?.username || "管理后台"}
+            </span>
+          </div>
         </div>
         <Menu
           mode="inline"
@@ -83,17 +116,19 @@ export default function AdminLayout() {
           <Button icon={<LogoutOutlined />} onClick={handleLogout}>退出</Button>
         </Header>
         <Content style={{ padding: 24, overflow: "auto" }}>
-          <Routes>
-            <Route index element={<Navigate to="users" replace />} />
-            <Route path="users" element={<UsersTab />} />
-            <Route path="options" element={<OptionsTab />} />
-            <Route path="exams" element={<ExamsTab />} />
-            <Route path="papers/*" element={<PapersAdminPage />} />
-            <Route path="magic-academy" element={<MagicAcademyPage embedded />} />
-            <Route path="materials" element={<MaterialLibraryPage />} />
-            <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
-            <Route path="*" element={<Navigate to="users" replace />} />
-          </Routes>
+          <Suspense fallback={<TabFallback />}>
+            <Routes>
+              <Route index element={<Navigate to="users" replace />} />
+              <Route path="users" element={<UsersTab />} />
+              <Route path="options" element={<OptionsTab />} />
+              <Route path="exams" element={<ExamsTab />} />
+              <Route path="papers/*" element={<PapersAdminPage />} />
+              <Route path="magic-academy" element={<MagicAcademyPage embedded />} />
+              <Route path="materials" element={<MaterialLibraryPage />} />
+              <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
+              <Route path="*" element={<Navigate to="users" replace />} />
+            </Routes>
+          </Suspense>
         </Content>
       </Layout>
     </Layout>

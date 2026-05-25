@@ -7,8 +7,8 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -197,7 +197,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
     user = result.scalar_one_or_none()
     if not user or user.disabled or user.password_md5.lower() != digest.lower():
         # 防爆破：失败稍微等一下
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号或密码错误。")
 
     token, exp = create_token(user.id, user.username, user.role)

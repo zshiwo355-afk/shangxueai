@@ -45,7 +45,8 @@ CREATE TABLE `users` (
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_users_username` (`username`)
+  UNIQUE KEY `uk_users_username` (`username`),
+  KEY `idx_users_role_disabled_status_dept` (`role`, `disabled`, `status`, `department`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- ---------------------------------------------------------------------
@@ -120,7 +121,8 @@ CREATE TABLE `exams` (
   `completed_at`        DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_exams_user_status` (`user_id`, `status`),
-  KEY `idx_exams_created_by` (`created_by`)
+  KEY `idx_exams_created_by` (`created_by`),
+  KEY `idx_exams_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='考试任务';
 
 -- ---------------------------------------------------------------------
@@ -223,7 +225,8 @@ CREATE TABLE `magic_videos` (
   `deleted_at`            DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_magic_videos_status` (`status`, `created_at`),
-  KEY `idx_magic_videos_material_asset` (`material_asset_id`)
+  KEY `idx_magic_videos_material_asset` (`material_asset_id`),
+  KEY `idx_magic_videos_deleted_created` (`deleted_at`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频';
 
 -- ---------------------------------------------------------------------
@@ -467,7 +470,8 @@ CREATE TABLE `material_projects` (
   `deleted_at`  DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_material_projects_creator` (`created_by`, `is_deleted`),
-  KEY `idx_material_projects_parent_sort` (`parent_id`, `sort_order`, `is_deleted`)
+  KEY `idx_material_projects_parent_sort` (`parent_id`, `sort_order`, `is_deleted`),
+  KEY `idx_material_projects_visibility` (`is_deleted`, `visibility`, `created_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材项目';
 
 -- ---------------------------------------------------------------------
@@ -495,7 +499,8 @@ CREATE TABLE `material_assets` (
   `deleted_at`       DATETIME      NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_material_assets_project_type` (`project_id`, `asset_type`, `is_deleted`),
-  KEY `idx_material_assets_project_sort` (`project_id`, `sort_order`, `is_deleted`)
+  KEY `idx_material_assets_project_sort` (`project_id`, `sort_order`, `is_deleted`),
+  KEY `idx_material_assets_deleted_type_created` (`is_deleted`, `asset_type`, `created_at`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材文件';
 
 -- ---------------------------------------------------------------------

@@ -112,12 +112,12 @@ export async function listAssignments(params = {}) {
   return getJson(`/api/admin/paper-assignments${toQs(params)}`, "派发列表加载失败。");
 }
 
-export async function listPendingReview() {
-  return getJson("/api/admin/paper-assignments/pending-review", "待复核列表加载失败。");
+export async function listPendingReview(params = {}) {
+  return getJson(`/api/admin/paper-assignments/pending-review${toQs(params)}`, "待复核列表加载失败。");
 }
 
-export async function listPendingSubmissions() {
-  return getJson("/api/admin/paper-assignments/pending-submissions", "待复核提交加载失败。");
+export async function listPendingSubmissions(params = {}) {
+  return getJson(`/api/admin/paper-assignments/pending-submissions${toQs(params)}`, "待复核提交加载失败。");
 }
 
 export async function createAssignments(payload) {

@@ -67,7 +67,7 @@ export default function MagicWorkspacePage() {
   return (
     <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
       <section className="showcase-hero">
-        <span className="showcase-hero__year" aria-hidden="true">魔</span>
+        <span className="showcase-hero__year" aria-hidden="true">课</span>
         <div className="showcase-hero__inner">
           <div className="showcase-hero__intro">
             <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>

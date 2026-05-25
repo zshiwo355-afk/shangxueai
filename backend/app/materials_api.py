@@ -47,6 +47,10 @@ def _user_name(user: User | None) -> str:
     return (user.real_name or user.display_name or user.username or "").strip()
 
 
+def _page_payload(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
+    return {"items": items, "total": int(total), "page": int(page), "page_size": int(page_size)}
+
+
 def _safe_filename(name: str) -> str:
     return Path((name or "file").replace("\\", "/")).name or "file"
 
@@ -146,6 +150,19 @@ def _build_signed_inline_url(
 def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> None:
     bucket = _build_oss_bucket()
     bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
+
+
+def _upload_file_to_oss(object_key: str, file_obj: Any, mime_type: str) -> None:
+    bucket = _build_oss_bucket()
+    bucket.put_object(object_key, file_obj, headers={"Content-Type": mime_type})
+
+
+async def _upload_file_size(file: UploadFile) -> int:
+    await file.seek(0)
+    await asyncio.to_thread(file.file.seek, 0, 2)
+    size = int(await asyncio.to_thread(file.file.tell))
+    await file.seek(0)
+    return size
 
 
 def _normalize_visibility(value: str) -> str:
@@ -624,47 +641,63 @@ async def delete_material_project(
 @router.get("/projects/{project_id}/assets")
 async def list_material_assets(
     project_id: int,
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     keyword: str | None = None,
     asset_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     project = await _ensure_project_view_access(db, project_id, admin)
     stmt = select(MaterialAsset).where(
         MaterialAsset.project_id == project_id,
         MaterialAsset.is_deleted.is_(False),
     )
+    count_stmt = select(func.count()).select_from(MaterialAsset).where(
+        MaterialAsset.project_id == project_id,
+        MaterialAsset.is_deleted.is_(False),
+    )
     if (keyword or "").strip():
         like_value = f"%{keyword.strip()}%"
-        stmt = stmt.where(
-            or_(
-                MaterialAsset.name.like(like_value),
-                MaterialAsset.file_name.like(like_value),
-                MaterialAsset.tags.like(like_value),
-                MaterialAsset.remark.like(like_value),
-            )
+        keyword_cond = or_(
+            MaterialAsset.name.like(like_value),
+            MaterialAsset.file_name.like(like_value),
+            MaterialAsset.tags.like(like_value),
+            MaterialAsset.remark.like(like_value),
         )
+        stmt = stmt.where(keyword_cond)
+        count_stmt = count_stmt.where(keyword_cond)
     if (asset_type or "").strip():
         normalized_type = (asset_type or "").strip().lower()
         if normalized_type not in ASSET_TYPE_VALUES:
             raise HTTPException(status_code=400, detail="不支持的素材类型。")
         stmt = stmt.where(MaterialAsset.asset_type == normalized_type)
+        count_stmt = count_stmt.where(MaterialAsset.asset_type == normalized_type)
     stmt = stmt.order_by(MaterialAsset.sort_order.asc(), MaterialAsset.created_at.desc(), MaterialAsset.id.desc())
+    total = 0
+    if page is not None:
+        total = int((await db.execute(count_stmt)).scalar_one() or 0)
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
     assets = (await db.execute(stmt)).scalars().all()
     creator_ids = sorted({int(item.created_by) for item in assets})
     creators = {}
     if creator_ids:
         creators = {item.id: item for item in (await db.execute(select(User).where(User.id.in_(creator_ids)))).scalars().all()}
-    return [_asset_to_dict(item, project=project, creator=creators.get(item.created_by)) for item in assets]
+    items = [_asset_to_dict(item, project=project, creator=creators.get(item.created_by)) for item in assets]
+    if page is None:
+        return items
+    return _page_payload(items, total, page, page_size)
 
 
 @router.get("/assets")
 async def list_all_material_assets(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     keyword: str | None = None,
     asset_type: str | None = None,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     stmt = (
         select(MaterialAsset, MaterialProject)
         .join(MaterialProject, MaterialProject.id == MaterialAsset.project_id)
@@ -673,35 +706,52 @@ async def list_all_material_assets(
             MaterialProject.is_deleted.is_(False),
         )
     )
-    if not is_super_admin(admin):
-        stmt = stmt.where(
-            or_(
-                MaterialProject.created_by == admin.id,
-                MaterialProject.visibility.in_(["admin", "shared"]),
-            )
+    count_stmt = (
+        select(func.count())
+        .select_from(MaterialAsset)
+        .join(MaterialProject, MaterialProject.id == MaterialAsset.project_id)
+        .where(
+            MaterialAsset.is_deleted.is_(False),
+            MaterialProject.is_deleted.is_(False),
         )
+    )
+    if not is_super_admin(admin):
+        visibility_cond = or_(
+            MaterialProject.created_by == admin.id,
+            MaterialProject.visibility.in_(["admin", "shared"]),
+        )
+        stmt = stmt.where(visibility_cond)
+        count_stmt = count_stmt.where(visibility_cond)
     if (keyword or "").strip():
         like_value = f"%{keyword.strip()}%"
-        stmt = stmt.where(
-            or_(
-                MaterialAsset.name.like(like_value),
-                MaterialAsset.file_name.like(like_value),
-                MaterialAsset.tags.like(like_value),
-                MaterialProject.name.like(like_value),
-            )
+        keyword_cond = or_(
+            MaterialAsset.name.like(like_value),
+            MaterialAsset.file_name.like(like_value),
+            MaterialAsset.tags.like(like_value),
+            MaterialProject.name.like(like_value),
         )
+        stmt = stmt.where(keyword_cond)
+        count_stmt = count_stmt.where(keyword_cond)
     if (asset_type or "").strip():
         normalized_type = (asset_type or "").strip().lower()
         if normalized_type not in ASSET_TYPE_VALUES:
             raise HTTPException(status_code=400, detail="不支持的素材类型。")
         stmt = stmt.where(MaterialAsset.asset_type == normalized_type)
+        count_stmt = count_stmt.where(MaterialAsset.asset_type == normalized_type)
     stmt = stmt.order_by(MaterialAsset.created_at.desc(), MaterialAsset.id.desc())
+    total = 0
+    if page is not None:
+        total = int((await db.execute(count_stmt)).scalar_one() or 0)
+        stmt = stmt.limit(page_size).offset((page - 1) * page_size)
     rows = (await db.execute(stmt)).all()
     creator_ids = sorted({int(asset.created_by) for asset, _project in rows})
     creators = {}
     if creator_ids:
         creators = {item.id: item for item in (await db.execute(select(User).where(User.id.in_(creator_ids)))).scalars().all()}
-    return [_asset_to_dict(asset, project=project, creator=creators.get(asset.created_by)) for asset, project in rows]
+    items = [_asset_to_dict(asset, project=project, creator=creators.get(asset.created_by)) for asset, project in rows]
+    if page is None:
+        return items
+    return _page_payload(items, total, page, page_size)
 
 
 @router.post("/projects/{project_id}/assets")
@@ -715,8 +765,7 @@ async def create_material_asset(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     project = await _ensure_project_manage_access(db, project_id, admin)
-    content = await file.read()
-    file_size = len(content)
+    file_size = await _upload_file_size(file)
     if file_size <= 0:
         raise HTTPException(status_code=400, detail="文件内容不能为空。")
     if file_size > MAX_MATERIAL_FILE_SIZE:
@@ -731,7 +780,8 @@ async def create_material_asset(
     else:
         mime_type = raw_browser_mime
     object_key = _build_material_object_key(project.oss_prefix or "materials", safe_name)
-    await asyncio.to_thread(_upload_binary_to_oss, object_key, content, mime_type)
+    await file.seek(0)
+    await asyncio.to_thread(_upload_file_to_oss, object_key, file.file, mime_type)
     row = MaterialAsset(
         project_id=project_id,
         sort_order=await _next_asset_sort_order(db, project_id),

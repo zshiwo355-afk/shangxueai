@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
   { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
   { key: "magic", label: "课程管理", path: "/workspace/magic", icon: <BookOutlined /> },
-  { key: "papers", label: "考试", path: "/papers", icon: <FormOutlined /> },
+  { key: "papers", label: "考试中心", path: "/papers", icon: <FormOutlined /> },
 ];
 
 function resolveSection(pathname) {
@@ -33,7 +33,7 @@ function resolveSection(pathname) {
     return "课程管理";
   }
   if (pathname.startsWith("/papers")) {
-    return "考试";
+    return "考试中心";
   }
   return "用户首页";
 }
@@ -72,7 +72,7 @@ export default function UserLayout() {
               const active = location.pathname === item.path
                 || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
                 || (item.key === "magic" && resolveSection(location.pathname) === "课程管理")
-                || (item.key === "papers" && resolveSection(location.pathname) === "考试");
+                || (item.key === "papers" && resolveSection(location.pathname) === "考试中心");
 
               return (
                 <button
