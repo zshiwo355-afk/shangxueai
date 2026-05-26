@@ -309,12 +309,11 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
-                className="cta-arrow-btn cta-arrow-btn--ghost"
-                onClick={() => navigate("/workspace/magic")}
-                style={{ display: "none" }}
+                className={`cta-arrow-btn cta-arrow-btn--ghost${todayUploaded ? " cta-arrow-btn--done" : ""}`}
+                onClick={() => navigate("/magic-academy?tab=audio")}
               >
                 <ReadOutlined />
-                <span>进入课程管理</span>
+                <span>{todayUploaded ? "今日已打卡 · 查看记录" : "去读书打卡"}</span>
                 <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
               </button>
             </div>
@@ -336,8 +335,8 @@ export default function HomePage() {
                 <strong>{averageScore}</strong>
               </li>
               <li className="showcase-hero__side-item">
-                <span>完课率</span>
-                <strong>{completedVideoRate}%</strong>
+                <span>本月打卡</span>
+                <strong>{monthAudioCount}</strong>
               </li>
             </ul>
           </aside>

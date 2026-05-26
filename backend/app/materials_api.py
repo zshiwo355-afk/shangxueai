@@ -20,6 +20,12 @@ from .access import is_super_admin
 from .auth import get_current_user, require_admin
 from .config import get_settings
 from .db import get_db
+from .magic_academy_api._oss import (
+    MULTIPART_URL_EXPIRE_SECONDS,
+    _abort_multipart_upload,
+    _complete_multipart_upload,
+    _start_multipart_upload,
+)
 from .models import MagicReadingContent, MagicVideo, MaterialAsset, MaterialProject, User
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
@@ -111,6 +117,39 @@ def _build_signed_stream_url(object_key: str) -> str:
     return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
 
 
+def _format_content_disposition(filename: str | None, *, attachment: bool) -> str:
+    kind = "attachment" if attachment else "inline"
+    name = (filename or "").strip()
+    if not name:
+        return kind
+    try:
+        ascii_name = name.encode("ascii").decode("ascii")
+        return f'{kind}; filename="{ascii_name}"'
+    except UnicodeEncodeError:
+        return f"{kind}; filename*=UTF-8''{quote(name)}"
+
+
+def _build_signed_disposition_url(
+    object_key: str,
+    *,
+    filename: str | None = None,
+    attachment: bool = False,
+) -> str:
+    """Sign a GET URL that asks OSS to respond with the chosen
+    Content-Disposition. Used to drive direct browser playback / preview /
+    download without proxying bytes through this backend."""
+    bucket = _build_oss_bucket()
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    disposition = _format_content_disposition(filename, attachment=attachment)
+    return bucket.sign_url(
+        "GET",
+        object_key,
+        expire_seconds,
+        params={"response-content-disposition": disposition},
+        slash_safe=True,
+    )
+
+
 def _build_signed_inline_url(
     object_key: str,
     *,
@@ -126,25 +165,7 @@ def _build_signed_inline_url(
     correct is the upload path's job.
     """
     del mime_type  # kept for backwards-compat, intentionally unused
-    bucket = _build_oss_bucket()
-    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
-    inline_name = (filename or "").strip()
-    if inline_name:
-        try:
-            ascii_name = inline_name.encode("ascii").decode("ascii")
-            disposition = f'inline; filename="{ascii_name}"'
-        except UnicodeEncodeError:
-            quoted = quote(inline_name)
-            disposition = f"inline; filename*=UTF-8''{quoted}"
-    else:
-        disposition = "inline"
-    return bucket.sign_url(
-        "GET",
-        object_key,
-        expire_seconds,
-        params={"response-content-disposition": disposition},
-        slash_safe=True,
-    )
+    return _build_signed_disposition_url(object_key, filename=filename, attachment=False)
 
 
 def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> None:
@@ -421,6 +442,34 @@ class MaterialAssetUpdatePayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     remark: str = Field(default="", max_length=5000)
     tags: str = Field(default="", max_length=5000)
+
+
+class MaterialAssetUploadInitPayload(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=512)
+    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_FILE_SIZE)
+    mime_type: str = Field(default="", max_length=255)
+
+
+class MaterialAssetUploadPartPayload(BaseModel):
+    part_number: int = Field(..., ge=1)
+    etag: str = Field(..., min_length=1, max_length=128)
+
+
+class MaterialAssetUploadCompletePayload(BaseModel):
+    object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=256)
+    file_name: str = Field(..., min_length=1, max_length=512)
+    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_FILE_SIZE)
+    parts: list[MaterialAssetUploadPartPayload] = Field(..., min_length=1)
+    name: str = Field(default="", max_length=255)
+    mime_type: str = Field(default="", max_length=255)
+    remark: str = Field(default="", max_length=5000)
+    tags: str = Field(default="", max_length=5000)
+
+
+class MaterialAssetUploadAbortPayload(BaseModel):
+    object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=256)
 
 
 class MaterialProjectMovePayload(BaseModel):
@@ -804,6 +853,112 @@ async def create_material_asset(
     return _asset_to_dict(row, project=project, creator=admin)
 
 
+@router.post("/projects/{project_id}/assets/upload/init")
+async def init_material_asset_upload(
+    project_id: int,
+    payload: MaterialAssetUploadInitPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    project = await _ensure_project_manage_access(db, project_id, admin)
+    safe_name = _safe_filename(payload.file_name)
+    raw_browser_mime = (payload.mime_type or "").strip().lower()
+    guessed_by_ext = (mimetypes.guess_type(safe_name)[0] or "").strip().lower()
+    if not raw_browser_mime or raw_browser_mime == "application/octet-stream":
+        mime_type = guessed_by_ext or raw_browser_mime or "application/octet-stream"
+    else:
+        mime_type = raw_browser_mime
+    object_key = _build_material_object_key(project.oss_prefix or "materials", safe_name)
+    upload_plan = await asyncio.to_thread(
+        _start_multipart_upload,
+        object_key,
+        mime_type,
+        int(payload.file_size or 0),
+    )
+    return {
+        "method": "PUT",
+        "object_key": object_key,
+        "mime_type": mime_type,
+        "upload_id": upload_plan["upload_id"],
+        "part_size": upload_plan["part_size"],
+        "part_count": upload_plan["part_count"],
+        "part_urls": upload_plan["part_urls"],
+        "expires_in_seconds": MULTIPART_URL_EXPIRE_SECONDS,
+    }
+
+
+@router.post("/projects/{project_id}/assets/upload/complete")
+async def complete_material_asset_upload(
+    project_id: int,
+    payload: MaterialAssetUploadCompletePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    project = await _ensure_project_manage_access(db, project_id, admin)
+    object_key = (payload.object_key or "").strip()
+    expected_prefix = (project.oss_prefix or "materials").rstrip("/") + "/"
+    if not object_key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="OSS 路径与项目不匹配。")
+    if ".." in object_key or object_key.startswith("/"):
+        raise HTTPException(status_code=400, detail="OSS 路径不合法。")
+    safe_name = _safe_filename(payload.file_name)
+    object_size = await asyncio.to_thread(
+        _complete_multipart_upload,
+        object_key,
+        payload.upload_id.strip(),
+        [item.model_dump() for item in payload.parts],
+    )
+    if object_size != int(payload.file_size or 0):
+        raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
+    if object_size > MAX_MATERIAL_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="文件大小超过限制。")
+    claimed_mime = (payload.mime_type or "").strip().lower()
+    guessed_by_ext = (mimetypes.guess_type(safe_name)[0] or "").strip().lower()
+    if claimed_mime and claimed_mime != "application/octet-stream":
+        mime_type = claimed_mime
+    else:
+        mime_type = guessed_by_ext or claimed_mime or "application/octet-stream"
+    row = MaterialAsset(
+        project_id=project_id,
+        sort_order=await _next_asset_sort_order(db, project_id),
+        name=(payload.name or "").strip() or Path(safe_name).stem,
+        asset_type=_detect_asset_type(mime_type, safe_name),
+        file_name=safe_name,
+        object_key=object_key,
+        mime_type=mime_type,
+        file_size=int(object_size),
+        duration_seconds=0,
+        remark=(payload.remark or "").strip(),
+        tags=(payload.tags or "").strip(),
+        status="active",
+        created_by=admin.id,
+        is_deleted=False,
+    )
+    db.add(row)
+    await db.flush()
+    await db.refresh(row)
+    return _asset_to_dict(row, project=project, creator=admin)
+
+
+@router.post("/projects/{project_id}/assets/upload/abort")
+async def abort_material_asset_upload(
+    project_id: int,
+    payload: MaterialAssetUploadAbortPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    project = await _ensure_project_manage_access(db, project_id, admin)
+    object_key = (payload.object_key or "").strip()
+    expected_prefix = (project.oss_prefix or "materials").rstrip("/") + "/"
+    if not object_key.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="OSS 路径与项目不匹配。")
+    try:
+        await asyncio.to_thread(_abort_multipart_upload, object_key, payload.upload_id.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    return {"aborted": True}
+
+
 @router.get("/assets/{asset_id}")
 async def get_material_asset(
     asset_id: int,
@@ -945,16 +1100,37 @@ async def preview_material_asset(
     if stored_mime and stored_mime != "application/octet-stream" and not guessed_mime:
         resolved_mime = stored_mime
 
-    # Videos are typically large + need byte-range seeking; redirect to OSS so
-    # the player streams directly from OSS with native range support.
-    if asset_type == "video" and not download:
+    # Explicit downloads: redirect with attachment disposition so the file
+    # streams directly from OSS, not through this backend.
+    if download:
+        signed_url = await asyncio.to_thread(
+            _build_signed_disposition_url,
+            object_key,
+            filename=file_name or f"asset-{asset_id}",
+            attachment=True,
+        )
+        return RedirectResponse(signed_url, status_code=307)
+
+    # Videos: native byte-range seeking from OSS.
+    if asset_type == "video":
         signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
         return RedirectResponse(signed_url, status_code=307)
 
-    # For everything else (and for explicit downloads) we proxy through the
-    # backend so that we can override Content-Type and Content-Disposition --
-    # OSS query-string overrides are unreliable on some buckets, and legacy
-    # objects often have the wrong Content-Type stored.
+    # When the stored Content-Type is trustworthy (i.e. not the legacy
+    # octet-stream blob), redirect to OSS with inline disposition. This
+    # bypasses the backend proxy entirely for images, PDFs, audio, etc. and
+    # is by far the biggest win for preview latency in lists.
+    if stored_mime and stored_mime != "application/octet-stream":
+        signed_url = await asyncio.to_thread(
+            _build_signed_inline_url,
+            object_key,
+            filename=file_name or f"asset-{asset_id}",
+        )
+        return RedirectResponse(signed_url, status_code=307)
+
+    # Legacy fallback: octet-stream uploads where the browser would refuse
+    # to render the file based on the stored mime. Proxy through us so we
+    # can override Content-Type.
     bucket = await asyncio.to_thread(_build_oss_bucket)
     try:
         oss_object = await asyncio.to_thread(bucket.get_object, object_key)

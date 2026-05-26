@@ -1,6 +1,7 @@
 import { buildApiUrl } from "./runtimeConfig";
 import { getToken } from "./auth";
 import { deleteJson, getJson, parseJsonResponse, putJson, safeFetch, throwRequestError } from "./http";
+import { multipartUploadToOss } from "./ossMultipart";
 
 function authHeaders(extra = {}) {
   const headers = new Headers(extra);
@@ -72,19 +73,70 @@ export async function listAllMaterialAssets(params = {}) {
   return getJson(`/api/materials/assets${suffix}`, "素材文件加载失败。");
 }
 
-export async function uploadMaterialAsset(projectId, payload) {
-  const formData = new FormData();
-  formData.append("name", payload.name || "");
-  formData.append("remark", payload.remark || "");
-  formData.append("tags", payload.tags || "");
-  formData.append("file", payload.file);
-  const response = await safeFetch(buildApiUrl(`/api/materials/projects/${projectId}/assets`), {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  }, "上传素材失败。");
-  if (!response.ok) await throwRequestError(response, "上传素材失败。");
-  return parseJsonResponse(response, "上传素材失败。");
+async function postMaterialJson(path, body, errorMessage) {
+  const response = await safeFetch(
+    buildApiUrl(path),
+    {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body || {}),
+    },
+    errorMessage,
+  );
+  if (!response.ok) await throwRequestError(response, errorMessage);
+  return parseJsonResponse(response, errorMessage);
+}
+
+export async function uploadMaterialAsset(projectId, payload, options = {}) {
+  const file = payload?.file;
+  if (!file) {
+    throw new Error("请选择要上传的文件。");
+  }
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+
+  const initResult = await postMaterialJson(
+    `/api/materials/projects/${projectId}/assets/upload/init`,
+    {
+      file_name: file.name || "asset",
+      file_size: file.size || 0,
+      mime_type: file.type || "",
+    },
+    "申请上传地址失败。",
+  );
+
+  let parts;
+  try {
+    parts = await multipartUploadToOss(file, initResult, (percent) => {
+      if (onProgress) onProgress({ percent });
+    });
+  } catch (error) {
+    try {
+      await postMaterialJson(
+        `/api/materials/projects/${projectId}/assets/upload/abort`,
+        { object_key: initResult.object_key, upload_id: initResult.upload_id },
+        "取消上传失败。",
+      );
+    } catch {
+      // best-effort cleanup; surface the original upload error
+    }
+    throw error;
+  }
+
+  return postMaterialJson(
+    `/api/materials/projects/${projectId}/assets/upload/complete`,
+    {
+      object_key: initResult.object_key,
+      upload_id: initResult.upload_id,
+      file_name: file.name || "asset",
+      file_size: file.size || 0,
+      mime_type: initResult.mime_type || file.type || "",
+      name: payload.name || "",
+      remark: payload.remark || "",
+      tags: payload.tags || "",
+      parts,
+    },
+    "登记素材失败。",
+  );
 }
 
 export async function getMaterialAsset(id) {

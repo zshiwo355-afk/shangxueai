@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMyExams, startExam } from "../lib/api.exam";
 import { saveActiveSession } from "../lib/storage";
+import PrepareOverlay from "./common/PrepareOverlay";
 
 const { Paragraph, Text } = Typography;
 
@@ -88,6 +89,12 @@ export default function ExamIntroPage() {
 
   return (
     <div className="page-shell page-shell--narrow page-shell--minimal">
+      <PrepareOverlay
+        open={starting}
+        title="正在准备通关场景"
+        subtitle="首次进入约 5–10 秒，请稍候。"
+        steps={["生成通关题目", "加载客户人设", "进入对话"]}
+      />
       <div className="page-toolbar page-toolbar--stack page-toolbar--minimal">
         <div className="page-toolbar__leading">
           <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>

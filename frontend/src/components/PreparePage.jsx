@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchOptions } from "../lib/api.options";
 import { startTraining } from "../lib/api.training";
 import { saveActiveSession } from "../lib/storage";
+import PrepareOverlay from "./common/PrepareOverlay";
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -130,6 +131,11 @@ export default function PreparePage() {
 
   return (
     <div className="prepare-screen prepare-screen--workspace">
+      <PrepareOverlay
+        open={loading}
+        title="正在准备训练包"
+        subtitle="首次进入约 5–10 秒，请稍候。"
+      />
       <div className="prepare-workspace prepare-workspace--minimal">
         <section className="prepare-workspace__hero prepare-workspace__hero--lined">
           <div>
