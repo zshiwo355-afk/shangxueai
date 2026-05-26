@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_admin
 from ..db import get_db
+from ..magic_auto_actions import enqueue_video_actions_for_video
 from ..magic_academy_schemas import (
     MagicVideoPayload,
     MagicVideoReplaceCompletePayload,
@@ -74,6 +75,23 @@ async def _commit_refresh_and_serialize_video(
     await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+async def _enqueue_video_auto_actions_if_published(
+    db: AsyncSession,
+    video: MagicVideo,
+    *,
+    created_by: int | None,
+) -> None:
+    if (video.status or "").strip().lower() != "published":
+        return
+    targets_map = await _get_video_targets(db, [video.id])
+    await enqueue_video_actions_for_video(
+        db,
+        video,
+        targets_map.get(video.id, []),
+        created_by=created_by,
+    )
 
 
 async def _write_upload_to_disk(file: UploadFile, stored_path: Path, max_size: int) -> int:
@@ -582,6 +600,7 @@ async def create_video(
             )
         )
     await db.flush()
+    await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
     return await _commit_refresh_and_serialize_video(db, video)
 
 
@@ -697,6 +716,7 @@ async def update_video(
             )
         )
     await db.flush()
+    await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
     return await _commit_refresh_and_serialize_video(db, video)
 
 
@@ -753,11 +773,11 @@ async def publish_video(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     video = await _get_video_or_404(db, video_id)
     if not _is_video_upload_ready(video):
         raise HTTPException(status_code=400, detail="视频尚未上传完成，不能发布。")
     video.status = "published"
+    await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
     return await _commit_refresh_and_serialize_video(db, video)
 
 

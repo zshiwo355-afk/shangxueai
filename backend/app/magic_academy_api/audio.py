@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..access import get_user_whitelist_permissions
 from ..access import is_super_admin
-from ..auth import get_current_user, require_admin
+from ..auth import get_current_user, require_admin, require_super_admin
 from ..db import get_db
 from ..magic_academy_schemas import (
     AudioMakeupPayload,
@@ -39,6 +39,10 @@ from ._utils import (
 )
 from ._video_helpers import _ensure_auto_audio_checkin
 
+AUTO_CHECKIN_PUBLIC_FILENAME = "录音打卡.m4a"
+AUTO_CHECKIN_PUBLIC_SIZE = 221 * 1024
+AUTO_CHECKIN_PUBLIC_MIME = "audio/x-m4a"
+
 
 def _serialize_audio_record(
     item: MagicAudioUpload,
@@ -51,22 +55,26 @@ def _serialize_audio_record(
     source_label = (
         "补卡" if source == SOURCE_AUDIO_MAKEUP
         else "白名单自动打卡" if source == SOURCE_WHITELIST_AUTO and reveal_whitelist
-        else "系统自动打卡" if source == SOURCE_WHITELIST_AUTO
+        else "用户上传" if source == SOURCE_WHITELIST_AUTO
         else "用户上传"
     )
     file_name = item.file_name or ""
+    file_size = int(item.file_size or 0)
+    mime_type = item.mime_type or ""
     remark = item.remark or ""
     if source == SOURCE_WHITELIST_AUTO and not reveal_whitelist:
-        file_name = "system_checkin"
-        remark = "系统自动打卡"
+        file_name = AUTO_CHECKIN_PUBLIC_FILENAME
+        file_size = AUTO_CHECKIN_PUBLIC_SIZE
+        mime_type = AUTO_CHECKIN_PUBLIC_MIME
+        remark = ""
     return {
         "id": item.id,
         "user_id": item.user_id,
         "user_name": _user_name(owner) if owner else "",
         "department": (owner.department or "") if owner else "",
         "file_name": file_name,
-        "file_size": int(item.file_size or 0),
-        "file_type": item.mime_type or "",
+        "file_size": file_size,
+        "file_type": mime_type,
         "remark": remark,
         "uploaded_date": _iso(item.uploaded_date),
         "uploaded_time": _iso(item.uploaded_on),
@@ -117,6 +125,8 @@ def _serialize_audio_makeup_setting(row: MagicAudioMakeupSetting | None) -> dict
     return {
         "enabled": bool(row.enabled) if row else False,
         "make_up_days": int(row.make_up_days or 0) if row else DEFAULT_AUDIO_MAKEUP_DAYS,
+        "audio_random_window_minutes": int(row.audio_random_window_minutes or 0) if row else 0,
+        "video_random_window_minutes": int(row.video_random_window_minutes or 0) if row else 0,
         "description": (
             f"仅允许补最近 {int(row.make_up_days or 0)} 天内未完成的读书打卡"
             if row and bool(row.enabled) and int(row.make_up_days or 0) > 0
@@ -199,7 +209,7 @@ async def list_my_audios(
 @router.get("/admin/audio-makeup-setting")
 async def get_audio_makeup_setting(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
 ) -> dict[str, Any]:
     del admin
     row = await _get_audio_makeup_setting(db)
@@ -210,13 +220,15 @@ async def get_audio_makeup_setting(
 async def update_audio_makeup_setting(
     payload: AudioMakeupSettingPayload,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_super_admin),
 ) -> dict[str, Any]:
     row = await _get_audio_makeup_setting(db, create=True)
     if not row:
         raise HTTPException(status_code=500, detail="补卡设置初始化失败。")
     row.enabled = payload.enabled
     row.make_up_days = int(payload.make_up_days or 0)
+    row.audio_random_window_minutes = int(payload.audio_random_window_minutes or 0)
+    row.video_random_window_minutes = int(payload.video_random_window_minutes or 0)
     row.updated_by = admin.id
     await db.flush()
     await db.refresh(row)

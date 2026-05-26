@@ -17,6 +17,7 @@ from ..models import (
     MagicReadingContentTarget,
     User,
 )
+from ..magic_auto_actions import enqueue_audio_actions_for_reading_content
 from . import router
 from ._oss import (
     _build_oss_object_url,
@@ -451,6 +452,12 @@ async def create_admin_reading_content(
         user_ids=valid_user_ids,
         department_names=valid_departments,
         position_names=valid_positions,
+    )
+    await enqueue_audio_actions_for_reading_content(
+        db,
+        row,
+        targets,
+        created_by=admin.id,
     )
     await db.refresh(row)
     return _reading_content_to_dict(

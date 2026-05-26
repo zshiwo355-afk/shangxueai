@@ -69,6 +69,8 @@ class MagicAudioMakeupSetting(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     make_up_days: Mapped[int] = mapped_column(Integer, default=0)
+    audio_random_window_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    video_random_window_minutes: Mapped[int] = mapped_column(Integer, default=0)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -521,6 +523,38 @@ class MagicAudioUpload(Base):
 
     __table_args__ = (
         Index("idx_magic_audio_uploads_user_month", "user_id", "uploaded_date", "is_deleted"),
+    )
+
+
+class MagicAutoAction(Base):
+    __tablename__ = "magic_auto_actions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    action_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    target_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    video_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    reading_content_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    trigger_source: Mapped[str] = mapped_column(String(32), default="")
+    trigger_ref_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    window_start_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    window_end_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uk_magic_auto_actions_dedupe"),
+        Index("idx_magic_auto_actions_due", "status", "scheduled_at", "window_end_at"),
+        Index("idx_magic_auto_actions_target", "action_type", "target_user_id", "target_date"),
     )
 
 

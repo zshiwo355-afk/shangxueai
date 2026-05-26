@@ -336,7 +336,7 @@ export function getAudioSourceMeta(source, revealWhitelist = false) {
   if (source === "whitelist_auto") {
     return revealWhitelist
       ? { label: "白名单自动", color: "purple" }
-      : { label: "系统打卡", color: "default" };
+      : { label: "用户上传", color: "success" };
   }
   return { label: "用户上传", color: "success" };
 }

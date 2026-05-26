@@ -242,38 +242,40 @@ async def _ensure_auto_audio_checkin(
     user: User,
     permissions: dict[str, Any],
 ) -> None:
-    if not permissions.get("auto_checkin_enabled"):
-        return
     from datetime import date
 
     today = date.today()
-    existing = await db.execute(
-        select(MagicAudioUpload.id)
+    existing_result = await db.execute(
+        select(MagicAudioUpload)
         .where(
             MagicAudioUpload.user_id == user.id,
             MagicAudioUpload.is_deleted.is_(False),
             MagicAudioUpload.uploaded_date == today,
         )
-        .limit(1)
+        .order_by(MagicAudioUpload.id.asc())
     )
-    # Historical duplicate rows should not break employee-side APIs.
-    if existing.scalar_one_or_none() is not None:
-        return
-    row = MagicAudioUpload(
-        user_id=user.id,
-        file_name="whitelist_auto_checkin",
-        file_path="",
-        file_size=0,
-        mime_type="",
-        remark="白名单自动打卡",
-        source=SOURCE_WHITELIST_AUTO,
-        auto_checkin_by_whitelist=True,
-        uploaded_on=_now(),
-        uploaded_date=today,
-        is_deleted=False,
-    )
-    db.add(row)
-    await db.flush()
+    existing_rows = existing_result.scalars().all()
+    # Historical duplicate rows can exist from earlier auto-checkin writes.
+    # Keep one row and soft-delete the extras so employee/admin pages stop showing duplicates.
+    if existing_rows:
+        primary = existing_rows[0]
+        for duplicate in existing_rows[1:]:
+            duplicate.is_deleted = True
+            duplicate.deleted_at = _now()
+        if len(existing_rows) > 1:
+            await db.flush()
+        if (primary.source or "") == SOURCE_WHITELIST_AUTO:
+            if not (primary.file_name or "").strip():
+                primary.file_name = "whitelist_auto_checkin"
+            if primary.file_size is None:
+                primary.file_size = 0
+            if primary.mime_type is None:
+                primary.mime_type = ""
+            if primary.remark is None:
+                primary.remark = "白名单自动打卡"
+            await db.flush()
+    # Auto check-ins are no longer created on page access.
+    # They are scheduled only after admin-triggered reading tasks.
 
 
 def _serialize_watch_confirm_setting(

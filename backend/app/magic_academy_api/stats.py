@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..access import is_super_admin
@@ -64,6 +64,18 @@ async def get_video_stats(
         )
     )
     progress_map = {item.user_id: item for item in progress_result.scalars().all()}
+    inferred_duration_result = await db.execute(
+        select(
+            func.max(
+                func.greatest(
+                    func.coalesce(MagicVideoProgress.total_duration, 0),
+                    func.coalesce(MagicVideoProgress.max_watched_position, 0),
+                    func.coalesce(MagicVideoProgress.current_position, 0),
+                )
+            )
+        ).where(MagicVideoProgress.video_id == video_id)
+    )
+    inferred_video_duration = float(inferred_duration_result.scalar() or 0)
     whitelist_result = await db.execute(
         select(MagicVideoWhitelist).where(
             MagicVideoWhitelist.video_id == video_id,
@@ -80,14 +92,25 @@ async def get_video_stats(
         progress = progress_map.get(item.id)
         whitelist_entry = user_whitelist_map.get(item.id)
         course_exempt_enabled = bool(whitelist_entry and whitelist_entry.course_exempt_enabled)
-        watched = min(float(progress.max_watched_position or 0), float(video.duration_seconds or progress.total_duration or 0)) if progress else 0
+        video_total_duration = float(
+            video.duration_seconds
+            or video.duration
+            or inferred_video_duration
+            or (progress.total_duration if progress else 0)
+            or 0
+        )
+        watched = (
+            video_total_duration
+            if course_exempt_enabled
+            else min(float(progress.max_watched_position or 0), video_total_duration) if progress else 0
+        )
         rows.append({
             "user_id": item.id,
             "name": _user_name(item),
             "department": _user_department(item),
             "position": item.position or "",
             "video_name": video.title,
-            "video_duration_seconds": int(video.duration_seconds or 0),
+            "video_duration_seconds": int(video_total_duration),
             "watched_seconds": round(watched, 2),
             "progress_percent": 100.0 if course_exempt_enabled else float(progress.progress_percent or 0) if progress else 0,
             "is_completed": True if course_exempt_enabled else bool(progress.is_completed) if progress else False,

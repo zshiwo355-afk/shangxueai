@@ -1,6 +1,7 @@
 """FastAPI 入口（V2）：CORS + 路由聚合 + 启动钩子（规则预热） + 前端静态托管。"""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import ensure_builtin_super_admin, router as auth_router
 from .config import get_settings
 from .db import session_scope
+from .magic_auto_actions import auto_action_worker
 from .exams_api import (
     admin_router as exams_admin_router,
     review_router as exams_review_router,
@@ -43,6 +45,8 @@ app = FastAPI(title="怀仁商学院", version="2.0.0")
 settings = get_settings()
 maxkb_client = MaxKBClient(settings)
 rule_loader = RuleLoader(maxkb_client, settings)
+_auto_action_stop_event = asyncio.Event()
+_auto_action_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,6 +99,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
+    global _auto_action_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -105,6 +110,23 @@ async def _preload_rules() -> None:
         logger.info("rule_loader preloaded %d rules", count)
     except Exception as exc:  # noqa: BLE001
         logger.warning("rule preload failed (will lazy-load on demand): %s", exc)
+    if _auto_action_task is None or _auto_action_task.done():
+        _auto_action_stop_event.clear()
+        _auto_action_task = asyncio.create_task(auto_action_worker(_auto_action_stop_event))
+
+
+@app.on_event("shutdown")
+async def _stop_auto_action_worker() -> None:
+    global _auto_action_task
+    _auto_action_stop_event.set()
+    if _auto_action_task is None:
+        return
+    try:
+        await _auto_action_task
+    except Exception:  # noqa: BLE001
+        logger.exception("auto action worker stopped with error")
+    finally:
+        _auto_action_task = None
 
 
 @app.get("/api/health")

@@ -219,6 +219,8 @@ class MagicAudioUploadPayload(BaseModel):
 class AudioMakeupSettingPayload(BaseModel):
     enabled: bool = False
     make_up_days: int = Field(default=0, ge=0, le=365)
+    audio_random_window_minutes: int = Field(default=0, ge=0, le=10080)
+    video_random_window_minutes: int = Field(default=0, ge=0, le=10080)
 
 
 class AudioMakeupPayload(BaseModel):

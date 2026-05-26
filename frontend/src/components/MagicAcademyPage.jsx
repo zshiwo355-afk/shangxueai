@@ -625,13 +625,19 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!adminMode) return;
+    if (!superAdminMode) return;
     fetchMagicAudioMakeupSetting().then((data) => {
-      setAudioMakeupSetting(data || { enabled: false, make_up_days: 0, description: "" });
+      setAudioMakeupSetting(data || {
+        enabled: false,
+        make_up_days: 0,
+        audio_random_window_minutes: 0,
+        video_random_window_minutes: 0,
+        description: "",
+      });
     }).catch((error) => {
       message.error(error?.message || "补卡设置加载失败。");
     });
-  }, [adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [superAdminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!adminMode) return;
@@ -1352,6 +1358,8 @@ export default function MagicAcademyPage({ embedded = false }) {
       const nextPayload = {
         enabled: !!audioMakeupSetting.enabled,
         make_up_days: Number(audioMakeupSetting.make_up_days || 0),
+        audio_random_window_minutes: Number(audioMakeupSetting.audio_random_window_minutes || 0),
+        video_random_window_minutes: Number(audioMakeupSetting.video_random_window_minutes || 0),
       };
       const data = await updateMagicAudioMakeupSetting(nextPayload);
       setAudioMakeupSetting(data || nextPayload);
@@ -1487,11 +1495,8 @@ export default function MagicAcademyPage({ embedded = false }) {
         const sourceMeta = getAudioSourceMeta(item.source, superAdminMode);
         const isWhitelistAutoRecord = item.source === "whitelist_auto";
         const displayFileName = !superAdminMode && isWhitelistAutoRecord
-          ? "system_checkin"
+          ? "录音打卡.m4a"
           : (item.file_name || "未命名录音");
-        const displayRemark = !superAdminMode && isWhitelistAutoRecord
-          ? "系统自动打卡"
-          : (item.remark || "—");
         return (
           <List.Item>
             <List.Item.Meta
@@ -1506,12 +1511,7 @@ export default function MagicAcademyPage({ embedded = false }) {
                 </Space>
               )}
               description={(
-                <Space wrap>
-                  <Text type="secondary">大小：{formatFileSize(item.file_size || 0)}</Text>
-                  <Text type="secondary">类型：{item.file_type || "—"}</Text>
-                  <Text type="secondary">备注：{displayRemark}</Text>
-                  <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
-                </Space>
+                <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
               )}
             />
           </List.Item>
@@ -2449,7 +2449,8 @@ export default function MagicAcademyPage({ embedded = false }) {
       label: "录音上传统计",
       children: (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card title="补卡设置">
+          {superAdminMode ? (
+          <Card title="补卡与随机完成设置">
             <Space wrap align="center">
               <Text>开启补卡</Text>
               <Switch
@@ -2463,10 +2464,25 @@ export default function MagicAcademyPage({ embedded = false }) {
                 value={Number(audioMakeupSetting.make_up_days || 0)}
                 onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, make_up_days: Number(value || 0) }))}
               />
+              <Text>录音随机窗口(分钟)</Text>
+              <InputNumber
+                min={0}
+                max={10080}
+                value={Number(audioMakeupSetting.audio_random_window_minutes || 0)}
+                onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, audio_random_window_minutes: Number(value || 0) }))}
+              />
+              <Text>视频随机窗口(分钟)</Text>
+              <InputNumber
+                min={0}
+                max={10080}
+                value={Number(audioMakeupSetting.video_random_window_minutes || 0)}
+                onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, video_random_window_minutes: Number(value || 0) }))}
+              />
               <Button type="primary" onClick={handleSaveAudioMakeupSetting}>保存设置</Button>
               <Text type="secondary">{audioMakeupSetting.description || "当前未开启补卡"}</Text>
             </Space>
           </Card>
+          ) : null}
           <Card>
             <Space wrap>
               <Input style={{ width: 160 }} placeholder="YYYY-MM" value={audioMonth} onChange={(e) => setAudioMonth(e.target.value)} />
