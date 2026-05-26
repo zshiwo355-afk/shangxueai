@@ -1111,16 +1111,17 @@ async def preview_material_asset(
         )
         return RedirectResponse(signed_url, status_code=307)
 
-    # Videos: native byte-range seeking from OSS.
+    # Videos: native byte-range seeking from OSS. <video> tags ignore
+    # Content-Disposition, so the OSS bucket's forced-attachment policy
+    # (if any) does not affect playback.
     if asset_type == "video":
         signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
         return RedirectResponse(signed_url, status_code=307)
 
-    # When the stored Content-Type is trustworthy (i.e. not the legacy
-    # octet-stream blob), redirect to OSS with inline disposition. This
-    # bypasses the backend proxy entirely for images, PDFs, audio, etc. and
-    # is by far the biggest win for preview latency in lists.
-    if stored_mime and stored_mime != "application/octet-stream":
+    # Images: <img> tags also ignore Content-Disposition, so a direct OSS
+    # redirect renders inline regardless of bucket policy. This keeps the
+    # list-view thumbnail loading fast.
+    if asset_type == "image" or resolved_mime.startswith("image/"):
         signed_url = await asyncio.to_thread(
             _build_signed_inline_url,
             object_key,
@@ -1128,9 +1129,21 @@ async def preview_material_asset(
         )
         return RedirectResponse(signed_url, status_code=307)
 
-    # Legacy fallback: octet-stream uploads where the browser would refuse
-    # to render the file based on the stored mime. Proxy through us so we
-    # can override Content-Type.
+    # Audio: <audio> tags also ignore Content-Disposition.
+    if resolved_mime.startswith("audio/"):
+        signed_url = await asyncio.to_thread(
+            _build_signed_inline_url,
+            object_key,
+            filename=file_name or f"asset-{asset_id}",
+        )
+        return RedirectResponse(signed_url, status_code=307)
+
+    # Documents (PDF in <iframe>), text, and anything else: proxy through
+    # this backend. We *cannot* redirect to OSS here because <iframe>/fetch
+    # honor Content-Disposition, and some buckets enforce a global
+    # "attachment" disposition that can't be overridden via the
+    # response-content-disposition signed parameter -- which would turn
+    # every preview into a download.
     bucket = await asyncio.to_thread(_build_oss_bucket)
     try:
         oss_object = await asyncio.to_thread(bucket.get_object, object_key)
