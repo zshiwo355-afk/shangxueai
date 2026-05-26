@@ -43,11 +43,18 @@ function getExtension(name) {
  * can be appended to FormData / passed to existing upload code paths. This
  * lets us reuse the material library across different upload UIs without
  * touching the backend upload endpoints.
+ *
+ * Note: we deliberately do NOT pass `credentials: "include"`. The backend
+ * preview endpoint authenticates via the `access_token` query param baked
+ * into the URL, and it 307-redirects to a presigned OSS URL whose
+ * signature is also in the querystring. Including credentials on the
+ * cross-origin OSS hop would force the browser to reject OSS's wildcard
+ * `Access-Control-Allow-Origin: *` per CORS spec.
  */
 export async function fetchMaterialAssetAsFile(asset) {
   if (!asset?.id) throw new Error("素材数据无效。");
   const url = buildMaterialAssetPreviewUrl(asset.id, { download: true });
-  const response = await fetch(url, { credentials: "include" });
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`下载素材失败 (HTTP ${response.status})`);
   }
