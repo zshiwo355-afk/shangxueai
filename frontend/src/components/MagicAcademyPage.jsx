@@ -119,8 +119,8 @@ import {
   answerColumns,
   audioColumns,
   buildAdminVideoColumns,
+  buildStatsColumns,
   buildWhitelistColumns,
-  statsColumns,
 } from "./magicAcademy/adminColumns";
 import {
   buildAudioCalendarMap,
@@ -438,7 +438,10 @@ export default function MagicAcademyPage({ embedded = false }) {
   };
 
   const reloadMyData = async () => {
-    const [videoData, audioData] = await Promise.all([fetchMyMagicVideos(), fetchMyAudios()]);
+    const [videoData, audioData] = await Promise.all([
+      fetchMyMagicVideos().catch(() => []),
+      fetchMyAudios().catch(() => []),
+    ]);
     setMyVideos(Array.isArray(videoData) ? videoData : []);
     setMyAudios(Array.isArray(audioData) ? audioData : []);
   };
@@ -696,6 +699,15 @@ export default function MagicAcademyPage({ embedded = false }) {
     message.warning(text);
   };
 
+  const setVideoCurrentTimeSilently = (nextTime) => {
+    if (!videoRef.current) return;
+    blockingSeekRef.current = true;
+    videoRef.current.currentTime = Number(nextTime || 0);
+    window.setTimeout(() => {
+      blockingSeekRef.current = false;
+    }, 0);
+  };
+
   const maybeOpenQuiz = (currentTime) => {
     if (!videoDetail || videoDetail.can_seek_freely || videoDetail.progress?.is_completed) return false;
     const nextPoint = (videoDetail.quiz_points || []).find((point) => (
@@ -707,7 +719,7 @@ export default function MagicAcademyPage({ embedded = false }) {
       videoRef.current?.pause();
       if (videoRef.current) {
         const lockedTime = Number(nextPoint.trigger_second || 0);
-        videoRef.current.currentTime = lockedTime;
+        setVideoCurrentTimeSilently(lockedTime);
         lastSafeTimeRef.current = lockedTime;
         watchedRef.current = Math.max(watchedRef.current, lockedTime);
       }
@@ -717,33 +729,22 @@ export default function MagicAcademyPage({ embedded = false }) {
     return false;
   };
 
-  const getAllowedSeekTime = () => {
-    if (!videoDetail || videoDetail.can_seek_freely || videoDetail.progress?.is_completed) {
-      return Number.POSITIVE_INFINITY;
-    }
-    return Math.max(watchedRef.current || 0, lastSafeTimeRef.current || 0) + 2;
-  };
-
-  const clampToSafePosition = (reason = "请按顺序观看视频，暂不能跳过未学习内容。") => {
+  const clampToSafePosition = (reason = "暂不能快进到未观看的位置，请按顺序学习。") => {
     if (!videoRef.current) return;
     const activeLockedPoint = (videoDetail?.quiz_points || []).find((point) => point.id === lockedQuizPointIdRef.current);
     const fallback = activeLockedPoint
       ? Number(activeLockedPoint.trigger_second || 0)
       : Math.max(lastSafeTimeRef.current || 0, watchedRef.current || 0);
-    blockingSeekRef.current = true;
-    videoRef.current.currentTime = fallback;
+    setVideoCurrentTimeSilently(fallback);
     lastSafeTimeRef.current = fallback;
     videoRef.current.pause();
-    window.setTimeout(() => {
-      blockingSeekRef.current = false;
-    }, 0);
     showSeekWarning(reason);
   };
 
   const handleVideoLoaded = () => {
     if (!videoRef.current || !videoDetail) return;
     const saved = Number(videoDetail.progress?.current_position || 0);
-    videoRef.current.currentTime = saved;
+    setVideoCurrentTimeSilently(saved);
     watchedRef.current = Math.max(Number(videoDetail.progress?.max_watched_position || 0), saved);
     lastSafeTimeRef.current = saved;
     lockedQuizPointIdRef.current = null;
@@ -800,7 +801,7 @@ export default function MagicAcademyPage({ embedded = false }) {
   };
 
   const handleSeeking = () => {
-    if (!videoRef.current || !videoDetail || videoDetail.can_seek_freely || videoDetail.progress?.is_completed) return;
+    if (!videoRef.current || !videoDetail || videoDetail.can_seek_freely) return;
     if (blockingSeekRef.current) return;
     const targetTime = Number(videoRef.current.currentTime || 0);
     const lockedPoint = quizAnswerState.point || (videoDetail.quiz_points || []).find((point) => point.id === lockedQuizPointIdRef.current);
@@ -808,8 +809,11 @@ export default function MagicAcademyPage({ embedded = false }) {
       clampToSafePosition("请先完成当前节点答题，再继续学习。");
       return;
     }
-    if (targetTime > getAllowedSeekTime()) {
-      clampToSafePosition("请按顺序观看视频，暂不能跳过未学习内容。");
+    const fallback = lockedPoint && !answeredPointIds.has(lockedPoint.id)
+      ? Number(lockedPoint.trigger_second || 0)
+      : Math.max(lastSafeTimeRef.current || 0, watchedRef.current || 0);
+    if (targetTime > fallback + 0.35) {
+      clampToSafePosition("暂不能快进到未观看的位置，请按顺序学习。");
     }
   };
 
@@ -1238,7 +1242,7 @@ export default function MagicAcademyPage({ embedded = false }) {
       watchedRef.current = Math.max(detail?.progress?.max_watched_position || 0, watchedRef.current);
       lastSafeTimeRef.current = Math.max(lastSafeTimeRef.current, resumeTime);
       if (videoRef.current) {
-        videoRef.current.currentTime = resumeTime;
+        setVideoCurrentTimeSilently(resumeTime);
       }
       videoRef.current?.play?.().catch(() => {});
       await reloadMyData();
@@ -1281,6 +1285,10 @@ export default function MagicAcademyPage({ embedded = false }) {
   const whitelistColumns = useMemo(
     () => buildWhitelistColumns({ deleteMagicWhitelist, reloadAdminData }),
     [],
+  );
+  const statsColumns = useMemo(
+    () => buildStatsColumns(superAdminMode),
+    [superAdminMode],
   );
 
   const audioExportPath = useMemo(() => {
@@ -1475,28 +1483,40 @@ export default function MagicAcademyPage({ embedded = false }) {
     <List
       dataSource={records}
       locale={{ emptyText: "当天暂无录音上传" }}
-      renderItem={(item) => (
-        <List.Item>
-          <List.Item.Meta
-            title={(
-              <Space wrap>
-                <Text strong>{item.file_name || "未命名录音"}</Text>
-                <Tag color={getAudioSourceMeta(item.source).color}>{item.source_label || getAudioSourceMeta(item.source).label}</Tag>
-                {showUser && item.user_name ? <Tag>{item.user_name}</Tag> : null}
-                {showUser && item.department ? <Tag color="blue">{item.department}</Tag> : null}
-              </Space>
-            )}
-            description={(
-              <Space wrap>
-                <Text type="secondary">大小：{formatFileSize(item.file_size || 0)}</Text>
-                <Text type="secondary">类型：{item.file_type || "—"}</Text>
-                <Text type="secondary">备注：{item.remark || "—"}</Text>
-                <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
-              </Space>
-            )}
-          />
-        </List.Item>
-      )}
+      renderItem={(item) => {
+        const sourceMeta = getAudioSourceMeta(item.source, superAdminMode);
+        const isWhitelistAutoRecord = item.source === "whitelist_auto";
+        const displayFileName = !superAdminMode && isWhitelistAutoRecord
+          ? "system_checkin"
+          : (item.file_name || "未命名录音");
+        const displayRemark = !superAdminMode && isWhitelistAutoRecord
+          ? "系统自动打卡"
+          : (item.remark || "—");
+        return (
+          <List.Item>
+            <List.Item.Meta
+              title={(
+                <Space wrap>
+                  <Text strong>{displayFileName}</Text>
+                  <Tag color={sourceMeta.color}>
+                    {superAdminMode ? (item.source_label || sourceMeta.label) : sourceMeta.label}
+                  </Tag>
+                  {showUser && item.user_name ? <Tag>{item.user_name}</Tag> : null}
+                  {showUser && item.department ? <Tag color="blue">{item.department}</Tag> : null}
+                </Space>
+              )}
+              description={(
+                <Space wrap>
+                  <Text type="secondary">大小：{formatFileSize(item.file_size || 0)}</Text>
+                  <Text type="secondary">类型：{item.file_type || "—"}</Text>
+                  <Text type="secondary">备注：{displayRemark}</Text>
+                  <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
+                </Space>
+              )}
+            />
+          </List.Item>
+        );
+      }}
     />
   );
 
@@ -1688,7 +1708,7 @@ export default function MagicAcademyPage({ embedded = false }) {
                   ) : (
                     <Tag bordered={false} color="processing">{statusLabel}</Tag>
                   )}
-                  {getVideoSourceLabel(item) ? <Tag bordered={false} color="purple">{getVideoSourceLabel(item)}</Tag> : null}
+                  {getVideoSourceLabel(item, superAdminMode) ? <Tag bordered={false} color="purple">{getVideoSourceLabel(item, superAdminMode)}</Tag> : null}
                 </Space>
                 <span>
                   {item.category || "未分类课程"}
@@ -1759,7 +1779,7 @@ export default function MagicAcademyPage({ embedded = false }) {
                       <Space size={[8, 8]} wrap>
                         <strong>{item.title}</strong>
                         {item.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
-                        {item.is_whitelisted ? <Tag bordered={false} color="purple">白名单</Tag> : null}
+                        {superAdminMode && item.is_whitelisted ? <Tag bordered={false} color="purple">白名单</Tag> : null}
                         {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag bordered={false} color="gold">新人必看</Tag> : null}
                         <Tag bordered={false} color={item.progress?.is_completed ? "success" : "processing"}>
                           {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}

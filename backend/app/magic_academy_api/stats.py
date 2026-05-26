@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..access import is_super_admin
 from ..auth import require_admin
 from ..db import get_db
 from ..models import (
@@ -48,7 +49,7 @@ async def get_video_stats(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    del admin
+    reveal_whitelist = is_super_admin(admin)
     video = await _get_video_or_404(db, video_id)
     targets_map = await _get_video_targets(db, [video_id])
     targets = targets_map.get(video_id, [])
@@ -94,9 +95,12 @@ async def get_video_stats(
             "quiz_passed": True if course_exempt_enabled else bool(progress.quiz_passed) if progress else False,
             "answer_attempt_count": int(progress.answer_attempt_count or 0) if progress else 0,
             "last_watched_at": _iso(progress.last_watched_at) if progress else None,
-            "is_whitelist_user": item.id in whitelist_user_ids,
-            "completed_by_whitelist": course_exempt_enabled,
-            "progress_source": SOURCE_WHITELIST_EXEMPT if course_exempt_enabled else (progress.progress_source if progress else SOURCE_MANUAL),
+            "is_whitelist_user": (item.id in whitelist_user_ids) if reveal_whitelist else False,
+            "completed_by_whitelist": course_exempt_enabled if reveal_whitelist else False,
+            "progress_source": (
+                SOURCE_WHITELIST_EXEMPT if course_exempt_enabled and reveal_whitelist
+                else (progress.progress_source if progress else SOURCE_MANUAL)
+            ),
         })
     return rows
 
@@ -156,12 +160,14 @@ async def export_video_progress(
 ) -> StreamingResponse:
     rows = await get_video_stats(video_id, department, user_id, db, admin)
     video = await _get_video_or_404(db, video_id)
+    reveal_whitelist = is_super_admin(admin)
     user_name = None
     if user_id:
         target = await db.get(User, user_id)
         user_name = _user_name(target) if target and target.role == "user" else None
-    export_rows = [
-        [
+    export_rows = []
+    for item in rows:
+        row = [
             item["name"],
             item["department"],
             item["video_name"],
@@ -173,13 +179,16 @@ async def export_video_progress(
             "是" if item["quiz_passed"] else "否",
             item["answer_attempt_count"],
             item["last_watched_at"] or "",
-            "是" if item["is_whitelist_user"] else "否",
         ]
-        for item in rows
-    ]
+        if reveal_whitelist:
+            row.append("是" if item["is_whitelist_user"] else "否")
+        export_rows.append(row)
+    headers = ["姓名", "部门", "视频名称", "视频总时长", "已观看时长", "观看进度百分比", "是否完成", "完成时间", "答题是否通过", "答题次数", "最后观看时间"]
+    if reveal_whitelist:
+        headers.append("是否白名单")
     return _xlsx_response(
         _build_export_filename("视频学习统计", video.title, department, user_name),
-        ["姓名", "部门", "视频名称", "视频总时长", "已观看时长", "观看进度百分比", "是否完成", "完成时间", "答题是否通过", "答题次数", "最后观看时间", "是否白名单"],
+        headers,
         export_rows,
     )
 

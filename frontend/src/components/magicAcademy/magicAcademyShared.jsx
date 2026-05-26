@@ -397,15 +397,19 @@ export function buildSeriesSections(videos) {
   return { seriesSections, standalone };
 }
 
-export function getVideoSourceLabel(item) {
+export function getVideoSourceLabel(item, revealWhitelist = false) {
   const source = item?.progress?.source || "";
-  if (source === "whitelist_exempt") return "白名单豁免";
+  if (source === "whitelist_exempt") return revealWhitelist ? "白名单豁免" : "";
   return "";
 }
 
-export function getAudioSourceMeta(source) {
+export function getAudioSourceMeta(source, revealWhitelist = false) {
   if (source === "makeup") return { label: "补卡", color: "processing" };
-  if (source === "whitelist_auto") return { label: "白名单自动", color: "purple" };
+  if (source === "whitelist_auto") {
+    return revealWhitelist
+      ? { label: "白名单自动", color: "purple" }
+      : { label: "系统打卡", color: "default" };
+  }
   return { label: "用户上传", color: "success" };
 }
 

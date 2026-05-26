@@ -2,16 +2,21 @@ import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { Button, Popconfirm, Space, Tag } from "antd";
 import { formatTime, getVideoStatusMeta } from "./magicAcademyShared";
 
-export const statsColumns = [
-  { title: "姓名", dataIndex: "name" },
-  { title: "部门", dataIndex: "department", render: (v) => v || "未分配部门" },
-  { title: "已观看", dataIndex: "watched_seconds", render: (v) => formatTime(v) },
-  { title: "进度", dataIndex: "progress_percent", render: (v) => `${Math.round(v || 0)}%` },
-  { title: "完成", dataIndex: "is_completed", render: (v) => v ? <Tag color="success">已完成</Tag> : <Tag>未完成</Tag> },
-  { title: "答题通过", dataIndex: "quiz_passed", render: (v) => v ? "是" : "否" },
-  { title: "答题次数", dataIndex: "answer_attempt_count" },
-  { title: "白名单", dataIndex: "is_whitelist_user", render: (v) => v ? <Tag color="purple">白名单</Tag> : "—" },
-];
+export function buildStatsColumns(showWhitelist = false) {
+  const columns = [
+    { title: "姓名", dataIndex: "name" },
+    { title: "部门", dataIndex: "department", render: (v) => v || "未分配部门" },
+    { title: "已观看", dataIndex: "watched_seconds", render: (v) => formatTime(v) },
+    { title: "进度", dataIndex: "progress_percent", render: (v) => `${Math.round(v || 0)}%` },
+    { title: "完成", dataIndex: "is_completed", render: (v) => v ? <Tag color="success">已完成</Tag> : <Tag>未完成</Tag> },
+    { title: "答题通过", dataIndex: "quiz_passed", render: (v) => v ? "是" : "否" },
+    { title: "答题次数", dataIndex: "answer_attempt_count" },
+  ];
+  if (showWhitelist) {
+    columns.push({ title: "白名单", dataIndex: "is_whitelist_user", render: (v) => v ? <Tag color="purple">白名单</Tag> : "—" });
+  }
+  return columns;
+}
 
 export const answerColumns = [
   { title: "姓名", dataIndex: "name" },

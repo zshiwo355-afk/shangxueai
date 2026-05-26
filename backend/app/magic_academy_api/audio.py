@@ -11,6 +11,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..access import get_user_whitelist_permissions
+from ..access import is_super_admin
 from ..auth import get_current_user, require_admin
 from ..db import get_db
 from ..magic_academy_schemas import (
@@ -39,23 +40,34 @@ from ._utils import (
 from ._video_helpers import _ensure_auto_audio_checkin
 
 
-def _serialize_audio_record(item: MagicAudioUpload, user_map: dict[int, User] | None = None) -> dict[str, Any]:
+def _serialize_audio_record(
+    item: MagicAudioUpload,
+    user_map: dict[int, User] | None = None,
+    *,
+    reveal_whitelist: bool = True,
+) -> dict[str, Any]:
     owner = user_map.get(item.user_id) if user_map else None
     source = item.source or SOURCE_AUDIO_USER_UPLOAD
     source_label = (
         "补卡" if source == SOURCE_AUDIO_MAKEUP
-        else "白名单自动打卡" if source == SOURCE_WHITELIST_AUTO
+        else "白名单自动打卡" if source == SOURCE_WHITELIST_AUTO and reveal_whitelist
+        else "系统自动打卡" if source == SOURCE_WHITELIST_AUTO
         else "用户上传"
     )
+    file_name = item.file_name or ""
+    remark = item.remark or ""
+    if source == SOURCE_WHITELIST_AUTO and not reveal_whitelist:
+        file_name = "system_checkin"
+        remark = "系统自动打卡"
     return {
         "id": item.id,
         "user_id": item.user_id,
         "user_name": _user_name(owner) if owner else "",
         "department": (owner.department or "") if owner else "",
-        "file_name": item.file_name or "",
+        "file_name": file_name,
         "file_size": int(item.file_size or 0),
         "file_type": item.mime_type or "",
-        "remark": item.remark or "",
+        "remark": remark,
         "uploaded_date": _iso(item.uploaded_date),
         "uploaded_time": _iso(item.uploaded_on),
         "status": "已上传",
@@ -72,6 +84,7 @@ def _build_audio_calendar_payload(
     uploads: list[MagicAudioUpload],
     user_map: dict[int, User] | None = None,
     aggregate_users: bool = False,
+    reveal_whitelist: bool = True,
 ) -> list[dict[str, Any]]:
     grouped: dict[str, list[MagicAudioUpload]] = {}
     for item in uploads:
@@ -93,7 +106,7 @@ def _build_audio_calendar_payload(
             "uploaded": bool(items),
             "count": len(items),
             "uploaded_user_count": len(uploaded_users),
-            "records": [_serialize_audio_record(item, user_map) for item in items],
+            "records": [_serialize_audio_record(item, user_map, reveal_whitelist=reveal_whitelist) for item in items],
             "user_ids": uploaded_users if aggregate_users else [],
         })
         cursor += timedelta(days=1)
@@ -464,9 +477,9 @@ async def get_admin_audio_calendar(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     month_start, _ = _parse_month(month)
     month_last_day_value = _month_last_day(month_start)
+    reveal_whitelist = is_super_admin(admin)
     user_stmt = select(User).where(User.role == "user", User.disabled.is_(False))
     if department:
         user_stmt = user_stmt.where(User.department == department)
@@ -495,7 +508,14 @@ async def get_admin_audio_calendar(
         "user_id": user_id,
         "department": department or "",
         "scope": "user" if user_id else "all",
-        "days": _build_audio_calendar_payload(month_start, month_last_day_value, uploads, user_map, aggregate_users=not user_id),
+        "days": _build_audio_calendar_payload(
+            month_start,
+            month_last_day_value,
+            uploads,
+            user_map,
+            aggregate_users=not user_id,
+            reveal_whitelist=reveal_whitelist,
+        ),
     }
 
 

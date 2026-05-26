@@ -221,7 +221,7 @@ def _build_progress_payload(
         payload["source"] = SOURCE_WHITELIST_EXEMPT
         if not payload["completed_at"]:
             payload["completed_at"] = _iso(_now())
-    payload["can_seek_freely"] = _can_seek_freely(video_whitelisted, permissions) or payload["is_completed"]
+    payload["can_seek_freely"] = _can_seek_freely(video_whitelisted, permissions)
     return payload
 
 
@@ -248,12 +248,15 @@ async def _ensure_auto_audio_checkin(
 
     today = date.today()
     existing = await db.execute(
-        select(MagicAudioUpload.id).where(
+        select(MagicAudioUpload.id)
+        .where(
             MagicAudioUpload.user_id == user.id,
             MagicAudioUpload.is_deleted.is_(False),
             MagicAudioUpload.uploaded_date == today,
         )
+        .limit(1)
     )
+    # Historical duplicate rows should not break employee-side APIs.
     if existing.scalar_one_or_none() is not None:
         return
     row = MagicAudioUpload(
