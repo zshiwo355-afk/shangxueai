@@ -1077,6 +1077,28 @@ async def move_material_asset(
     return _asset_to_dict(asset, project=target_project, creator=creator)
 
 
+@router.get("/assets/{asset_id}/signed-url")
+async def get_material_asset_signed_url(
+    asset_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return a raw OSS signed URL for the asset.
+
+    Used by the Office Online Viewer (view.officeapps.live.com) which has
+    to fetch the file from a server it can reach -- it can't replay our
+    backend-side auth, so we hand it a presigned OSS URL directly.
+    """
+    asset, _project = await _ensure_asset_view_access(db, asset_id, admin)
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    signed_url = await asyncio.to_thread(
+        _build_signed_inline_url,
+        asset.object_key,
+        filename=asset.file_name or f"asset-{asset_id}",
+    )
+    return {"url": signed_url, "expires_in": expire_seconds}
+
+
 @router.get("/assets/{asset_id}/preview", response_model=None)
 async def preview_material_asset(
     asset_id: int,

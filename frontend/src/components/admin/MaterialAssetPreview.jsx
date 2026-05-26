@@ -5,9 +5,12 @@ import {
   FileTextOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
-import { Button, Image, Space, Spin, Typography } from "antd";
+import { Alert, Button, Image, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
-import { buildMaterialAssetPreviewUrl } from "../../lib/api.materials";
+import {
+  getMaterialAssetSignedUrl,
+  triggerMaterialDownload,
+} from "../../lib/api.materials";
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -90,10 +93,81 @@ function TextPreview({ url }) {
   );
 }
 
+/**
+ * Office documents (.doc/.docx/.xls/.xlsx/.ppt/.pptx) can't be rendered
+ * natively in the browser. We hand the OSS signed URL to Microsoft's
+ * Office Online Viewer (https://view.officeapps.live.com), which renders
+ * the document on their servers and serves it back to us as an HTML view.
+ *
+ * Caveats users may hit:
+ *   - the file must be reachable from Microsoft's servers (signed OSS
+ *     URLs are public via signature, so this is fine);
+ *   - viewer fails on files >~25MB and on unusual formats (pages give a
+ *     vague error). We surface a download fallback in those cases.
+ */
+function OfficePreview({ asset }) {
+  const [signedUrl, setSignedUrl] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    setSignedUrl("");
+    getMaterialAssetSignedUrl(asset.id)
+      .then((data) => {
+        if (cancelled) return;
+        setSignedUrl(data?.url || "");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err?.message || "获取预览地址失败");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id]);
+
+  if (loading) {
+    return (
+      <div className="material-preview__loading">
+        <Spin />
+      </div>
+    );
+  }
+  if (error || !signedUrl) {
+    return <Text type="danger">预览地址加载失败：{error || "请稍后再试"}</Text>;
+  }
+  const viewerSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <Alert
+        type="info"
+        showIcon
+        message="Word / Excel / PPT 由微软 Office Online 渲染，约需 3–8 秒；超过 25MB 或复杂格式可能加载失败，可点右下角下载查看。"
+      />
+      <iframe
+        title={asset.name || asset.file_name}
+        src={viewerSrc}
+        className="material-preview__office"
+        style={{ width: "100%", height: "78vh", border: "none", borderRadius: 12, background: "#fff" }}
+      />
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Button icon={<DownloadOutlined />} onClick={() => triggerMaterialDownload(asset.id)}>
+          下载文件
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function MaterialAssetPreview({ asset, url }) {
   if (!asset || !url) return null;
   const mode = detectMode(asset);
-  const downloadUrl = buildMaterialAssetPreviewUrl(asset.id, { download: true });
 
   if (mode === "image") {
     return (
@@ -144,17 +218,19 @@ export default function MaterialAssetPreview({ asset, url }) {
     return <TextPreview url={url} />;
   }
 
+  if (mode === "office") {
+    return <OfficePreview asset={asset} />;
+  }
+
   return (
     <div className="material-preview material-preview--fallback">
       <ModeIcon mode={mode} />
       <Title level={5} style={{ margin: 0 }}>{asset.name || asset.file_name}</Title>
       <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        {mode === "office"
-          ? "Office 文档不支持在浏览器内直接预览，请下载后查看。"
-          : "当前文件类型暂不支持在线预览。"}
+        当前文件类型暂不支持在线预览。
       </Paragraph>
       <Space>
-        <Button type="primary" icon={<DownloadOutlined />} href={downloadUrl} target="_blank" rel="noreferrer">
+        <Button type="primary" icon={<DownloadOutlined />} onClick={() => triggerMaterialDownload(asset.id)}>
           下载文件
         </Button>
         <Button href={url} target="_blank" rel="noreferrer">

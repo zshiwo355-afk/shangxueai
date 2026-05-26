@@ -20,6 +20,28 @@ export function buildMaterialAssetPreviewUrl(assetId, { download = false } = {})
   return url.toString();
 }
 
+/**
+ * Trigger a flash-free download. We deliberately avoid `target="_blank"` —
+ * opening a new window for a URL that turns into a download (via
+ * Content-Disposition: attachment) makes the new tab pop and immediately
+ * close, which the user perceives as a screen flash. A bare anchor click
+ * lets the browser intercept the attachment response and skip navigation.
+ */
+export function triggerMaterialDownload(assetId) {
+  const url = buildMaterialAssetPreviewUrl(assetId, { download: true });
+  const a = document.createElement("a");
+  a.href = url;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 0);
+}
+
+export async function getMaterialAssetSignedUrl(assetId) {
+  return getJson(`/api/materials/assets/${assetId}/signed-url`, "获取素材访问地址失败。");
+}
+
 export async function listMaterialProjects(keyword = "") {
   const search = new URLSearchParams();
   if (keyword) search.set("keyword", keyword);

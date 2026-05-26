@@ -48,6 +48,7 @@ import {
   listMaterialProjects,
   moveMaterialAsset,
   moveMaterialProject,
+  triggerMaterialDownload,
   updateMaterialAsset,
   updateMaterialProject,
   uploadMaterialAsset,
@@ -685,9 +686,7 @@ export default function MaterialLibraryPage() {
           <Button
             size="small"
             icon={<DownloadOutlined />}
-            href={buildMaterialAssetPreviewUrl(row.id, { download: true })}
-            target="_blank"
-            rel="noreferrer"
+            onClick={() => triggerMaterialDownload(row.id)}
           >
             下载
           </Button>
