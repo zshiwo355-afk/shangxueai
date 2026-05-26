@@ -23,6 +23,8 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { adminListUsers } from "../../../lib/api.admin";
 import {
+  bulkDeleteAssignments,
+  bulkPushAssignmentsWeCom,
   createAssignments,
   deleteAssignment,
   listAssignments,
@@ -54,7 +56,7 @@ const SUB_STATUS_TAG = {
 };
 
 export default function AssignmentsPanel() {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -67,6 +69,8 @@ export default function AssignmentsPanel() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -193,6 +197,72 @@ export default function AssignmentsPanel() {
       setItems((arr) => arr.map((it) => (it.id === updated.id ? updated : it)));
     } catch (err) {
       message.error(err?.message || "推送失败。");
+    }
+  };
+
+  const runBulkPush = async () => {
+    setBulkBusy(true);
+    try {
+      const res = await bulkPushAssignmentsWeCom(selectedIds);
+      const sent = Number(res?.sent || 0);
+      const failed = Number(res?.failed || 0);
+      if (sent > 0 && failed === 0) {
+        message.success(`已加入推送队列：${sent} 条。`);
+      } else if (sent > 0 && failed > 0) {
+        message.warning(`成功 ${sent} 条，失败 ${failed} 条；详情见列表「企微推送」列。`);
+      } else {
+        message.error(`全部 ${failed} 条推送失败。`);
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量推送失败。");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const performBulkDelete = async (force) => {
+    setBulkBusy(true);
+    try {
+      const res = await bulkDeleteAssignments(selectedIds, force);
+      const deleted = Number(res?.deleted || 0);
+      const skipped = Number(res?.skipped_count || 0);
+      const deletedSubs = Number(res?.deleted_submissions || 0);
+      if (skipped > 0 && !force) {
+        modal.confirm({
+          title: `${skipped} 条派发已有提交记录`,
+          content: `已删除 ${deleted} 条；剩下 ${skipped} 条带有提交，强制删除会同时清掉这些提交（共约 ${res?.skipped?.length || skipped} 条）。是否继续？`,
+          okText: "强制删除",
+          okButtonProps: { danger: true },
+          cancelText: "取消",
+          onOk: async () => {
+            // 用 skipped 列表重新强删
+            try {
+              const r2 = await bulkDeleteAssignments(res.skipped, true);
+              const d2 = Number(r2?.deleted || 0);
+              const ds2 = Number(r2?.deleted_submissions || 0);
+              message.success(`再删除 ${d2} 条派发（连同 ${ds2} 条提交）。`);
+              setSelectedIds([]);
+              reload();
+            } catch (err) {
+              message.error(err?.message || "强制删除失败。");
+            }
+          },
+        });
+      } else if (deleted > 0) {
+        message.success(force && deletedSubs > 0
+          ? `已删除 ${deleted} 条派发（连同 ${deletedSubs} 条提交）。`
+          : `已删除 ${deleted} 条派发。`);
+      } else {
+        message.warning("没有可删除的派发任务。");
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量删除失败。");
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -368,6 +438,11 @@ export default function AssignmentsPanel() {
         loading={loading}
         dataSource={items}
         columns={columns}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: setSelectedIds,
+          preserveSelectedRowKeys: true,
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -379,6 +454,34 @@ export default function AssignmentsPanel() {
         }}
         scroll={{ x: 1280 }}
       />
+
+      {selectedIds.length > 0 ? (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar__count">
+            已选 <strong>{selectedIds.length}</strong> 条派发
+          </span>
+          <div className="bulk-action-bar__actions">
+            <Button onClick={() => setSelectedIds([])} disabled={bulkBusy}>取消选择</Button>
+            <Button
+              icon={<SendOutlined />}
+              loading={bulkBusy}
+              onClick={runBulkPush}
+            >
+              批量推送企微
+            </Button>
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 条派发？`}
+              description="带提交记录的派发会被跳过，可二次确认强制删除。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={() => performBulkDelete(false)}
+            >
+              <Button danger icon={<DeleteOutlined />} loading={bulkBusy}>批量删除</Button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : null}
 
       <Modal
         open={creating}

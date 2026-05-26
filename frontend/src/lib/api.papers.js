@@ -129,6 +129,34 @@ export async function deleteAssignment(id, force = false) {
   return deleteJson(`/api/admin/paper-assignments/${id}${qs}`, "删除派发任务失败。");
 }
 
+export async function bulkDeleteAssignments(ids, force = false) {
+  return postJson(
+    "/api/admin/paper-assignments/bulk-delete",
+    { ids, force },
+    "批量删除派发失败。",
+  );
+}
+
+export async function bulkPushAssignmentsWeCom(ids) {
+  return postJson(
+    "/api/admin/paper-assignments/bulk-wecom-push",
+    { ids },
+    "批量推送企微失败。",
+  );
+}
+
+export async function bulkDeletePapers(ids) {
+  return postJson("/api/admin/papers/bulk-delete", { ids }, "批量删除试卷失败。");
+}
+
+export async function bulkSetPaperStatus(ids, status) {
+  return postJson(
+    "/api/admin/papers/bulk-status",
+    { ids, status },
+    "批量更新试卷状态失败。",
+  );
+}
+
 export async function pushAssignmentWeCom(id) {
   return postJson(`/api/admin/paper-assignments/${id}/wecom-push`, {}, "推送企微失败。");
 }

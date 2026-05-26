@@ -593,6 +593,121 @@ async def push_to_wecom(
     return await _build_assignment_dto(row, db)
 
 
+class BulkAssignmentIdsPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+    force: bool = False
+
+
+class BulkAssignmentPushPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_assignments(
+    payload: BulkAssignmentIdsPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """批量删除派发任务。
+
+    带提交记录的派发，必须 `force=true` 才会级联清掉 paper_answers 和
+    paper_submissions；否则跳过并在 `skipped` 里返回，前端可根据这个
+    重新弹一次确认再以强制模式重试。
+    """
+    del admin
+    ids = sorted({int(i) for i in payload.ids})
+    if not ids:
+        return {"deleted": 0, "skipped": [], "skipped_count": 0, "deleted_submissions": 0}
+
+    # 哪些派发有提交
+    sub_count_rows = (
+        await db.execute(
+            select(PaperSubmission.assignment_id, func.count(PaperSubmission.id))
+            .where(PaperSubmission.assignment_id.in_(ids))
+            .group_by(PaperSubmission.assignment_id)
+        )
+    ).all()
+    sub_count_map = {int(aid): int(cnt) for aid, cnt in sub_count_rows}
+    has_subs = {aid for aid, cnt in sub_count_map.items() if cnt > 0}
+
+    if has_subs and not payload.force:
+        # 不强制：把有提交的跳过，没提交的正常删
+        deletable = [i for i in ids if i not in has_subs]
+        if deletable:
+            await db.execute(sql_delete(PaperAssignment).where(PaperAssignment.id.in_(deletable)))
+        return {
+            "deleted": len(deletable),
+            "skipped": sorted(has_subs),
+            "skipped_count": len(has_subs),
+            "deleted_submissions": 0,
+        }
+
+    # 强制：先清提交、答题，再删派发
+    deleted_subs = 0
+    if has_subs:
+        sub_ids = (
+            await db.execute(
+                select(PaperSubmission.id).where(PaperSubmission.assignment_id.in_(list(has_subs)))
+            )
+        ).scalars().all()
+        if sub_ids:
+            await db.execute(sql_delete(PaperAnswer).where(PaperAnswer.submission_id.in_(sub_ids)))
+            res_sub = await db.execute(sql_delete(PaperSubmission).where(PaperSubmission.id.in_(sub_ids)))
+            deleted_subs = int(res_sub.rowcount or 0)
+
+    res = await db.execute(sql_delete(PaperAssignment).where(PaperAssignment.id.in_(ids)))
+    return {
+        "deleted": int(res.rowcount or 0),
+        "skipped": [],
+        "skipped_count": 0,
+        "deleted_submissions": deleted_subs,
+    }
+
+
+@router.post("/bulk-wecom-push")
+async def bulk_push_assignments_wecom(
+    payload: BulkAssignmentPushPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """批量推送企微。逐条调用 push_assignment，单个失败不影响其它。
+
+    返回每条的成功 / 失败状态，前端展示汇总即可。
+    """
+    del admin
+    ids = sorted({int(i) for i in payload.ids})
+    if not ids:
+        return {"sent": 0, "failed": 0, "results": []}
+
+    rows = (
+        await db.execute(select(PaperAssignment).where(PaperAssignment.id.in_(ids)))
+    ).scalars().all()
+    found_ids = {int(r.id) for r in rows}
+
+    results: list[dict[str, Any]] = []
+    sent = 0
+    failed = 0
+    for assignment_id in ids:
+        if assignment_id not in found_ids:
+            results.append({"id": assignment_id, "ok": False, "message": "派发任务不存在"})
+            failed += 1
+            continue
+        try:
+            result = await push_assignment(assignment_id, db)
+            if result.ok:
+                sent += 1
+                results.append({"id": assignment_id, "ok": True, "message": result.message or ""})
+            else:
+                failed += 1
+                results.append({"id": assignment_id, "ok": False, "message": result.message or "推送失败"})
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            results.append({"id": assignment_id, "ok": False, "message": str(exc)})
+
+    await db.flush()
+    return {"sent": sent, "failed": failed, "results": results}
+
+
 # ---------------- 提交记录 ----------------
 
 

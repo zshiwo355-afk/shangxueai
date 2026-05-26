@@ -374,6 +374,86 @@ async def delete_paper(
     return {"success": True}
 
 
+class BulkPaperIdsPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+
+
+class BulkPaperStatusPayload(BulkPaperIdsPayload):
+    status: str = Field(..., pattern="^(draft|published|archived)$")
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_papers(
+    payload: BulkPaperIdsPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """批量删除试卷。已派发的试卷会被跳过（应改用归档）。"""
+    del admin
+    ids = sorted({int(i) for i in payload.ids})
+    if not ids:
+        return {"deleted": 0, "skipped": [], "skipped_count": 0}
+
+    # 找出有派发记录的试卷 → 不允许直接删
+    assigned_rows = (
+        await db.execute(
+            select(PaperAssignment.paper_id)
+            .where(PaperAssignment.paper_id.in_(ids))
+            .distinct()
+        )
+    ).all()
+    assigned_ids = {int(pid) for (pid,) in assigned_rows}
+    deletable_ids = [i for i in ids if i not in assigned_ids]
+
+    if deletable_ids:
+        await db.execute(sql_delete(PaperQuestion).where(PaperQuestion.paper_id.in_(deletable_ids)))
+        await db.execute(sql_delete(Paper).where(Paper.id.in_(deletable_ids)))
+    return {
+        "deleted": len(deletable_ids),
+        "skipped": sorted(assigned_ids),
+        "skipped_count": len(assigned_ids),
+    }
+
+
+@router.post("/bulk-status")
+async def bulk_set_paper_status(
+    payload: BulkPaperStatusPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """批量切换试卷状态（草稿/已发布/已归档）。
+
+    发布要求至少有 1 道题，否则该试卷会被跳过。"""
+    del admin
+    ids = sorted({int(i) for i in payload.ids})
+    if not ids:
+        return {"updated": 0, "skipped": [], "skipped_count": 0}
+
+    target = ids
+    skipped: list[int] = []
+    if payload.status == "published":
+        # 没有题目的试卷不允许发布
+        empty_rows = (
+            await db.execute(
+                select(Paper.id)
+                .where(Paper.id.in_(ids))
+                .where((Paper.question_count.is_(None)) | (Paper.question_count <= 0))
+            )
+        ).all()
+        empty_ids = {int(pid) for (pid,) in empty_rows}
+        skipped = sorted(empty_ids)
+        target = [i for i in ids if i not in empty_ids]
+
+    res = await db.execute(
+        sql_update(Paper).where(Paper.id.in_(target)).values(status=payload.status)
+    ) if target else None
+    return {
+        "updated": int(res.rowcount) if res is not None else 0,
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+    }
+
+
 @router.post("/{paper_id}/publish", response_model=PaperDTO)
 async def publish_paper(
     paper_id: int,

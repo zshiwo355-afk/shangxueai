@@ -16,6 +16,8 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import {
+  bulkDeletePapers,
+  bulkSetPaperStatus,
   createPaper,
   deletePaper,
   listPapers,
@@ -40,6 +42,7 @@ export default function PaperListPanel() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
 
   const reload = async () => {
     setLoading(true);
@@ -96,6 +99,40 @@ export default function PaperListPanel() {
         }
       },
     });
+  };
+
+  const runBulkStatus = async (status, label) => {
+    try {
+      const res = await bulkSetPaperStatus(selectedIds, status);
+      const updated = Number(res?.updated || 0);
+      const skipped = Number(res?.skipped_count || 0);
+      if (updated > 0) {
+        message.success(skipped > 0 ? `${label} ${updated} 份；${skipped} 份被跳过。` : `已${label} ${updated} 份试卷。`);
+      } else if (skipped > 0) {
+        message.warning(`全部 ${skipped} 份被跳过（发布需先挑题）。`);
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量更新失败。");
+    }
+  };
+
+  const runBulkDelete = async () => {
+    try {
+      const res = await bulkDeletePapers(selectedIds);
+      const deleted = Number(res?.deleted || 0);
+      const skipped = Number(res?.skipped_count || 0);
+      if (deleted > 0) {
+        message.success(skipped > 0 ? `已删除 ${deleted} 份；${skipped} 份已派发，请改用归档。` : `已删除 ${deleted} 份试卷。`);
+      } else if (skipped > 0) {
+        message.warning(`全部 ${skipped} 份已派发，无法删除（请改用归档）。`);
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量删除失败。");
+    }
   };
 
   const columns = [
@@ -180,6 +217,11 @@ export default function PaperListPanel() {
         loading={loading}
         dataSource={items}
         columns={columns}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: setSelectedIds,
+          preserveSelectedRowKeys: true,
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -191,6 +233,30 @@ export default function PaperListPanel() {
         }}
         scroll={{ x: 1320 }}
       />
+
+      {selectedIds.length > 0 ? (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar__count">
+            已选 <strong>{selectedIds.length}</strong> 份试卷
+          </span>
+          <div className="bulk-action-bar__actions">
+            <Button onClick={() => setSelectedIds([])}>取消选择</Button>
+            <Button icon={<SendOutlined />} onClick={() => runBulkStatus("published", "发布")}>批量发布</Button>
+            <Button icon={<InboxOutlined />} onClick={() => runBulkStatus("archived", "归档")}>批量归档</Button>
+            <Button icon={<RedoOutlined />} onClick={() => runBulkStatus("draft", "改为草稿")}>转为草稿</Button>
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 份试卷？`}
+              description="已派发的试卷会被自动跳过；该操作不可撤销。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={runBulkDelete}
+            >
+              <Button danger icon={<DeleteOutlined />}>批量删除</Button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <PaperEditModal
