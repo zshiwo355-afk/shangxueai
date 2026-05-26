@@ -59,8 +59,21 @@ export default function AdminLayout() {
   };
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Sider width={220} theme="light" style={{ borderRight: "1px solid var(--line-soft)" }}>
+    <Layout style={{ height: "100vh" }}>
+      <Sider
+        width={220}
+        theme="light"
+        style={{
+          borderRight: "1px solid var(--line-soft)",
+          height: "100vh",
+          position: "sticky",
+          top: 0,
+          left: 0,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         <div
           style={{
             padding: "20px 16px 16px",
@@ -68,6 +81,7 @@ export default function AdminLayout() {
             alignItems: "center",
             gap: 12,
             borderBottom: "1px solid var(--line-soft)",
+            flexShrink: 0,
           }}
         >
           <div
@@ -94,12 +108,13 @@ export default function AdminLayout() {
           mode="inline"
           selectedKeys={[activeKey]}
           items={menuItems}
+          style={{ flex: 1, overflowY: "auto", borderInlineEnd: 0 }}
           onClick={({ key }) => {
             navigate(`/admin/${key}`);
           }}
         />
       </Sider>
-      <Layout>
+      <Layout style={{ height: "100vh" }}>
         <Header
           style={{
             background: "#fff",
@@ -108,6 +123,10 @@ export default function AdminLayout() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            flexShrink: 0,
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
           }}
         >
           <Typography.Title level={4} style={{ margin: 0 }}>
@@ -115,7 +134,7 @@ export default function AdminLayout() {
           </Typography.Title>
           <Button icon={<LogoutOutlined />} onClick={handleLogout}>退出</Button>
         </Header>
-        <Content style={{ padding: 24, overflow: "auto" }}>
+        <Content style={{ padding: 24, overflow: "auto", flex: 1 }}>
           <Suspense fallback={<TabFallback />}>
             <Routes>
               <Route index element={<Navigate to="users" replace />} />
