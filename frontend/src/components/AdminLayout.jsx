@@ -1,4 +1,4 @@
-import { LogoutOutlined, AppstoreOutlined, FormOutlined, SolutionOutlined, TeamOutlined, ReadOutlined, SafetyCertificateOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import { LogoutOutlined, AppstoreOutlined, BookOutlined, FormOutlined, SolutionOutlined, TeamOutlined, ReadOutlined, SafetyCertificateOutlined, FolderOpenOutlined } from "@ant-design/icons";
 import { Button, Layout, Menu, Spin, Typography } from "antd";
 import { lazy, Suspense, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -20,7 +20,8 @@ const MENU_ITEMS = [
   { key: "options", icon: <AppstoreOutlined />, label: "通关管理" },
   { key: "exams", icon: <FormOutlined />, label: "AI通关" },
   { key: "papers", icon: <SolutionOutlined />, label: "考试管理" },
-  { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理" },
+  { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理", path: "/admin/magic-academy/courses" },
+  { key: "magic-reading", icon: <BookOutlined />, label: "读书打卡管理", path: "/admin/magic-academy/reading" },
   { key: "materials", icon: <FolderOpenOutlined />, label: "素材库管理" },
   { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true },
 ];
@@ -46,6 +47,7 @@ export default function AdminLayout() {
   const activeKey = useMemo(() => {
     if (location.pathname.startsWith("/admin/whitelist")) return "whitelist";
     if (location.pathname.startsWith("/admin/materials")) return "materials";
+    if (location.pathname.startsWith("/admin/magic-academy/reading")) return "magic-reading";
     if (location.pathname.startsWith("/admin/magic-academy")) return "magic-academy";
     if (location.pathname.startsWith("/admin/papers")) return "papers";
     const m = location.pathname.match(/^\/admin\/?([\w-]+)?/);
@@ -110,7 +112,8 @@ export default function AdminLayout() {
           items={menuItems}
           style={{ flex: 1, overflowY: "auto", borderInlineEnd: 0 }}
           onClick={({ key }) => {
-            navigate(`/admin/${key}`);
+            const item = menuItems.find((menuItem) => menuItem.key === key);
+            navigate(item?.path || `/admin/${key}`);
           }}
         />
       </Sider>
@@ -142,7 +145,9 @@ export default function AdminLayout() {
               <Route path="options" element={<OptionsTab />} />
               <Route path="exams" element={<ExamsTab />} />
               <Route path="papers/*" element={<PapersAdminPage />} />
-              <Route path="magic-academy" element={<MagicAcademyPage embedded />} />
+              <Route path="magic-academy" element={<Navigate to="/admin/magic-academy/courses" replace />} />
+              <Route path="magic-academy/courses" element={<MagicAcademyPage embedded adminSection="courses" />} />
+              <Route path="magic-academy/reading" element={<MagicAcademyPage embedded adminSection="reading" />} />
               <Route path="materials" element={<MaterialLibraryPage />} />
               <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
               <Route path="*" element={<Navigate to="users" replace />} />

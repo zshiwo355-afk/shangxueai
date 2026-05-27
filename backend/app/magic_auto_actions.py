@@ -4,7 +4,7 @@ import asyncio
 import random
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import session_scope
@@ -282,7 +282,7 @@ async def _execute_audio_action(db: AsyncSession, action: MagicAutoAction) -> No
         .where(
             MagicAudioUpload.user_id == action.target_user_id,
             MagicAudioUpload.is_deleted.is_(False),
-            MagicAudioUpload.uploaded_date == action.target_date,
+            MagicAudioUpload.reading_content_id == action.reading_content_id,
         )
         .order_by(MagicAudioUpload.id.asc())
     )
@@ -299,6 +299,7 @@ async def _execute_audio_action(db: AsyncSession, action: MagicAutoAction) -> No
         return
     row = MagicAudioUpload(
         user_id=action.target_user_id,
+        reading_content_id=action.reading_content_id,
         file_name="whitelist_auto_checkin",
         file_path="",
         file_size=0,

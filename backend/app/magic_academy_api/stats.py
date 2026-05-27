@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends
+from fastapi import Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,11 +41,37 @@ from ._video_helpers import (
 )
 
 
+def _parse_multi_text_filter(values: list[str] | None) -> list[str]:
+    parsed: list[str] = []
+    for raw in values or []:
+        for item in str(raw or "").split(","):
+            text = item.strip()
+            if text and text not in parsed:
+                parsed.append(text)
+    return parsed
+
+
+def _parse_multi_int_filter(values: list[str] | None, *, field_name: str) -> list[int]:
+    parsed: list[int] = []
+    for raw in values or []:
+        for item in str(raw or "").split(","):
+            text = item.strip()
+            if not text:
+                continue
+            try:
+                number = int(text)
+            except ValueError as exc:
+                raise ValueError(f"{field_name} 格式不正确。") from exc
+            if number > 0 and number not in parsed:
+                parsed.append(number)
+    return parsed
+
+
 @router.get("/videos/{video_id}/stats")
 async def get_video_stats(
     video_id: int,
-    department: str | None = None,
-    user_id: int | None = None,
+    department: list[str] | None = Query(default=None),
+    user_id: list[str] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
@@ -53,7 +79,13 @@ async def get_video_stats(
     video = await _get_video_or_404(db, video_id)
     targets_map = await _get_video_targets(db, [video_id])
     targets = targets_map.get(video_id, [])
-    users = _filter_stats_users(await _collect_target_users(db, video, targets), department, user_id)
+    departments = _parse_multi_text_filter(department)
+    try:
+        user_ids = _parse_multi_int_filter(user_id, field_name="user_id")
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    users = _filter_stats_users(await _collect_target_users(db, video, targets), departments, user_ids)
     if not users:
         return []
     user_ids = [item.id for item in users]
@@ -131,8 +163,8 @@ async def get_video_stats(
 @router.get("/videos/{video_id}/answers")
 async def get_video_answer_details(
     video_id: int,
-    department: str | None = None,
-    user_id: int | None = None,
+    department: list[str] | None = Query(default=None),
+    user_id: list[str] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
@@ -140,7 +172,13 @@ async def get_video_answer_details(
     video = await _get_video_or_404(db, video_id)
     targets_map = await _get_video_targets(db, [video_id])
     targets = targets_map.get(video_id, [])
-    users = _filter_stats_users(await _collect_target_users(db, video, targets), department, user_id)
+    departments = _parse_multi_text_filter(department)
+    try:
+        user_ids_filter = _parse_multi_int_filter(user_id, field_name="user_id")
+    except ValueError as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    users = _filter_stats_users(await _collect_target_users(db, video, targets), departments, user_ids_filter)
     if not users:
         return []
     user_ids = [item.id for item in users]
@@ -176,17 +214,19 @@ async def get_video_answer_details(
 @router.get("/videos/{video_id}/export-progress")
 async def export_video_progress(
     video_id: int,
-    department: str | None = None,
-    user_id: int | None = None,
+    department: list[str] | None = Query(default=None),
+    user_id: list[str] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> StreamingResponse:
     rows = await get_video_stats(video_id, department, user_id, db, admin)
     video = await _get_video_or_404(db, video_id)
     reveal_whitelist = is_super_admin(admin)
+    departments = _parse_multi_text_filter(department)
+    selected_user_ids = _parse_multi_int_filter(user_id, field_name="user_id")
     user_name = None
-    if user_id:
-        target = await db.get(User, user_id)
+    if len(selected_user_ids) == 1:
+        target = await db.get(User, selected_user_ids[0])
         user_name = _user_name(target) if target and target.role == "user" else None
     export_rows = []
     for item in rows:
@@ -210,7 +250,7 @@ async def export_video_progress(
     if reveal_whitelist:
         headers.append("是否白名单")
     return _xlsx_response(
-        _build_export_filename("视频学习统计", video.title, department, user_name),
+        _build_export_filename("视频学习统计", video.title, "、".join(departments) if departments else None, user_name),
         headers,
         export_rows,
     )
@@ -219,16 +259,18 @@ async def export_video_progress(
 @router.get("/videos/{video_id}/export-answers")
 async def export_video_answers(
     video_id: int,
-    department: str | None = None,
-    user_id: int | None = None,
+    department: list[str] | None = Query(default=None),
+    user_id: list[str] | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> StreamingResponse:
     rows = await get_video_answer_details(video_id, department, user_id, db, admin)
     video = await _get_video_or_404(db, video_id)
+    departments = _parse_multi_text_filter(department)
+    selected_user_ids = _parse_multi_int_filter(user_id, field_name="user_id")
     user_name = None
-    if user_id:
-        target = await db.get(User, user_id)
+    if len(selected_user_ids) == 1:
+        target = await db.get(User, selected_user_ids[0])
         user_name = _user_name(target) if target and target.role == "user" else None
     export_rows = [
         [
@@ -247,7 +289,7 @@ async def export_video_answers(
         for item in rows
     ]
     return _xlsx_response(
-        _build_export_filename("答题详情", video.title, department, user_name),
+        _build_export_filename("答题详情", video.title, "、".join(departments) if departments else None, user_name),
         ["姓名", "部门", "视频名称", "答题节点", "题目", "用户答案", "正确答案", "是否正确", "得分", "提交时间", "第几次提交"],
         export_rows,
     )

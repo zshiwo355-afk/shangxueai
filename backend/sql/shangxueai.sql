@@ -11,7 +11,7 @@
  Target Server Version : 80026 (8.0.26)
  File Encoding         : 65001
 
- Date: 23/05/2026 11:41:53
+ Date: 25/05/2026 16:45:53
 */
 
 SET NAMES utf8mb4;
@@ -88,7 +88,8 @@ CREATE TABLE `exams`  (
   `completed_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_exams_user_status`(`user_id` ASC, `status` ASC) USING BTREE,
-  INDEX `idx_exams_created_by`(`created_by` ASC) USING BTREE
+  INDEX `idx_exams_created_by`(`created_by` ASC) USING BTREE,
+  INDEX `idx_exams_created_at`(`created_at` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '考试任务' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -99,6 +100,8 @@ CREATE TABLE `magic_audio_makeup_settings`  (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `enabled` tinyint(1) NOT NULL DEFAULT 0,
   `make_up_days` int NOT NULL DEFAULT 0,
+  `audio_random_window_minutes` int NOT NULL DEFAULT 0,
+  `video_random_window_minutes` int NOT NULL DEFAULT 0,
   `updated_by` bigint NULL DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -112,6 +115,7 @@ DROP TABLE IF EXISTS `magic_audio_uploads`;
 CREATE TABLE `magic_audio_uploads`  (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL,
+  `reading_content_id` bigint NULL DEFAULT NULL,
   `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size` bigint NOT NULL DEFAULT 0,
@@ -126,8 +130,42 @@ CREATE TABLE `magic_audio_uploads`  (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_magic_audio_uploads_user_month`(`user_id` ASC, `uploaded_date` ASC, `is_deleted` ASC) USING BTREE
+  INDEX `idx_magic_audio_uploads_user_month`(`user_id` ASC, `uploaded_date` ASC, `is_deleted` ASC) USING BTREE,
+  INDEX `idx_magic_audio_uploads_reading_content_id`(`reading_content_id` ASC) USING BTREE,
+  INDEX `idx_magic_audio_uploads_user_content`(`user_id` ASC, `reading_content_id` ASC, `is_deleted` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '魔学院读书录音上传' ROW_FORMAT = Dynamic;
+
+-- ----------------------------
+-- Table structure for magic_auto_actions
+-- ----------------------------
+DROP TABLE IF EXISTS `magic_auto_actions`;
+CREATE TABLE `magic_auto_actions`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `action_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `target_user_id` bigint NOT NULL,
+  `target_date` date NULL DEFAULT NULL,
+  `video_id` bigint NULL DEFAULT NULL,
+  `reading_content_id` bigint NULL DEFAULT NULL,
+  `trigger_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `trigger_ref_id` bigint NULL DEFAULT NULL,
+  `dedupe_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `window_start_at` datetime NOT NULL,
+  `window_end_at` datetime NOT NULL,
+  `scheduled_at` datetime NOT NULL,
+  `executed_at` datetime NULL DEFAULT NULL,
+  `attempt_count` int NOT NULL DEFAULT 0,
+  `last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `created_by` bigint NULL DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `uk_magic_auto_actions_dedupe`(`dedupe_key` ASC) USING BTREE,
+  INDEX `idx_magic_auto_actions_due`(`status` ASC, `scheduled_at` ASC, `window_end_at` ASC) USING BTREE,
+  INDEX `idx_magic_auto_actions_target`(`action_type` ASC, `target_user_id` ASC, `target_date` ASC) USING BTREE,
+  INDEX `idx_magic_auto_actions_video`(`video_id` ASC) USING BTREE,
+  INDEX `idx_magic_auto_actions_reading`(`reading_content_id` ASC) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '白名单随机自动打卡/视频完成调度' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for magic_questions
@@ -202,7 +240,7 @@ CREATE TABLE `magic_reading_content_targets`  (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_magic_reading_content_targets_lookup`(`content_id` ASC, `target_type` ASC, `target_id` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Reading content targets' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Reading content targets' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for magic_reading_contents
@@ -211,8 +249,13 @@ DROP TABLE IF EXISTS `magic_reading_contents`;
 CREATE TABLE `magic_reading_contents`  (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `reading_date` date NOT NULL,
+  `push_time` time NULL DEFAULT NULL,
+  `push_at` datetime NULL DEFAULT NULL,
+  `makeup_deadline_at` datetime NULL DEFAULT NULL,
   `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
+  `material_asset_id` bigint NULL DEFAULT NULL,
   `image_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `image_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `image_file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
@@ -225,8 +268,11 @@ CREATE TABLE `magic_reading_contents`  (
   `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
   `deleted_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_magic_reading_contents_date`(`reading_date` ASC, `is_deleted` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Reading content pushes' ROW_FORMAT = Dynamic;
+  INDEX `idx_magic_reading_contents_date`(`reading_date` ASC, `is_deleted` ASC) USING BTREE,
+  INDEX `idx_magic_reading_contents_push_at`(`push_at` ASC) USING BTREE,
+  INDEX `idx_magic_reading_contents_makeup_deadline_at`(`makeup_deadline_at` ASC) USING BTREE,
+  INDEX `idx_magic_reading_contents_material_asset`(`material_asset_id` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Reading content pushes' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for magic_video_progress
@@ -417,7 +463,8 @@ CREATE TABLE `magic_videos`  (
   `deleted_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_magic_videos_status`(`status` ASC, `created_at` ASC) USING BTREE,
-  INDEX `idx_magic_videos_material_asset`(`material_asset_id` ASC) USING BTREE
+  INDEX `idx_magic_videos_material_asset`(`material_asset_id` ASC) USING BTREE,
+  INDEX `idx_magic_videos_deleted_created`(`deleted_at` ASC, `created_at` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '魔学院视频' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -445,8 +492,9 @@ CREATE TABLE `material_assets`  (
   `deleted_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_material_assets_project_type`(`project_id` ASC, `asset_type` ASC, `is_deleted` ASC) USING BTREE,
-  INDEX `idx_material_assets_project_sort`(`project_id` ASC, `sort_order` ASC, `is_deleted` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Material assets' ROW_FORMAT = Dynamic;
+  INDEX `idx_material_assets_project_sort`(`project_id` ASC, `sort_order` ASC, `is_deleted` ASC) USING BTREE,
+  INDEX `idx_material_assets_deleted_type_created`(`is_deleted` ASC, `asset_type` ASC, `created_at` ASC, `id` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 9 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Material assets' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for material_projects
@@ -467,7 +515,8 @@ CREATE TABLE `material_projects`  (
   `deleted_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_material_projects_creator`(`created_by` ASC, `is_deleted` ASC) USING BTREE,
-  INDEX `idx_material_projects_parent_sort`(`parent_id` ASC, `sort_order` ASC, `is_deleted` ASC) USING BTREE
+  INDEX `idx_material_projects_parent_sort`(`parent_id` ASC, `sort_order` ASC, `is_deleted` ASC) USING BTREE,
+  INDEX `idx_material_projects_visibility`(`is_deleted` ASC, `visibility` ASC, `created_by` ASC) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Material projects' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
@@ -490,7 +539,7 @@ CREATE TABLE `paper_answers`  (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE INDEX `uk_paper_answers_sub_pq`(`submission_id` ASC, `paper_question_id` ASC) USING BTREE,
   INDEX `idx_paper_answers_submission`(`submission_id` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 11 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷单题作答' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 21 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷单题作答' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for paper_assignments
@@ -515,7 +564,7 @@ CREATE TABLE `paper_assignments`  (
   UNIQUE INDEX `uk_paper_assignments_paper_user`(`paper_id` ASC, `user_id` ASC) USING BTREE,
   INDEX `idx_paper_assignments_user_status`(`user_id` ASC, `status` ASC) USING BTREE,
   INDEX `idx_paper_assignments_paper_status`(`paper_id` ASC, `status` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷派发任务' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 19 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷派发任务' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for paper_questions
@@ -558,7 +607,7 @@ CREATE TABLE `paper_submissions`  (
   INDEX `idx_paper_submissions_assign`(`assignment_id` ASC, `attempt_no` ASC) USING BTREE,
   INDEX `idx_paper_submissions_status`(`status` ASC, `submitted_at` ASC) USING BTREE,
   INDEX `idx_paper_submissions_user`(`user_id` ASC, `paper_id` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷提交主表' ROW_FORMAT = Dynamic;
+) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '试卷提交主表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------
 -- Table structure for papers
@@ -707,7 +756,29 @@ CREATE TABLE `users`  (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `uk_users_username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '用户表' ROW_FORMAT = Dynamic;
+  UNIQUE INDEX `uk_users_username`(`username` ASC) USING BTREE,
+  INDEX `idx_users_role_disabled_status_dept`(`role` ASC, `disabled` ASC, `status` ASC, `department` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 966 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '用户表' ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+
+INSERT INTO `users` (`username`, `password_md5`, `display_name`, `real_name`, `department`, `position`, `role`, `is_newcomer`, `status`, `disabled`)
+VALUES ('admin', 'e10adc3949ba59abbe56e057f20f883e', '系统管理员', '系统管理员', '平台', '管理员', 'admin', 0, 'active', 0);
+
+-- 默认下拉项
+INSERT INTO `config_options` (`category`, `value`, `sort_order`, `enabled`) VALUES
+  ('training_type', '初购转化',         10, 1),
+  ('training_type', '复购转化',         20, 1),
+  ('training_type', '全链路成交',       30, 1),
+
+  ('difficulty',    '简单',             10, 1),
+  ('difficulty',    '中等',             20, 1),
+  ('difficulty',    '困难',             30, 1),
+
+  ('customer_type', '随机',             10, 1),
+  ('customer_type', '送礼客户',         20, 1),
+  ('customer_type', '商务接待客户',     30, 1),
+  ('customer_type', '自饮客户',         40, 1),
+  ('customer_type', '企业客户',         50, 1),
+  ('customer_type', '价格敏感客户',     60, 1);

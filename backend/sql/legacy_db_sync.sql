@@ -25,6 +25,110 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_audio_uploads'
+    AND COLUMN_NAME = 'reading_content_id'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_audio_uploads` ADD COLUMN `reading_content_id` BIGINT NULL DEFAULT NULL AFTER `user_id`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_audio_uploads'
+    AND INDEX_NAME = 'idx_magic_audio_uploads_reading_content_id'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_audio_uploads` ADD KEY `idx_magic_audio_uploads_reading_content_id` (`reading_content_id`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_audio_uploads'
+    AND COLUMN_NAME = 'active_reading_content_id'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_audio_uploads` ADD COLUMN `active_reading_content_id` BIGINT GENERATED ALWAYS AS (CASE WHEN `is_deleted` = 0 THEN `reading_content_id` ELSE NULL END) STORED AFTER `reading_content_id`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE `magic_audio_uploads` dup
+JOIN (
+  SELECT `user_id`, `reading_content_id`, MIN(`id`) AS `keep_id`
+  FROM `magic_audio_uploads`
+  WHERE `is_deleted` = 0
+    AND `reading_content_id` IS NOT NULL
+  GROUP BY `user_id`, `reading_content_id`
+  HAVING COUNT(*) > 1
+) keepers
+  ON keepers.`user_id` = dup.`user_id`
+ AND keepers.`reading_content_id` = dup.`reading_content_id`
+SET dup.`is_deleted` = 1,
+    dup.`deleted_at` = COALESCE(dup.`deleted_at`, NOW()),
+    dup.`remark` = CONCAT(
+      LEFT(COALESCE(dup.`remark`, ''), 200),
+      CASE
+        WHEN COALESCE(dup.`remark`, '') = '' THEN ''
+        ELSE ' '
+      END,
+      '[deduped by legacy_db_sync]'
+    )
+WHERE dup.`is_deleted` = 0
+  AND dup.`id` <> keepers.`keep_id`;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_audio_uploads'
+    AND INDEX_NAME = 'uk_magic_audio_uploads_user_content'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_audio_uploads` ADD UNIQUE KEY `uk_magic_audio_uploads_user_content` (`user_id`, `active_reading_content_id`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_audio_uploads'
+    AND INDEX_NAME = 'idx_magic_audio_uploads_user_content'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_audio_uploads` ADD KEY `idx_magic_audio_uploads_user_content` (`user_id`, `reading_content_id`, `is_deleted`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 CREATE TABLE IF NOT EXISTS `question_bank` (
   `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
   `question_type`       VARCHAR(16)  NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
@@ -454,11 +558,44 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+CREATE TABLE IF NOT EXISTS `magic_reading_series` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `title`       VARCHAR(255) NOT NULL,
+  `description` TEXT         NULL,
+  `start_date`  DATE         NULL DEFAULT NULL,
+  `end_date`    DATE         NULL DEFAULT NULL,
+  `status`      VARCHAR(16)  NOT NULL DEFAULT 'draft',
+  `created_by`  BIGINT       NOT NULL,
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_series_status` (`status`, `created_at`),
+  KEY `idx_magic_reading_series_date` (`start_date`, `end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reading series';
+
+CREATE TABLE IF NOT EXISTS `magic_reading_series_targets` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `series_id`   BIGINT       NOT NULL,
+  `target_type` VARCHAR(32)  NOT NULL,
+  `target_id`   VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_series_targets_series` (`series_id`),
+  KEY `idx_magic_reading_series_targets_lookup` (`series_id`, `target_type`, `target_id`),
+  KEY `idx_magic_reading_series_targets_type_target` (`target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reading series default targets';
+
 CREATE TABLE IF NOT EXISTS `magic_reading_contents` (
   `id`                BIGINT        NOT NULL AUTO_INCREMENT,
+  `series_id`         BIGINT        NULL DEFAULT NULL,
   `reading_date`      DATE          NOT NULL,
+  `push_time`         TIME          NULL DEFAULT NULL,
+  `push_at`           DATETIME      NULL DEFAULT NULL,
+  `makeup_deadline_at` DATETIME     NULL DEFAULT NULL,
   `title`             VARCHAR(255)  NOT NULL,
   `description`       TEXT          NULL,
+  `source_type`       VARCHAR(32)   NOT NULL DEFAULT 'upload',
+  `material_asset_id` BIGINT        NULL DEFAULT NULL,
   `image_object_key`  VARCHAR(1024) NOT NULL,
   `image_url`         VARCHAR(2048) NOT NULL DEFAULT '',
   `image_file_name`   VARCHAR(255)  NOT NULL DEFAULT '',
@@ -471,8 +608,169 @@ CREATE TABLE IF NOT EXISTS `magic_reading_contents` (
   `is_deleted`        TINYINT(1)    NOT NULL DEFAULT 0,
   `deleted_at`        DATETIME      NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_contents_series` (`series_id`),
   KEY `idx_magic_reading_contents_date` (`reading_date`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reading content pushes';
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'series_id'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `series_id` BIGINT NULL DEFAULT NULL AFTER `id`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND INDEX_NAME = 'idx_magic_reading_contents_series'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD KEY `idx_magic_reading_contents_series` (`series_id`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'push_time'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `push_time` TIME NULL DEFAULT NULL AFTER `reading_date`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'push_at'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `push_at` DATETIME NULL DEFAULT NULL AFTER `push_time`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'makeup_deadline_at'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `makeup_deadline_at` DATETIME NULL DEFAULT NULL AFTER `push_at`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'source_type'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `source_type` VARCHAR(32) NOT NULL DEFAULT 'upload' AFTER `description`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND COLUMN_NAME = 'material_asset_id'
+);
+SET @sql = IF(
+  @col_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD COLUMN `material_asset_id` BIGINT NULL DEFAULT NULL AFTER `source_type`",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND INDEX_NAME = 'idx_magic_reading_contents_push_at'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD KEY `idx_magic_reading_contents_push_at` (`push_at`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND INDEX_NAME = 'idx_magic_reading_contents_makeup_deadline_at'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD KEY `idx_magic_reading_contents_makeup_deadline_at` (`makeup_deadline_at`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = @db_name
+    AND TABLE_NAME = 'magic_reading_contents'
+    AND INDEX_NAME = 'idx_magic_reading_contents_material_asset'
+);
+SET @sql = IF(
+  @idx_exists = 0,
+  "ALTER TABLE `magic_reading_contents` ADD KEY `idx_magic_reading_contents_material_asset` (`material_asset_id`)",
+  "SELECT 1"
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS `magic_reading_content_targets` (
   `id`          BIGINT       NOT NULL AUTO_INCREMENT,

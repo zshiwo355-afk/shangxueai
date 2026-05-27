@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     BigInteger,
@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
     func,
 )
@@ -78,13 +79,56 @@ class MagicAudioMakeupSetting(Base):
     )
 
 
+class MagicReadingSeries(Base):
+    __tablename__ = "magic_reading_series"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_magic_reading_series_status", "status", "created_at"),
+        Index("idx_magic_reading_series_date", "start_date", "end_date"),
+    )
+
+
+class MagicReadingSeriesTarget(Base):
+    __tablename__ = "magic_reading_series_targets"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    series_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_magic_reading_series_targets_series", "series_id"),
+        Index("idx_magic_reading_series_targets_lookup", "series_id", "target_type", "target_id"),
+        Index("idx_magic_reading_series_targets_type_target", "target_type", "target_id"),
+    )
+
+
 class MagicReadingContent(Base):
     __tablename__ = "magic_reading_contents"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    series_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     reading_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    push_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    push_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    makeup_deadline_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
+    source_type: Mapped[str] = mapped_column(String(32), default="upload")
+    material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     image_object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     image_url: Mapped[str] = mapped_column(String(2048), default="")
     image_file_name: Mapped[str] = mapped_column(String(255), default="")
@@ -507,6 +551,7 @@ class MagicAudioUpload(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    reading_content_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
     file_size: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -523,6 +568,8 @@ class MagicAudioUpload(Base):
 
     __table_args__ = (
         Index("idx_magic_audio_uploads_user_month", "user_id", "uploaded_date", "is_deleted"),
+        Index("idx_magic_audio_uploads_reading_content_id", "reading_content_id"),
+        Index("idx_magic_audio_uploads_user_content", "user_id", "reading_content_id", "is_deleted"),
     )
 
 

@@ -21,6 +21,7 @@ import {
   Button,
   Calendar,
   Card,
+  Checkbox,
   Empty,
   Form,
   DatePicker,
@@ -38,6 +39,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
@@ -55,6 +57,9 @@ import {
   createMagicWatchConfirmLog,
   createMagicWhitelist,
   createAdminReadingContent,
+  createAdminReadingContentsBatch,
+  createAdminReadingSeries,
+  archiveAdminReadingSeries,
   deleteMagicQuestion,
   deleteMagicQuizPoint,
   deleteAdminReadingContent,
@@ -64,14 +69,19 @@ import {
   deleteMyAudio,
   disableMagicVideo,
   downloadMagicFile,
+  exportAdminReadingAudioStatistics,
   failMagicVideoUpload,
   failMagicVideoReplaceUpload,
   fetchAdminAudioCalendar,
+  fetchAdminReadingAudioStatistics,
+  fetchAdminReadingAudioStatisticUsers,
   fetchAdminReadingContentDetail,
   fetchAdminReadingContents,
+  fetchAdminReadingSeries,
+  fetchAdminReadingSeriesDetail,
   fetchMagicAudioMakeupSetting,
-  fetchMagicAudioStats,
   fetchMagicWatchConfirmSetting,
+  confirmAdminReadingContentsImport,
   fetchMyReadingContents,
   fetchMyAudioMakeupOptions,
   fetchMagicVideoAnswers,
@@ -87,6 +97,7 @@ import {
   listMagicVideos,
   listMagicWhitelist,
   publishMagicVideo,
+  previewAdminReadingContentsImport,
   reorderMagicVideoSeriesItems,
   removeMagicVideoSeriesItem,
   saveMyMagicVideoProgress,
@@ -94,6 +105,8 @@ import {
   submitMyAudioMakeup,
   updateMagicVideoSeries,
   updateAdminReadingContent,
+  updateAdminReadingContentStatus,
+  updateAdminReadingSeries,
   updateMagicAudioMakeupSetting,
   updateMagicWatchConfirmSetting,
   updateMagicQuestion,
@@ -103,7 +116,6 @@ import {
   addMagicVideoSeriesItem,
 } from "../lib/api.magic";
 import { adminListUsers } from "../lib/api.admin";
-import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../lib/api.materials";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
 import QuestionFormModal from "./magicAcademy/QuestionFormModal";
 import ReadingContentFormModal from "./magicAcademy/ReadingContentFormModal";
@@ -117,15 +129,12 @@ import {
 } from "./magicAcademy/MagicAcademyMiscModals";
 import {
   answerColumns,
-  audioColumns,
   buildAdminVideoColumns,
   buildStatsColumns,
   buildWhitelistColumns,
 } from "./magicAcademy/adminColumns";
 import {
   buildAudioCalendarMap,
-  buildReadingDispatchFormValues,
-  buildReadingDispatchPayload,
   buildSeriesSections,
   buildVideoDispatchFormValues,
   buildVideoTargetsFromDispatch,
@@ -151,15 +160,165 @@ import {
 } from "./magicAcademy/magicAcademyShared";
 
 const { Title, Text, Paragraph } = Typography;
+const { RangePicker } = DatePicker;
+const ADMIN_SECTION_TABS = {
+  courses: ["video_manage", "quiz", "series", "stats"],
+  reading: ["reading_contents", "reading_series", "audio_stats"],
+};
 
-export default function MagicAcademyPage({ embedded = false }) {
+function getDefaultAdminTab(section) {
+  return section === "reading" ? "reading_contents" : "video_manage";
+}
+
+const READING_SERIES_STATUS_OPTIONS = [
+  { value: "draft", label: "草稿" },
+  { value: "active", label: "启用" },
+  { value: "paused", label: "暂停" },
+  { value: "archived", label: "已归档" },
+];
+const READING_SERIES_STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "全部" },
+  ...READING_SERIES_STATUS_OPTIONS,
+];
+const READING_SERIES_STATUS_META = {
+  draft: { label: "草稿", color: "default" },
+  active: { label: "启用", color: "success" },
+  paused: { label: "暂停", color: "warning" },
+  archived: { label: "已归档", color: "default" },
+};
+const AUDIO_EXPORT_DEFAULT_COLUMNS = [
+  "reading_content_id",
+  "reading_date",
+  "push_time",
+  "title",
+  "target_summary",
+  "employee_name",
+  "department",
+  "position",
+  "should_complete",
+  "is_completed",
+  "uploaded_at",
+  "is_makeup",
+  "makeup_deadline",
+  "current_status",
+];
+const AUDIO_EXPORT_EMPLOYEE_COLUMNS = [
+  "employee_id",
+  "employee_name",
+  "department",
+  "position",
+  "should_complete",
+  "is_completed",
+  "uploaded_at",
+  "is_makeup",
+  "current_status",
+];
+const AUDIO_EXPORT_STAT_COLUMNS = [
+  "reading_content_id",
+  "series_name",
+  "reading_date",
+  "push_time",
+  "title",
+  "target_summary",
+  "pushed_count",
+  "completion_rate",
+  "makeup_deadline",
+  "content_status",
+];
+const AUDIO_EXPORT_FIELD_GROUPS = [
+  {
+    key: "content",
+    title: "读书内容信息",
+    fields: [
+      { key: "reading_content_id", label: "读书内容ID" },
+      { key: "series_name", label: "所属系列" },
+      { key: "reading_date", label: "读书日期" },
+      { key: "push_time", label: "推送时间" },
+      { key: "title", label: "标题" },
+      { key: "target_summary", label: "推送对象" },
+      { key: "pushed_count", label: "推送人数" },
+      { key: "completion_rate", label: "完成率" },
+      { key: "makeup_deadline", label: "补卡截止时间" },
+      { key: "content_status", label: "内容状态" },
+      { key: "created_by_name", label: "创建人" },
+      { key: "created_at", label: "创建时间" },
+    ],
+  },
+  {
+    key: "employee",
+    title: "员工信息",
+    fields: [
+      { key: "employee_id", label: "员工ID" },
+      { key: "employee_name", label: "员工姓名" },
+      { key: "department", label: "部门" },
+      { key: "position", label: "岗位" },
+    ],
+  },
+  {
+    key: "status",
+    title: "打卡状态",
+    fields: [
+      { key: "should_complete", label: "是否应完成" },
+      { key: "is_completed", label: "是否完成" },
+      { key: "uploaded_at", label: "上传时间" },
+      { key: "is_makeup", label: "是否补卡" },
+      { key: "current_status", label: "当前状态" },
+    ],
+  },
+];
+
+function normalizeSeriesTargetsFromForm(values) {
+  if (values.target_all) return [{ target_type: "all", target_id: null }];
+  return [
+    ...(values.target_department_ids || []).map((item) => ({ target_type: "department", target_id: item })),
+    ...(values.target_position_ids || []).map((item) => ({ target_type: "position", target_id: item })),
+    ...(values.target_user_ids || []).map((item) => ({ target_type: "user", target_id: item })),
+  ];
+}
+
+function buildSeriesTargetFormValues(targets = []) {
+  return {
+    target_all: targets.some((item) => item.target_type === "all"),
+    target_department_ids: targets.filter((item) => item.target_type === "department").map((item) => item.target_id),
+    target_position_ids: targets.filter((item) => item.target_type === "position").map((item) => item.target_id),
+    target_user_ids: targets.filter((item) => item.target_type === "user").map((item) => Number(item.target_id)).filter(Boolean),
+  };
+}
+
+function getSeriesTargetSummary(targets = []) {
+  if (!targets.length) return "未设置";
+  if (targets.some((item) => item.target_type === "all")) return "全部员工";
+  const departments = targets.filter((item) => item.target_type === "department");
+  const positions = targets.filter((item) => item.target_type === "position");
+  const users = targets.filter((item) => item.target_type === "user");
+  const parts = [];
+  if (departments.length) parts.push(`部门 ${departments.length} 个`);
+  if (positions.length) parts.push(`岗位 ${positions.length} 个`);
+  if (users.length) parts.push(`人员 ${users.length} 人`);
+  return parts.join("、") || "未设置";
+}
+
+function isReadingDateOutOfRange(readingDate, startDate, endDate) {
+  const current = dayjs(readingDate);
+  if (startDate && current.isBefore(dayjs(startDate), "day")) return true;
+  if (endDate && current.isAfter(dayjs(endDate), "day")) return true;
+  return false;
+}
+
+function isSamePrimitiveArray(left = [], right = []) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item === right[index]);
+}
+
+export default function MagicAcademyPage({ embedded = false, adminSection = "courses" }) {
   const adminMode = isAdmin();
   const superAdminMode = isSuperAdmin();
   const currentUser = getCurrentUser();
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(adminMode ? "video_manage" : "video_manage");
+  const [activeTab, setActiveTab] = useState(adminMode ? getDefaultAdminTab(adminSection) : "video_manage");
   const [academyView, setAcademyView] = useState(
     adminMode
       ? "home"
@@ -179,9 +338,10 @@ export default function MagicAcademyPage({ embedded = false }) {
   const [whitelist, setWhitelist] = useState([]);
   const [statsRows, setStatsRows] = useState([]);
   const [answerRows, setAnswerRows] = useState([]);
-  const [audioRows, setAudioRows] = useState([]);
+  const [audioReadingStatsRows, setAudioReadingStatsRows] = useState([]);
   const [myVideos, setMyVideos] = useState([]);
   const [myAudios, setMyAudios] = useState([]);
+  const [myVideosLoadError, setMyVideosLoadError] = useState("");
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [selectedAdminVideoId, setSelectedAdminVideoId] = useState(null);
   const [videoDetail, setVideoDetail] = useState(null);
@@ -203,10 +363,10 @@ export default function MagicAcademyPage({ embedded = false }) {
   const [watchConfirmForm] = Form.useForm();
   const [seriesForm] = Form.useForm();
   const [statsVideoId, setStatsVideoId] = useState(null);
-  const [statsDepartment, setStatsDepartment] = useState("");
-  const [statsUserId, setStatsUserId] = useState(null);
-  const [appliedStatsDepartment, setAppliedStatsDepartment] = useState("");
-  const [appliedStatsUserId, setAppliedStatsUserId] = useState(null);
+  const [statsDepartment, setStatsDepartment] = useState([]);
+  const [statsUserId, setStatsUserId] = useState([]);
+  const [appliedStatsDepartment, setAppliedStatsDepartment] = useState([]);
+  const [appliedStatsUserId, setAppliedStatsUserId] = useState([]);
   const [whitelistForm] = Form.useForm();
   const [pointForm] = Form.useForm();
   const [quizAnswerState, setQuizAnswerState] = useState({ open: false, point: null, values: {} });
@@ -222,15 +382,41 @@ export default function MagicAcademyPage({ embedded = false }) {
   const [readingContentKeyword, setReadingContentKeyword] = useState("");
   const [readingContentMonth, setReadingContentMonth] = useState(getCurrentMonthText());
   const [readingContentPage, setReadingContentPage] = useState(1);
-  const [readingContentImageFile, setReadingContentImageFile] = useState(null);
-  const [readingImageAssets, setReadingImageAssets] = useState([]);
-  const [readingImageKeyword, setReadingImageKeyword] = useState("");
+  const [readingContentSeriesId, setReadingContentSeriesId] = useState(null);
+  const [readingSeriesRows, setReadingSeriesRows] = useState([]);
+  const [readingSeriesSelectRows, setReadingSeriesSelectRows] = useState([]);
+  const [readingSeriesTotal, setReadingSeriesTotal] = useState(0);
+  const [readingSeriesKeyword, setReadingSeriesKeyword] = useState("");
+  const [readingSeriesStatus, setReadingSeriesStatus] = useState("");
+  const [readingSeriesPage, setReadingSeriesPage] = useState(1);
+  const [readingSeriesModal, setReadingSeriesModal] = useState(null);
+  const [readingSeriesSubmitting, setReadingSeriesSubmitting] = useState(false);
+  const [readingSeriesDetailOpen, setReadingSeriesDetailOpen] = useState(false);
+  const [readingSeriesDetailLoading, setReadingSeriesDetailLoading] = useState(false);
+  const [readingSeriesDetail, setReadingSeriesDetail] = useState(null);
+  const [readingSeriesForm] = Form.useForm();
+  const [readingImportPreviewOpen, setReadingImportPreviewOpen] = useState(false);
+  const [readingImportSubmitting, setReadingImportSubmitting] = useState(false);
+  const [readingImportRows, setReadingImportRows] = useState([]);
+  const [readingImportSummary, setReadingImportSummary] = useState({ total: 0, valid: 0, invalid: 0 });
   const [myReadingContents, setMyReadingContents] = useState([]);
-  const [readingContentForm] = Form.useForm();
   const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
   const [audioMonth, setAudioMonth] = useState(getCurrentMonthText());
+  const [audioDateRange, setAudioDateRange] = useState(null);
+  const [audioReadingContentId, setAudioReadingContentId] = useState(null);
   const [audioDepartment, setAudioDepartment] = useState("");
   const [audioUserId, setAudioUserId] = useState(null);
+  const [audioStatusFilter, setAudioStatusFilter] = useState("all");
+  const [audioReadingOptions, setAudioReadingOptions] = useState([]);
+  const [audioLegacyHint, setAudioLegacyHint] = useState("");
+  const [audioExportModalOpen, setAudioExportModalOpen] = useState(false);
+  const [audioExportColumns, setAudioExportColumns] = useState(AUDIO_EXPORT_DEFAULT_COLUMNS);
+  const [audioExportSubmitting, setAudioExportSubmitting] = useState(false);
+  const [audioDetailOpen, setAudioDetailOpen] = useState(false);
+  const [audioDetailLoading, setAudioDetailLoading] = useState(false);
+  const [audioDetailRow, setAudioDetailRow] = useState(null);
+  const [audioDetailRows, setAudioDetailRows] = useState([]);
+  const [audioDetailLegacyHint, setAudioDetailLegacyHint] = useState("");
   const [myAudioMonth, setMyAudioMonth] = useState(getCurrentMonthText());
   const [myAudioCalendarDays, setMyAudioCalendarDays] = useState([]);
   const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(getTodayText());
@@ -266,12 +452,11 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [selectedSeries, videoSeries, videos]);
   const myAudioCalendarMap = useMemo(() => buildAudioCalendarMap(myAudioCalendarDays), [myAudioCalendarDays]);
   const myAudioMakeupMap = useMemo(
-    () => Object.fromEntries((Array.isArray(myAudioMakeupDays) ? myAudioMakeupDays : []).map((item) => [item.date, item])),
+    () => Object.fromEntries((Array.isArray(myAudioMakeupDays) ? myAudioMakeupDays : []).map((item) => [item.reading_content_id, item])),
     [myAudioMakeupDays],
   );
   const adminAudioCalendarMap = useMemo(() => buildAudioCalendarMap(adminAudioCalendarDays), [adminAudioCalendarDays]);
   const selectedMyAudioDay = myAudioCalendarMap[myAudioSelectedDate] || null;
-  const selectedMyAudioMakeup = myAudioMakeupMap[myAudioSelectedDate] || null;
   const selectedAdminAudioDay = adminAudioCalendarMap[adminAudioSelectedDate] || null;
   const employeeUsers = useMemo(
     () => users.filter((item) => item.role === "user"),
@@ -299,7 +484,11 @@ export default function MagicAcademyPage({ embedded = false }) {
     [employeeUsers],
   );
   const filteredStatsEmployees = useMemo(
-    () => employeeUsers.filter((item) => (statsDepartment ? (item.department || UNASSIGNED_DEPARTMENT_FILTER) === statsDepartment : true)),
+    () => employeeUsers.filter((item) => (
+      statsDepartment.length
+        ? statsDepartment.includes(item.department || UNASSIGNED_DEPARTMENT_FILTER)
+        : true
+    )),
     [employeeUsers, statsDepartment],
   );
   const myRequiredVideos = useMemo(
@@ -314,9 +503,13 @@ export default function MagicAcademyPage({ embedded = false }) {
     () => myVideos.filter((item) => item.progress?.is_completed),
     [myVideos],
   );
+  const selectedReadingContents = useMemo(
+    () => Array.isArray(myReadingContents) ? myReadingContents : [],
+    [myReadingContents],
+  );
   const todayUploadedAudio = useMemo(
-    () => myAudios.some((item) => item.uploaded_date === getTodayText()),
-    [myAudios],
+    () => selectedReadingContents.some((item) => item.completed),
+    [selectedReadingContents],
   );
   const continueStudyVideo = useMemo(
     () => myRequiredVideos.find((item) => !item.is_locked)
@@ -335,20 +528,18 @@ export default function MagicAcademyPage({ embedded = false }) {
     () => (Array.isArray(myAudios) && myAudios.length > 0 ? myAudios[0] : null),
     [myAudios],
   );
-  const selectedReadingContents = useMemo(
-    () => Array.isArray(myReadingContents) ? myReadingContents : [],
-    [myReadingContents],
-  );
-  const readingImageSource = Form.useWatch("image_source", readingContentForm) || "upload";
-  const readingMaterialAssetId = Form.useWatch("material_asset_id", readingContentForm);
-  const selectedReadingImageAsset = useMemo(
-    () => readingImageAssets.find((item) => item.id === readingMaterialAssetId) || null,
-    [readingImageAssets, readingMaterialAssetId],
-  );
   const studyCompletionRate = useMemo(() => {
     if (!myVideos.length) return 0;
     return Math.round((myCompletedVideos.length / myVideos.length) * 100);
   }, [myCompletedVideos.length, myVideos.length]);
+
+  useEffect(() => {
+    if (!adminMode) return;
+    const sectionTabs = ADMIN_SECTION_TABS[adminSection] || ADMIN_SECTION_TABS.courses;
+    if (!sectionTabs.includes(activeTab)) {
+      setActiveTab(getDefaultAdminTab(adminSection));
+    }
+  }, [activeTab, adminMode, adminSection]);
 
   useEffect(() => {
     if (adminMode) return;
@@ -409,6 +600,17 @@ export default function MagicAcademyPage({ embedded = false }) {
   const handleTabChange = (nextTab) => {
     setActiveTab(nextTab);
   };
+  const showLoadError = (key, error, fallbackMessage) => {
+    message.open({
+      key,
+      type: "error",
+      content: error?.message || fallbackMessage,
+    });
+  };
+  const shouldLoadAdminVideoData = adminMode && ["video_manage", "quiz", "stats", "series", "whitelist", "audio_stats"].includes(activeTab);
+  const shouldLoadReadingContents = adminMode && activeTab === "reading_contents";
+  const shouldLoadReadingSeries = adminMode && ["reading_contents", "reading_series"].includes(activeTab);
+  const shouldLoadAudioStats = adminMode && activeTab === "audio_stats";
   const statsEmployeeOptions = useMemo(
     () => filteredStatsEmployees.map((item) => ({
       value: item.id,
@@ -437,13 +639,29 @@ export default function MagicAcademyPage({ embedded = false }) {
     if (!selectedSeriesId && seriesData?.[0]?.id) setSelectedSeriesId(seriesData[0].id);
   };
 
+  const reloadAdminUsers = async () => {
+    if (!adminMode) return;
+    const userData = await adminListUsers();
+    setUsers(Array.isArray(userData) ? userData : []);
+  };
+
   const reloadMyData = async () => {
-    const [videoData, audioData] = await Promise.all([
-      fetchMyMagicVideos().catch(() => []),
-      fetchMyAudios().catch(() => []),
+    const [videoResult, audioResult] = await Promise.allSettled([
+      fetchMyMagicVideos(),
+      fetchMyAudios(),
     ]);
-    setMyVideos(Array.isArray(videoData) ? videoData : []);
-    setMyAudios(Array.isArray(audioData) ? audioData : []);
+    if (videoResult.status === "fulfilled") {
+      setMyVideos(Array.isArray(videoResult.value) ? videoResult.value : []);
+      setMyVideosLoadError("");
+    } else {
+      setMyVideos([]);
+      setMyVideosLoadError(videoResult.reason?.message || "课程列表加载失败。");
+    }
+    if (audioResult.status === "fulfilled") {
+      setMyAudios(Array.isArray(audioResult.value) ? audioResult.value : []);
+    } else {
+      setMyAudios([]);
+    }
   };
 
   const reloadMyAudioCalendar = async (monthText = myAudioMonth) => {
@@ -479,11 +697,81 @@ export default function MagicAcademyPage({ embedded = false }) {
     const result = await fetchAdminReadingContents({
       month: params.month ?? readingContentMonth,
       keyword: params.keyword ?? readingContentKeyword,
+      series_id: params.series_id ?? readingContentSeriesId ?? undefined,
       page: params.page ?? readingContentPage,
       page_size: 20,
     });
     setReadingContents(Array.isArray(result?.items) ? result.items : []);
     setReadingContentsTotal(Number(result?.total || 0));
+  };
+
+  const reloadReadingSeries = async (params = {}) => {
+    const result = await fetchAdminReadingSeries({
+      keyword: params.keyword ?? readingSeriesKeyword,
+      status: params.status ?? readingSeriesStatus,
+      page: params.page ?? readingSeriesPage,
+      page_size: 10,
+    });
+    setReadingSeriesRows(Array.isArray(result?.items) ? result.items : []);
+    setReadingSeriesTotal(Number(result?.total || 0));
+  };
+
+  const reloadReadingSeriesSelectOptions = async () => {
+    const result = await fetchAdminReadingSeries({ page: 1, page_size: 100, only_selectable: true });
+    setReadingSeriesSelectRows(Array.isArray(result?.items) ? result.items : []);
+  };
+
+  const activeReadingSeriesOptions = useMemo(
+    () => readingSeriesSelectRows
+      .filter((item) => ["active", "draft"].includes(item.status))
+      .map((item) => ({
+        value: item.id,
+        label: item.status === "draft" ? `${item.title}（草稿）` : item.title,
+        series: item,
+      })),
+    [readingSeriesSelectRows],
+  );
+
+  const reloadAudioReadingOptions = async (monthText = audioMonth) => {
+    const result = await fetchAdminReadingContents({
+      month: monthText,
+      page: 1,
+      page_size: 200,
+    });
+    setAudioReadingOptions(Array.isArray(result?.items) ? result.items : []);
+  };
+
+  const reloadAdminReadingAudioStats = async () => {
+    const result = await fetchAdminReadingAudioStatistics({
+      month: audioMonth,
+      start_date: audioDateRange?.[0] ? audioDateRange[0].format("YYYY-MM-DD") : undefined,
+      end_date: audioDateRange?.[1] ? audioDateRange[1].format("YYYY-MM-DD") : undefined,
+      reading_content_id: audioReadingContentId || undefined,
+      department: audioDepartment || undefined,
+      user_id: audioUserId || undefined,
+      status: audioStatusFilter || undefined,
+    });
+    setAudioReadingStatsRows(Array.isArray(result?.items) ? result.items : []);
+    setAudioLegacyHint(result?.legacy_unbound_hint || "");
+  };
+
+  const openAudioDetail = async (row) => {
+    try {
+      setAudioDetailLoading(true);
+      setAudioDetailRow(row);
+      const result = await fetchAdminReadingAudioStatisticUsers(row.reading_content_id, {
+        department: audioDepartment || undefined,
+        user_id: audioUserId || undefined,
+        status: audioStatusFilter || undefined,
+      });
+      setAudioDetailRows(Array.isArray(result?.items) ? result.items : []);
+      setAudioDetailLegacyHint(result?.legacy_unbound_hint || "");
+      setAudioDetailOpen(true);
+    } catch (error) {
+      message.error(error?.message || "读书内容完成明细加载失败。");
+    } finally {
+      setAudioDetailLoading(false);
+    }
   };
 
   const reloadMyReadingContents = async (dateText = myAudioSelectedDate) => {
@@ -494,20 +782,28 @@ export default function MagicAcademyPage({ embedded = false }) {
   useEffect(() => {
     (async () => {
       try {
-        await reloadMyData();
-        await reloadAdminData();
+        if (!adminMode) {
+          await reloadMyData();
+        }
       } catch (error) {
         message.error(error?.message || "课程管理数据加载失败。");
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!adminMode) return;
+    if (!shouldLoadAdminVideoData) return;
     reloadAdminData().catch((error) => {
-      message.error(error?.message || "视频列表加载失败。");
+      showLoadError("magic-admin-video-data", error, "视频列表加载失败。");
     });
-  }, [adminVideoPage, adminVideoPageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [adminVideoPage, adminVideoPageSize, shouldLoadAdminVideoData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!adminMode || adminSection !== "reading") return;
+    reloadAdminUsers().catch((error) => {
+      showLoadError("magic-reading-users", error, "用户列表加载失败。");
+    });
+  }, [adminMode, adminSection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (academyView !== "courses") {
@@ -553,14 +849,14 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [selectedVideoId, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!quizVideoId || !adminMode) return;
+    if (!quizVideoId || !adminMode || activeTab !== "quiz") return;
     listMagicQuizPoints(quizVideoId).then(setQuizPoints).catch((error) => {
-      message.error(error?.message || "答题节点加载失败。");
+      showLoadError("magic-quiz-points", error, "答题节点加载失败。");
     });
-  }, [quizVideoId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quizVideoId, adminMode, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!quizVideoId || !adminMode) return;
+    if (!quizVideoId || !adminMode || activeTab !== "quiz") return;
     fetchMagicWatchConfirmSetting(quizVideoId).then((data) => {
       watchConfirmForm.setFieldsValue({
         enabled: !!data?.enabled,
@@ -569,35 +865,62 @@ export default function MagicAcademyPage({ embedded = false }) {
         button_text: data?.button_text || "继续学习",
       });
     }).catch((error) => {
-      message.error(error?.message || "观看确认配置加载失败。");
+      showLoadError("magic-watch-confirm", error, "观看确认配置加载失败。");
     });
-  }, [quizVideoId, adminMode, watchConfirmForm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quizVideoId, adminMode, activeTab, watchConfirmForm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!statsVideoId || !adminMode) return;
+    if (!statsVideoId || !adminMode || activeTab !== "stats") return;
     Promise.all([
       fetchMagicVideoStats(statsVideoId, {
-        department: appliedStatsDepartment || undefined,
-        user_id: appliedStatsUserId || undefined,
+        departments: appliedStatsDepartment,
+        user_ids: appliedStatsUserId,
       }),
       fetchMagicVideoAnswers(statsVideoId, {
-        department: appliedStatsDepartment || undefined,
-        user_id: appliedStatsUserId || undefined,
+        departments: appliedStatsDepartment,
+        user_ids: appliedStatsUserId,
       }),
     ])
       .then(([stats, answers]) => {
         setStatsRows(Array.isArray(stats) ? stats : []);
         setAnswerRows(Array.isArray(answers) ? answers : []);
       })
-      .catch((error) => message.error(error?.message || "统计加载失败。"));
-  }, [statsVideoId, adminMode, appliedStatsDepartment, appliedStatsUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch((error) => showLoadError("magic-video-stats", error, "统计加载失败。"));
+  }, [statsVideoId, adminMode, activeTab, appliedStatsDepartment, appliedStatsUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!statsUserId) return;
-    if (!filteredStatsEmployees.some((item) => item.id === statsUserId)) {
-      setStatsUserId(null);
-    }
+    if (!statsUserId.length) return;
+    const validUserIds = new Set(filteredStatsEmployees.map((item) => item.id));
+    setStatsUserId((prev) => {
+      const next = prev.filter((item) => validUserIds.has(item));
+      return isSamePrimitiveArray(prev, next) ? prev : next;
+    });
   }, [filteredStatsEmployees, statsUserId]);
+
+  useEffect(() => {
+    if (!appliedStatsUserId.length) return;
+    const validUserIds = new Set(filteredStatsEmployees.map((item) => item.id));
+    setAppliedStatsUserId((prev) => {
+      const next = prev.filter((item) => validUserIds.has(item));
+      return isSamePrimitiveArray(prev, next) ? prev : next;
+    });
+  }, [filteredStatsEmployees, appliedStatsUserId]);
+
+  useEffect(() => {
+    if (!appliedStatsDepartment.length) return;
+    setAppliedStatsDepartment((prev) => {
+      const next = prev.filter((item) => statsDepartmentOptions.some((option) => option.value === item));
+      return isSamePrimitiveArray(prev, next) ? prev : next;
+    });
+  }, [appliedStatsDepartment, statsDepartmentOptions]);
+
+  useEffect(() => {
+    if (!statsDepartment.length) return;
+    setStatsDepartment((prev) => {
+      const next = prev.filter((item) => statsDepartmentOptions.some((option) => option.value === item));
+      return isSamePrimitiveArray(prev, next) ? prev : next;
+    });
+  }, [statsDepartment, statsDepartmentOptions]);
 
   useEffect(() => {
     if (!selectedSeriesId) return;
@@ -614,18 +937,21 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [employeeSelectedSeriesId, myVideoSections]);
 
   useEffect(() => {
-    if (!adminMode) return;
-    fetchMagicAudioStats({
-      month: audioMonth || undefined,
-      department: audioDepartment || undefined,
-      user_id: audioUserId || undefined,
-    }).then(setAudioRows).catch((error) => {
-      message.error(error?.message || "录音统计加载失败。");
+    if (!shouldLoadAudioStats) return;
+    reloadAudioReadingOptions(audioMonth).catch((error) => {
+      showLoadError("magic-audio-reading-options", error, "读书内容选项加载失败。");
     });
-  }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [audioMonth, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!superAdminMode) return;
+    if (!shouldLoadAudioStats) return;
+    reloadAdminReadingAudioStats().catch((error) => {
+      showLoadError("magic-audio-reading-stats", error, "读书内容统计加载失败。");
+    });
+  }, [audioMonth, audioDateRange, audioReadingContentId, audioDepartment, audioUserId, audioStatusFilter, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!shouldLoadAudioStats) return;
     fetchMagicAudioMakeupSetting().then((data) => {
       setAudioMakeupSetting(data || {
         enabled: false,
@@ -635,29 +961,37 @@ export default function MagicAcademyPage({ embedded = false }) {
         description: "",
       });
     }).catch((error) => {
-      message.error(error?.message || "补卡设置加载失败。");
+      showLoadError("magic-audio-makeup-setting", error, "补卡设置加载失败。");
     });
-  }, [superAdminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!adminMode) return;
+    if (!shouldLoadReadingContents) return;
     reloadAdminReadingContents().catch((error) => {
-      message.error(error?.message || "读书内容列表加载失败。");
+      showLoadError("magic-reading-contents", error, "读书内容列表加载失败。");
     });
-  }, [adminMode, readingContentKeyword, readingContentMonth, readingContentPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [readingContentKeyword, readingContentMonth, readingContentPage, readingContentSeriesId, shouldLoadReadingContents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!adminMode || readingImageSource !== "material") return;
-    listAllMaterialAssets({ asset_type: "image", keyword: readingImageKeyword })
-      .then((data) => setReadingImageAssets(Array.isArray(data) ? data : []))
-      .catch((error) => message.error(error?.message || "图片素材加载失败。"));
-  }, [adminMode, message, readingImageKeyword, readingImageSource]);
+    if (!shouldLoadReadingSeries) return;
+    reloadReadingSeries().catch((error) => {
+      showLoadError("magic-reading-series", error, "读书系列列表加载失败。");
+    });
+  }, [readingSeriesKeyword, readingSeriesStatus, readingSeriesPage, shouldLoadReadingSeries]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!adminMode || adminSection !== "reading") return;
+    reloadReadingSeriesSelectOptions().catch((error) => {
+      showLoadError("magic-reading-series-options", error, "读书系列选项加载失败。");
+    });
+  }, [adminMode, adminSection]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (adminMode) return;
     reloadMyAudioCalendar(myAudioMonth).catch((error) => {
       message.error(error?.message || "录音日历加载失败。");
     });
-  }, [myAudioMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [myAudioMonth, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (adminMode) return;
@@ -667,11 +1001,11 @@ export default function MagicAcademyPage({ embedded = false }) {
   }, [adminMode, myAudioSelectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!adminMode) return;
+    if (!shouldLoadAudioStats) return;
     reloadAdminAudioCalendar().catch((error) => {
-      message.error(error?.message || "录音日历加载失败。");
+      showLoadError("magic-admin-audio-calendar", error, "录音日历加载失败。");
     });
-  }, [audioMonth, audioDepartment, audioUserId, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [audioMonth, audioDepartment, audioUserId, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveProgress = async (extra = {}) => {
     if (academyView !== "courses") return;
@@ -1297,20 +1631,57 @@ export default function MagicAcademyPage({ embedded = false }) {
     [superAdminMode],
   );
 
-  const audioExportPath = useMemo(() => {
-    const params = new URLSearchParams();
-    if (audioMonth) params.set("month", audioMonth);
-    if (audioDepartment) params.set("department", audioDepartment);
-    if (audioUserId) params.set("user_id", String(audioUserId));
-    const query = params.toString();
-    return `/api/magic-academy/admin/audio-stats/export${query ? `?${query}` : ""}`;
-  }, [audioDepartment, audioMonth, audioUserId]);
+  const audioExportPayload = useMemo(() => ({
+    month: audioMonth || undefined,
+    start_date: audioDateRange?.[0] ? audioDateRange[0].format("YYYY-MM-DD") : undefined,
+    end_date: audioDateRange?.[1] ? audioDateRange[1].format("YYYY-MM-DD") : undefined,
+    reading_content_id: audioReadingContentId || undefined,
+    department: audioDepartment || undefined,
+    user_id: audioUserId || undefined,
+    status: audioStatusFilter || undefined,
+  }), [audioDateRange, audioDepartment, audioMonth, audioReadingContentId, audioStatusFilter, audioUserId]);
+
+  const audioReadingOptionMap = useMemo(
+    () => new Map(audioReadingOptions.map((item) => [String(item.reading_content_id || item.id), item])),
+    [audioReadingOptions],
+  );
+  const audioUserOptionMap = useMemo(
+    () => new Map(
+      users
+        .filter((item) => item.role === "user")
+        .map((item) => [String(item.id), `${item.real_name || item.display_name || item.username} (${item.username})`]),
+    ),
+    [users],
+  );
+  const audioExportScopeLines = useMemo(() => {
+    const lines = [];
+    if (audioMonth) lines.push(`月份：${audioMonth}`);
+    if (audioDateRange?.[0] && audioDateRange?.[1]) {
+      lines.push(`日期范围：${audioDateRange[0].format("YYYY-MM-DD")} 至 ${audioDateRange[1].format("YYYY-MM-DD")}`);
+    }
+    const readingOption = audioReadingContentId ? audioReadingOptionMap.get(String(audioReadingContentId)) : null;
+    lines.push(`读书内容：${readingOption ? `${readingOption.reading_date} ${readingOption.title}` : "全部"}`);
+    lines.push(`部门：${audioDepartment || "全部"}`);
+    lines.push(`员工：${audioUserId ? (audioUserOptionMap.get(String(audioUserId)) || `ID ${audioUserId}`) : "全部"}`);
+    lines.push(`完成状态：${({
+      all: "全部",
+      completed: "已完成",
+      pending: "未完成",
+      expired: "已过补卡截止时间",
+      future: "未到推送时间",
+    })[audioStatusFilter] || "全部"}`);
+    return lines.length ? lines : ["按当前列表条件导出"];
+  }, [audioDateRange, audioDepartment, audioMonth, audioReadingContentId, audioReadingOptionMap, audioStatusFilter, audioUserId, audioUserOptionMap]);
 
   const statsExportPath = useMemo(() => {
     if (!statsVideoId) return "";
     const params = new URLSearchParams();
-    if (appliedStatsDepartment) params.set("department", appliedStatsDepartment);
-    if (appliedStatsUserId) params.set("user_id", String(appliedStatsUserId));
+    for (const item of appliedStatsDepartment) {
+      if (item) params.append("department", item);
+    }
+    for (const item of appliedStatsUserId) {
+      if (item) params.append("user_id", String(item));
+    }
     const query = params.toString();
     return `/api/magic-academy/videos/${statsVideoId}/export-progress${query ? `?${query}` : ""}`;
   }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
@@ -1318,22 +1689,26 @@ export default function MagicAcademyPage({ embedded = false }) {
   const answerExportPath = useMemo(() => {
     if (!statsVideoId) return "";
     const params = new URLSearchParams();
-    if (appliedStatsDepartment) params.set("department", appliedStatsDepartment);
-    if (appliedStatsUserId) params.set("user_id", String(appliedStatsUserId));
+    for (const item of appliedStatsDepartment) {
+      if (item) params.append("department", item);
+    }
+    for (const item of appliedStatsUserId) {
+      if (item) params.append("user_id", String(item));
+    }
     const query = params.toString();
     return `/api/magic-academy/videos/${statsVideoId}/export-answers${query ? `?${query}` : ""}`;
   }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
 
   const handleStatsSearch = () => {
     setAppliedStatsDepartment(statsDepartment);
-    setAppliedStatsUserId(statsUserId || null);
+    setAppliedStatsUserId(statsUserId);
   };
 
   const handleStatsReset = () => {
-    setStatsDepartment("");
-    setStatsUserId(null);
-    setAppliedStatsDepartment("");
-    setAppliedStatsUserId(null);
+    setStatsDepartment([]);
+    setStatsUserId([]);
+    setAppliedStatsDepartment([]);
+    setAppliedStatsUserId([]);
   };
 
   const handleExportStats = async (type) => {
@@ -1351,6 +1726,40 @@ export default function MagicAcademyPage({ embedded = false }) {
     }
     const path = type === "progress" ? statsExportPath : answerExportPath;
     await saveBlob(await downloadMagicFile(path));
+  };
+
+  const handleToggleAudioExportColumn = (columnKey, checked) => {
+    setAudioExportColumns((prev) => {
+      if (checked) {
+        if (prev.includes(columnKey)) return prev;
+        return [...prev, columnKey];
+      }
+      return prev.filter((item) => item !== columnKey);
+    });
+  };
+
+  const handleOpenAudioExportModal = () => {
+    setAudioExportColumns((prev) => (prev.length ? prev : AUDIO_EXPORT_DEFAULT_COLUMNS));
+    setAudioExportModalOpen(true);
+  };
+
+  const handleConfirmAudioExport = async () => {
+    if (!audioExportColumns.length) {
+      message.warning("请至少选择一个导出字段");
+      return;
+    }
+    try {
+      setAudioExportSubmitting(true);
+      await saveBlob(await exportAdminReadingAudioStatistics({
+        ...audioExportPayload,
+        columns: audioExportColumns,
+      }));
+      setAudioExportModalOpen(false);
+    } catch (error) {
+      message.error(error?.message || "读书打卡统计导出失败。");
+    } finally {
+      setAudioExportSubmitting(false);
+    }
   };
 
   const handleSaveAudioMakeupSetting = async () => {
@@ -1372,93 +1781,263 @@ export default function MagicAcademyPage({ embedded = false }) {
   const openCreateReadingContentModal = () => {
     setReadingContentModalMode("create");
     setReadingContentEditing(null);
-    setReadingContentImageFile(null);
-    setReadingImageKeyword("");
-    setReadingImageAssets([]);
-    readingContentForm.resetFields();
-    readingContentForm.setFieldsValue({
-      reading_date: dayjs(),
-      title: "",
-      description: "",
-      image_source: "upload",
-      material_asset_id: undefined,
-      dispatch_mode: "user",
-      target_user_ids: [],
-      target_department_ids: [],
-      target_position_ids: [],
-      newcomer_only: false,
-    });
     setReadingContentModalOpen(true);
   };
 
   const openEditReadingContentModal = async (row) => {
     try {
+      if (row?.has_checkins || row?.is_locked) {
+        message.warning("该内容已有打卡记录，为保证统计一致性，核心字段不可修改。");
+      }
       const detail = await fetchAdminReadingContentDetail(row.id);
       setReadingContentModalMode("edit");
       setReadingContentEditing(detail);
-      setReadingContentImageFile(null);
-      setReadingImageKeyword("");
-      setReadingImageAssets([]);
-      readingContentForm.resetFields();
-      readingContentForm.setFieldsValue({
-        reading_date: detail?.reading_date ? dayjs(detail.reading_date) : dayjs(),
-        title: detail?.title || "",
-        description: detail?.description || "",
-        image_source: "upload",
-        material_asset_id: undefined,
-        ...buildReadingDispatchFormValues(detail?.targets || []),
-      });
       setReadingContentModalOpen(true);
     } catch (error) {
       message.error(error?.message || "读书内容详情加载失败。");
     }
   };
 
-  const handleSubmitReadingContent = async () => {
+  const handleSubmitReadingContent = async (modalItems) => {
     try {
-      const values = await readingContentForm.validateFields();
-      if (readingContentModalMode === "create" && !readingContentImageFile) {
-        message.warning("请先上传读书内容图片。");
-        return;
-      }
       setReadingContentSubmitting(true);
-      const payload = {
-        reading_date: values.reading_date.format("YYYY-MM-DD"),
-        title: values.title,
-        description: values.description || "",
-        image_source: values.image_source || "upload",
-        material_asset_id: values.material_asset_id || null,
-        ...buildReadingDispatchPayload(values),
-        image: values.image_source === "upload" ? (readingContentImageFile || undefined) : undefined,
-      };
+      const items = Array.isArray(modalItems) ? modalItems : [];
       if (readingContentModalMode === "edit" && readingContentEditing?.id) {
+        const editItem = items[0];
+        const payload = {
+          reading_date: editItem.reading_date,
+          push_time: editItem.push_time,
+          title: editItem.title,
+	          description: editItem.description || "",
+	          image_source: editItem.image_source || "upload",
+	          material_asset_id: editItem.material_asset_id || null,
+	          series_id: editItem.series_id || null,
+	          image_url: editItem.image_source === "upload" && !editItem.image ? (editItem.image_url || "") : "",
+          target_type: editItem.target_type || "user",
+          target_user_ids: editItem.target_user_ids || [],
+          target_department_ids: editItem.target_department_ids || [],
+          target_position_ids: editItem.target_position_ids || [],
+          targets: editItem.targets || [],
+          makeup_deadline_at: editItem.makeup_deadline_at || "",
+          image: editItem.image || undefined,
+        };
         await updateAdminReadingContent(readingContentEditing.id, payload);
         message.success("读书内容已更新。");
       } else {
-        await createAdminReadingContent(payload);
+        const payloadItems = items.map((item) => ({
+          client_key: item.client_key,
+          reading_date: item.reading_date,
+          push_time: item.push_time,
+          title: item.title,
+	          description: item.description || "",
+	          image_source: item.image_source || "upload",
+	          material_asset_id: item.material_asset_id || null,
+	          series_id: item.series_id || null,
+	          image_url: item.image_source === "upload" && !item.image ? (item.image_url || "") : "",
+          target_type: item.target_type || "user",
+          target_user_ids: item.target_user_ids || [],
+          target_department_ids: item.target_department_ids || [],
+          target_position_ids: item.target_position_ids || [],
+          targets: item.targets || [],
+          makeup_deadline_at: item.makeup_deadline_at || "",
+          image: item.image || null,
+        }));
+        if (payloadItems.length === 1) {
+          await createAdminReadingContent(payloadItems[0]);
+        } else {
+          await createAdminReadingContentsBatch({ items: payloadItems });
+        }
         message.success("读书内容已创建。");
       }
       setReadingContentModalOpen(false);
       setReadingContentEditing(null);
-      setReadingContentImageFile(null);
       await reloadAdminReadingContents({ page: 1 });
       setReadingContentPage(1);
     } catch (error) {
-      if (!error?.errorFields) {
-        message.error(error?.message || "读书内容保存失败。");
-      }
+      message.error(error?.message || "读书内容保存失败。");
     } finally {
       setReadingContentSubmitting(false);
     }
   };
 
   const handleDeleteReadingContent = async (row) => {
+    if (row?.has_checkins || row?.is_locked) {
+      message.warning("该内容已有打卡记录，不允许删除，请使用停用。");
+      return;
+    }
     try {
       await deleteAdminReadingContent(row.id);
       message.success("读书内容已删除。");
       await reloadAdminReadingContents();
     } catch (error) {
       message.error(error?.message || "删除读书内容失败。");
+    }
+  };
+
+  const handleToggleReadingContentStatus = async (row) => {
+    try {
+      await updateAdminReadingContentStatus(row.id, row.status === "active" ? "disabled" : "active");
+      message.success(row.status === "active" ? "读书内容已停用。" : "读书内容已启用。");
+      await reloadAdminReadingContents();
+    } catch (error) {
+      message.error(error?.message || "更新读书内容状态失败。");
+    }
+  };
+
+  const openReadingSeriesModal = (row = null) => {
+    readingSeriesForm.resetFields();
+    readingSeriesForm.setFieldsValue({
+      title: row?.title || "",
+      description: row?.description || "",
+      date_range: row?.start_date && row?.end_date ? [dayjs(row.start_date), dayjs(row.end_date)] : null,
+      status: row?.status || "draft",
+      ...buildSeriesTargetFormValues(row?.targets || []),
+    });
+    setReadingSeriesModal(row || {});
+  };
+
+  const handleSubmitReadingSeries = async () => {
+    try {
+      const values = await readingSeriesForm.validateFields();
+      setReadingSeriesSubmitting(true);
+      const payload = {
+        title: values.title,
+        description: values.description || "",
+        start_date: values.date_range?.[0] ? values.date_range[0].format("YYYY-MM-DD") : null,
+        end_date: values.date_range?.[1] ? values.date_range[1].format("YYYY-MM-DD") : null,
+        status: values.status || "draft",
+        targets: normalizeSeriesTargetsFromForm(values),
+      };
+      if (!payload.targets.length) {
+        message.warning("当前系列未设置派发对象，后续新增内容时需要单独选择派发对象。");
+      }
+      if (readingSeriesModal?.id && Number(readingSeriesModal.content_count || 0) > 0) {
+        const detail = await fetchAdminReadingSeriesDetail(readingSeriesModal.id);
+        const outOfRangeCount = (detail?.contents || []).filter((item) => (
+          isReadingDateOutOfRange(item.reading_date, payload.start_date, payload.end_date)
+        )).length;
+        if (outOfRangeCount > 0) {
+          const confirmed = await new Promise((resolve) => {
+            Modal.confirm({
+              title: "计划周期变更确认",
+              content: `该系列下已有 ${outOfRangeCount} 条读书内容超出新的计划周期，保存后这些内容会被标记为超出周期，但不会删除。是否继续？`,
+              okText: "继续保存",
+              cancelText: "取消",
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+            });
+          });
+          if (!confirmed) return;
+        }
+      }
+      if (readingSeriesModal?.id) {
+        await updateAdminReadingSeries(readingSeriesModal.id, payload);
+        message.success("读书系列已更新。");
+      } else {
+        await createAdminReadingSeries(payload);
+        message.success("读书系列已创建。");
+      }
+      setReadingSeriesModal(null);
+      await reloadReadingSeries();
+      await reloadReadingSeriesSelectOptions();
+    } catch (error) {
+      if (error?.errorFields) return;
+      message.error(error?.message || "读书系列保存失败。");
+    } finally {
+      setReadingSeriesSubmitting(false);
+    }
+  };
+
+  const handleArchiveReadingSeries = async (row) => {
+    try {
+      await archiveAdminReadingSeries(row.id);
+      message.success("读书系列已归档。");
+      await reloadReadingSeries();
+      await reloadReadingSeriesSelectOptions();
+    } catch (error) {
+      message.error(error?.message || "归档读书系列失败。");
+    }
+  };
+
+  const handleToggleReadingSeriesStatus = async (row) => {
+    const nextStatus = row.status === "active" ? "paused" : "active";
+    if (nextStatus === "paused") {
+      const confirmed = await new Promise((resolve) => {
+        Modal.confirm({
+          title: "暂停读书系列",
+          content: "暂停后该系列不会默认用于新增读书内容，但历史内容和员工端已创建任务不受影响。是否继续？",
+          okText: "继续暂停",
+          cancelText: "取消",
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (!confirmed) return;
+    }
+    try {
+      await updateAdminReadingSeries(row.id, {
+        title: row.title,
+        description: row.description || "",
+        start_date: row.start_date || null,
+        end_date: row.end_date || null,
+        status: nextStatus,
+        targets: row.targets || [],
+      });
+      message.success(nextStatus === "active" ? "读书系列已启用。" : "读书系列已暂停。");
+      await reloadReadingSeries();
+      await reloadReadingSeriesSelectOptions();
+    } catch (error) {
+      message.error(error?.message || "更新读书系列状态失败。");
+    }
+  };
+
+  const openReadingSeriesDetail = async (row) => {
+    try {
+      setReadingSeriesDetailLoading(true);
+      setReadingSeriesDetailOpen(true);
+      const detail = await fetchAdminReadingSeriesDetail(row.id);
+      setReadingSeriesDetail(detail);
+    } catch (error) {
+      message.error(error?.message || "读书系列详情加载失败。");
+    } finally {
+      setReadingSeriesDetailLoading(false);
+    }
+  };
+
+  const handlePreviewReadingImport = async (file) => {
+    try {
+      setReadingImportSubmitting(true);
+      const result = await previewAdminReadingContentsImport(file);
+      setReadingImportRows(Array.isArray(result?.rows) ? result.rows : []);
+      setReadingImportSummary(result?.summary || { total: 0, valid: 0, invalid: 0 });
+      setReadingImportPreviewOpen(true);
+    } catch (error) {
+      message.error(error?.message || "读书内容导入预览失败。");
+    } finally {
+      setReadingImportSubmitting(false);
+    }
+    return false;
+  };
+
+  const handleConfirmReadingImport = async () => {
+    try {
+      const validRows = readingImportRows.filter((item) => item.can_import).map((item) => item.parsed);
+      if (!validRows.length) {
+        message.warning("没有可导入的有效数据。");
+        return;
+      }
+      setReadingImportSubmitting(true);
+      await confirmAdminReadingContentsImport(validRows);
+      message.success(`已导入 ${validRows.length} 条读书内容。`);
+      setReadingImportPreviewOpen(false);
+      setReadingImportRows([]);
+      setReadingImportSummary({ total: 0, valid: 0, invalid: 0 });
+      await reloadAdminReadingContents({ page: 1 });
+      setReadingContentPage(1);
+    } catch (error) {
+      message.error(error?.message || "读书内容导入失败。");
+    } finally {
+      setReadingImportSubmitting(false);
     }
   };
 
@@ -1520,14 +2099,16 @@ export default function MagicAcademyPage({ embedded = false }) {
     />
   );
 
-  const handleSubmitAudioMakeup = async () => {
+  const handleSubmitAudioMakeup = async (readingItem) => {
     try {
-      if (!selectedMyAudioMakeup?.can_makeup) {
-        message.warning(selectedMyAudioMakeup?.reason || "当前日期不可补卡。");
+      const makeupOption = myAudioMakeupMap[readingItem?.id];
+      if (!makeupOption?.can_makeup) {
+        message.warning(makeupOption?.reason || "当前内容不可补卡。");
         return;
       }
       await submitMyAudioMakeup({
-        makeup_date: myAudioSelectedDate,
+        reading_content_id: readingItem.id,
+        makeup_date: readingItem.reading_date,
         file_name: "makeup-checkin.m4a",
         file_size: 0,
         mime_type: "audio/m4a",
@@ -1726,7 +2307,16 @@ export default function MagicAcademyPage({ embedded = false }) {
       </div>
     </Space>
   ) : (
-    myVideos.length === 0 ? (
+    myVideosLoadError ? (
+      <div className="workspace-panel">
+        <Alert
+          type="error"
+          showIcon
+          message="课程列表加载失败"
+          description={myVideosLoadError}
+        />
+      </div>
+    ) : myVideos.length === 0 ? (
       <div className="workspace-panel">
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" />
       </div>
@@ -1820,8 +2410,15 @@ export default function MagicAcademyPage({ embedded = false }) {
                     <Space wrap>
                       <Text strong>{item.title}</Text>
                       <Tag bordered={false} color="blue">{item.reading_date}</Tag>
+                      <Tag bordered={false} color={item.current_status === "已完成" ? "success" : item.current_status === "已过补卡时间" ? "default" : "processing"}>
+                        {item.current_status || "未完成"}
+                      </Tag>
                     </Space>
                     {item.description ? <Paragraph style={{ marginBottom: 0 }}>{item.description}</Paragraph> : null}
+                    <Space wrap>
+                      <Text type="secondary">推送时间：{item.push_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
+                      <Text type="secondary">补卡截止：{item.makeup_deadline_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
+                    </Space>
                     {item.image_url ? (
                       <Image
                         src={item.image_url}
@@ -1830,6 +2427,44 @@ export default function MagicAcademyPage({ embedded = false }) {
                         preview={{ src: item.image_url }}
                       />
                     ) : null}
+                    <Space wrap>
+                      <Upload
+                        showUploadList={false}
+                        customRequest={async ({ file, onSuccess, onError }) => {
+                          try {
+                            await uploadMyAudio({
+                              reading_content_id: item.id,
+                              file_name: file?.name || "",
+                              file_size: Number(file?.size || 0),
+                              mime_type: file?.type || "",
+                              remark: audioRemark,
+                            });
+                            setAudioRemark("");
+                            message.success("打卡记录已提交。");
+                            await reloadMyData();
+                            await reloadMyAudioCalendar();
+                            await reloadMyReadingContents();
+                            onSuccess?.({});
+                          } catch (error) {
+                            onError?.(error);
+                            message.error(error?.message || "上传失败。");
+                          }
+                        }}
+                      >
+                        <Button type="primary" icon={<UploadOutlined />} disabled={!item.can_submit}>
+                          {item.completed ? "已完成" : "提交本条打卡"}
+                        </Button>
+                      </Upload>
+                      {!item.completed && myAudioMakeupMap[item.id]?.can_makeup ? (
+                        <Button onClick={() => handleSubmitAudioMakeup(item)}>补交本条</Button>
+                      ) : null}
+                      {!item.can_submit && item.submit_disabled_reason ? (
+                        <Text type="secondary">{item.submit_disabled_reason}</Text>
+                      ) : null}
+                      {!item.completed && !item.can_submit && !item.submit_disabled_reason && myAudioMakeupMap[item.id]?.reason ? (
+                        <Text type="secondary">{myAudioMakeupMap[item.id]?.reason}</Text>
+                      ) : null}
+                    </Space>
                   </Space>
                 </Card>
               ))}
@@ -1845,10 +2480,10 @@ export default function MagicAcademyPage({ embedded = false }) {
         <div className="workspace-panel__head">
           <Space>
             <UploadOutlined />
-            <strong>提交今日打卡</strong>
+            <strong>本页打卡备注</strong>
           </Space>
           <Tag bordered={false} color={todayUploadedAudio ? "success" : "default"}>
-            {todayUploadedAudio ? "今日已上传" : "今日待上传"}
+            {todayUploadedAudio ? "已有内容完成" : "待完成"}
           </Tag>
         </div>
         <Space direction="vertical" size={12} style={{ width: "100%" }}>
@@ -1858,30 +2493,7 @@ export default function MagicAcademyPage({ embedded = false }) {
             value={audioRemark}
             onChange={(e) => setAudioRemark(e.target.value)}
           />
-          <Upload
-            showUploadList={false}
-            customRequest={async ({ file, onSuccess, onError }) => {
-              try {
-                await uploadMyAudio({
-                  file_name: file?.name || "",
-                  file_size: Number(file?.size || 0),
-                  mime_type: file?.type || "",
-                  remark: audioRemark,
-                });
-                setAudioRemark("");
-                message.success("打卡记录已提交。");
-                await reloadMyData();
-                await reloadMyAudioCalendar();
-                onSuccess?.({});
-              } catch (error) {
-                onError?.(error);
-                message.error(error?.message || "上传失败。");
-              }
-            }}
-          >
-            <Button type="primary" icon={<UploadOutlined />}>提交打卡记录</Button>
-          </Upload>
-          <Text type="secondary">支持 mp3、m4a、wav、aac、amr、webm、ogg；仅记录文件名、时间与备注，单文件不超过 50MB。</Text>
+          <Text type="secondary">在每条读书内容卡片里单独提交。支持 mp3、m4a、wav、aac、amr、webm、ogg；单文件不超过 50MB。</Text>
         </Space>
 
         <div className="workspace-panel" style={{ marginTop: 16 }}>
@@ -1945,30 +2557,16 @@ export default function MagicAcademyPage({ embedded = false }) {
               <strong>{myAudioSelectedDate || "选中日期"} 的记录</strong>
             </Space>
             {renderAudioStatusTag(
-              selectedMyAudioDay?.uploaded
-                ? getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay)
-                : selectedMyAudioMakeup?.can_makeup
-                  ? "makeup_available"
-                  : selectedMyAudioMakeup?.is_expired
-                    ? "makeup_expired"
-                    : getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay),
+              getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay),
               selectedMyAudioDay?.count || 0,
               0,
             )}
           </div>
-          {!selectedMyAudioDay?.uploaded ? (
-            <div className="workspace-note-block" style={{ marginBottom: 12 }}>
-              <strong>补卡说明</strong>
-              <p>{audioMakeupSetting.description || "当前未开启补卡"}</p>
-              {selectedMyAudioMakeup?.can_makeup ? (
-                <Button type="primary" onClick={handleSubmitAudioMakeup}>
-                  补 {myAudioSelectedDate} 的卡
-                </Button>
-              ) : (
-                <Text type="secondary">{selectedMyAudioMakeup?.reason || "当前日期不可补卡"}</Text>
-              )}
-            </div>
-          ) : null}
+          <div className="workspace-note-block" style={{ marginBottom: 12 }}>
+            <strong>补卡说明</strong>
+            <p>{audioMakeupSetting.description || "当前未开启补卡"}</p>
+            <Text type="secondary">补卡按单条读书内容判断，请在左侧对应内容卡片上操作。</Text>
+          </div>
           {renderAudioRecordList(selectedMyAudioDay?.records || [])}
         </div>
       </aside>
@@ -2185,7 +2783,7 @@ export default function MagicAcademyPage({ embedded = false }) {
     },
     {
       key: "series",
-      label: "系列管理",
+      label: "视频系列管理",
       children: (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
           <Card
@@ -2291,22 +2889,26 @@ export default function MagicAcademyPage({ embedded = false }) {
               <Text>选择视频：</Text>
               <Select style={{ minWidth: 260 }} value={statsVideoId} onChange={setStatsVideoId} options={videos.map((item) => ({ value: item.id, label: item.title }))} />
               <Select
+                mode="multiple"
                 allowClear
                 style={{ width: 180 }}
                 placeholder="选择部门"
-                value={statsDepartment || undefined}
-                onChange={(value) => setStatsDepartment(value || "")}
+                value={statsDepartment}
+                onChange={(value) => setStatsDepartment(value || [])}
                 options={statsDepartmentOptions}
+                maxTagCount="responsive"
               />
               <Select
+                mode="multiple"
                 allowClear
                 showSearch
                 optionFilterProp="label"
-                style={{ width: 240 }}
+                style={{ width: 280 }}
                 placeholder="选择员工"
-                value={statsUserId || undefined}
-                onChange={(value) => setStatsUserId(value || null)}
+                value={statsUserId}
+                onChange={(value) => setStatsUserId(value || [])}
                 options={statsEmployeeOptions}
+                maxTagCount="responsive"
               />
               <Button type="primary" onClick={handleStatsSearch}>查询</Button>
               <Button onClick={handleStatsReset}>重置</Button>
@@ -2376,9 +2978,9 @@ export default function MagicAcademyPage({ embedded = false }) {
                     setReadingContentPage(1);
                   }}
                 />
-                <Input.Search
-                  style={{ width: 240 }}
-                  placeholder="搜索标题/描述"
+	                <Input.Search
+	                  style={{ width: 240 }}
+	                  placeholder="搜索标题/描述"
                   value={readingContentKeyword}
                   onChange={(e) => {
                     setReadingContentKeyword(e.target.value);
@@ -2387,18 +2989,46 @@ export default function MagicAcademyPage({ embedded = false }) {
                   onSearch={(value) => {
                     setReadingContentKeyword(value);
                     setReadingContentPage(1);
-                  }}
-                />
+	                  }}
+	                />
+	                <Select
+	                  allowClear
+	                  showSearch
+	                  optionFilterProp="label"
+	                  style={{ width: 220 }}
+	                  placeholder="按读书系列筛选"
+	                  value={readingContentSeriesId || undefined}
+	                  onChange={(value) => {
+	                    setReadingContentSeriesId(value || null);
+	                    setReadingContentPage(1);
+	                  }}
+	                  options={[
+	                    { value: 0, label: "未归属系列" },
+	                    ...readingSeriesRows.map((item) => ({ value: item.id, label: item.title })),
+	                  ]}
+	                />
+	              </Space>
+              <Space wrap>
+                <Button
+                  icon={<DownloadOutlined />}
+                  onClick={async () => saveBlob(await downloadMagicFile("/api/magic-academy/admin/reading-contents/template"))}
+                >
+                  下载 Excel 模板
+                </Button>
+                <Upload showUploadList={false} beforeUpload={handlePreviewReadingImport}>
+                  <Button loading={readingImportSubmitting} icon={<UploadOutlined />}>Excel 导入</Button>
+                </Upload>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateReadingContentModal}>
+                  新增读书内容
+                </Button>
               </Space>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateReadingContentModal}>
-                新增读书内容
-              </Button>
             </Space>
           </Card>
           <Card>
             <Table
               rowKey="id"
               dataSource={readingContents}
+	              scroll={{ x: 1400 }}
               pagination={{
                 current: readingContentPage,
                 pageSize: 20,
@@ -2406,9 +3036,10 @@ export default function MagicAcademyPage({ embedded = false }) {
                 onChange: (page) => setReadingContentPage(page),
               }}
               columns={[
-                { title: "日期", dataIndex: "reading_date", width: 120 },
+	                { title: "日期", dataIndex: "reading_date", width: 120 },
+	                { title: "所属系列", width: 140, render: (_, row) => row.series_title || "未归属系列" },
+	                { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
                 { title: "标题", dataIndex: "title" },
-                { title: "描述", dataIndex: "description", render: (value) => value || "—" },
                 {
                   title: "图片",
                   dataIndex: "image_url",
@@ -2424,15 +3055,27 @@ export default function MagicAcademyPage({ embedded = false }) {
                 },
                 { title: "推送对象", render: (_, row) => getReadingTargetSummary(row) },
                 { title: "推送人数", dataIndex: "push_count", width: 100 },
+                { title: "已完成", dataIndex: "completed_count", width: 90 },
+                { title: "未完成", dataIndex: "pending_count", width: 90 },
+                { title: "完成率", dataIndex: "completion_rate", width: 100, render: (value) => `${value || 0}%` },
+                { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
                 { title: "创建人", dataIndex: "creator_name", render: (value) => value || "—", width: 120 },
                 { title: "创建时间", dataIndex: "created_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—", width: 180 },
                 {
                   title: "操作",
-                  width: 180,
-                  render: (_, row) => (
-                    <Space>
-                      <Button size="small" onClick={() => openEditReadingContentModal(row)}>编辑</Button>
-                      <Popconfirm title="删除后员工端将不再显示该读书内容，确认继续？" onConfirm={() => handleDeleteReadingContent(row)}>
+                  width: 260,
+	                  render: (_, row) => (
+	                    <Space>
+                      <Tooltip title={row.is_locked ? "该内容已有打卡记录，为保证统计一致性，核心字段不可修改。" : ""}>
+                        <Button size="small" onClick={() => openEditReadingContentModal(row)}>编辑</Button>
+                      </Tooltip>
+                      <Button size="small" onClick={() => handleToggleReadingContentStatus(row)}>
+                        {row.status === "active" ? "停用" : "启用"}
+                      </Button>
+                      <Popconfirm
+                        title={row.is_locked ? "该内容已有打卡记录，不允许删除，请使用停用。" : "删除后员工端将不再显示该读书内容，确认继续？"}
+                        onConfirm={() => handleDeleteReadingContent(row)}
+                      >
                         <Button size="small" danger>删除</Button>
                       </Popconfirm>
                     </Space>
@@ -2444,13 +3087,109 @@ export default function MagicAcademyPage({ embedded = false }) {
         </Space>
       ),
     },
+	    {
+	      key: "reading_series",
+	      label: "读书系列管理",
+	      children: (
+	        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+	          <Card>
+	            <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
+	              <Space wrap>
+	                <Input.Search
+	                  style={{ width: 260 }}
+	                  placeholder="搜索系列名称"
+	                  value={readingSeriesKeyword}
+	                  onChange={(e) => {
+	                    setReadingSeriesKeyword(e.target.value);
+	                    setReadingSeriesPage(1);
+	                  }}
+	                  onSearch={(value) => {
+	                    setReadingSeriesKeyword(value);
+	                    setReadingSeriesPage(1);
+	                  }}
+	                />
+	                <Select
+	                  allowClear
+	                  style={{ width: 180 }}
+	                  placeholder="全部状态"
+	                  value={readingSeriesStatus || undefined}
+	                  onChange={(value) => {
+	                    setReadingSeriesStatus(value || "");
+	                    setReadingSeriesPage(1);
+	                  }}
+	                  options={READING_SERIES_STATUS_FILTER_OPTIONS}
+	                />
+	              </Space>
+	              <Button type="primary" icon={<PlusOutlined />} onClick={() => openReadingSeriesModal()}>
+	                新增系列
+	              </Button>
+	            </Space>
+	          </Card>
+	          <Card>
+	            <Table
+	              rowKey="id"
+	              dataSource={readingSeriesRows}
+	              pagination={{
+	                current: readingSeriesPage,
+	                pageSize: 10,
+	                total: readingSeriesTotal,
+	                onChange: (page) => setReadingSeriesPage(page),
+	              }}
+	              columns={[
+	                { title: "系列名称", dataIndex: "title", render: (value) => value || "—" },
+	                {
+	                  title: "计划周期",
+	                  width: 220,
+	                  render: (_, row) => row.start_date || row.end_date ? `${row.start_date || "未设置"} 至 ${row.end_date || "未设置"}` : "未设置",
+	                },
+	                { title: "派发对象", dataIndex: "target_summary", width: 180, render: (_, row) => row.target_summary || getSeriesTargetSummary(row.targets || []) },
+	                {
+	                  title: "状态",
+	                  dataIndex: "status",
+	                  width: 100,
+	                  render: (value) => {
+	                    const meta = READING_SERIES_STATUS_META[value] || READING_SERIES_STATUS_META.draft;
+	                    return <Tag bordered={false} color={meta.color}>{meta.label}</Tag>;
+	                  },
+	                },
+	                { title: "内容数量", dataIndex: "content_count", width: 100 },
+	                { title: "超出周期", dataIndex: "out_of_range_content_count", width: 100, render: (value) => value ? <Tag color="warning">{value}</Tag> : "0" },
+	                { title: "创建时间", dataIndex: "created_at", width: 180, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+	                {
+	                  title: "操作",
+	                  width: 260,
+	                  render: (_, row) => (
+	                    <Space wrap>
+	                      <Button size="small" onClick={() => openReadingSeriesModal(row)} disabled={row.status === "archived"}>编辑</Button>
+	                      <Button size="small" onClick={() => openReadingSeriesDetail(row)}>查看内容</Button>
+	                      {row.status !== "archived" ? (
+	                        <Button size="small" onClick={() => handleToggleReadingSeriesStatus(row)}>
+	                          {row.status === "active" ? "暂停" : "启用"}
+	                        </Button>
+	                      ) : null}
+	                      {row.status !== "archived" ? (
+	                        <Popconfirm
+	                          title="归档后该系列不会出现在新增读书内容的系列选择中，但历史内容和统计不会删除。是否继续？"
+	                          onConfirm={() => handleArchiveReadingSeries(row)}
+	                        >
+	                          <Button size="small" danger>归档</Button>
+	                        </Popconfirm>
+	                      ) : null}
+	                    </Space>
+	                  ),
+	                },
+	              ]}
+	            />
+	          </Card>
+	        </Space>
+	      ),
+	    },
     {
       key: "audio_stats",
-      label: "录音上传统计",
+      label: "打卡统计",
       children: (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          {superAdminMode ? (
-          <Card title="补卡与随机完成设置">
+          <Card title="补卡设置">
             <Space wrap align="center">
               <Text>开启补卡</Text>
               <Switch
@@ -2464,28 +3203,27 @@ export default function MagicAcademyPage({ embedded = false }) {
                 value={Number(audioMakeupSetting.make_up_days || 0)}
                 onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, make_up_days: Number(value || 0) }))}
               />
-              <Text>录音随机窗口(分钟)</Text>
-              <InputNumber
-                min={0}
-                max={10080}
-                value={Number(audioMakeupSetting.audio_random_window_minutes || 0)}
-                onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, audio_random_window_minutes: Number(value || 0) }))}
-              />
-              <Text>视频随机窗口(分钟)</Text>
-              <InputNumber
-                min={0}
-                max={10080}
-                value={Number(audioMakeupSetting.video_random_window_minutes || 0)}
-                onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, video_random_window_minutes: Number(value || 0) }))}
-              />
               <Button type="primary" onClick={handleSaveAudioMakeupSetting}>保存设置</Button>
               <Text type="secondary">{audioMakeupSetting.description || "当前未开启补卡"}</Text>
             </Space>
           </Card>
-          ) : null}
           <Card>
             <Space wrap>
               <Input style={{ width: 160 }} placeholder="YYYY-MM" value={audioMonth} onChange={(e) => setAudioMonth(e.target.value)} />
+              <RangePicker value={audioDateRange} onChange={setAudioDateRange} />
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 320 }}
+                placeholder="选择读书内容"
+                value={audioReadingContentId || undefined}
+                onChange={(value) => setAudioReadingContentId(value || null)}
+                options={audioReadingOptions.map((item) => ({
+                  value: item.reading_content_id || item.id,
+                  label: `${item.reading_date} ${(item.push_at || "").replace("T", " ").slice(11, 16)} ${item.title}`,
+                }))}
+              />
               <Select
                 allowClear
                 style={{ width: 180 }}
@@ -2504,45 +3242,55 @@ export default function MagicAcademyPage({ embedded = false }) {
                 onChange={(value) => setAudioUserId(value || null)}
                 options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))}
               />
-              <Button icon={<DownloadOutlined />} onClick={async () => saveBlob(await downloadMagicFile(audioExportPath))}>导出 Excel</Button>
-            </Space>
-          </Card>
-          <Card title="员工录音上传日历">
-            <Space direction="vertical" style={{ width: "100%" }} size={16}>
-              <Calendar
-                fullscreen={false}
-                value={dayjs(adminAudioSelectedDate)}
-                onSelect={(value) => setAdminAudioSelectedDate(value.format("YYYY-MM-DD"))}
-                onPanelChange={(value) => {
-                  setAudioMonth(value.format("YYYY-MM"));
-                  setAdminAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
-                }}
-                cellRender={renderAdminAudioCell}
+              <Select
+                style={{ width: 180 }}
+                value={audioStatusFilter}
+                onChange={setAudioStatusFilter}
+                options={[
+                  { value: "all", label: "全部状态" },
+                  { value: "completed", label: "已完成" },
+                  { value: "pending", label: "未完成" },
+                  { value: "expired", label: "已过补卡截止时间" },
+                  { value: "future", label: "未到推送时间" },
+                ]}
               />
-              <Card
-                size="small"
-                title={`选中日期记录 · ${adminAudioSelectedDate || "未选择日期"}`}
-                extra={renderAudioStatusTag(
-                  getAudioDayStatus(adminAudioSelectedDate, selectedAdminAudioDay),
-                  selectedAdminAudioDay?.count || 0,
-                  selectedAdminAudioDay?.uploaded_user_count || 0,
-                )}
-              >
-                {audioUserId ? (
-                  renderAudioRecordList(selectedAdminAudioDay?.records || [])
-                ) : (
-                  renderAudioRecordList(selectedAdminAudioDay?.records || [], true)
-                )}
-              </Card>
+              <Button type="primary" onClick={() => reloadAdminReadingAudioStats().catch((error) => message.error(error?.message || "读书内容统计加载失败。"))}>
+                查询
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleOpenAudioExportModal}>导出 Excel</Button>
             </Space>
           </Card>
           <Card>
-            <Table rowKey="user_id" dataSource={audioRows} columns={audioColumns} pagination={{ pageSize: 8 }} />
+            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+              {audioLegacyHint ? <Alert type="info" showIcon message={audioLegacyHint} /> : null}
+              <Table
+                rowKey="reading_content_id"
+                dataSource={audioReadingStatsRows}
+                pagination={{ pageSize: 10 }}
+                columns={[
+                  { title: "日期", dataIndex: "reading_date", width: 110 },
+                  { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+                  { title: "标题", dataIndex: "title" },
+                  { title: "推送对象", dataIndex: "target_summary", width: 180, render: (value) => value || "—" },
+                  { title: "应完成人数", dataIndex: "expected_count", width: 100 },
+                  { title: "已完成", dataIndex: "completed_count", width: 90 },
+                  { title: "未完成", dataIndex: "pending_count", width: 90 },
+                  { title: "完成率", dataIndex: "completion_rate", width: 100, render: (value) => `${value || 0}%` },
+                  { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+                  { title: "已过截止", dataIndex: "is_deadline_passed", width: 90, render: (value) => value ? <Tag bordered={false} color="default">是</Tag> : "否" },
+                  { title: "已有打卡", dataIndex: "has_checkins", width: 90, render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
+                  { title: "操作", width: 100, render: (_, row) => <Button size="small" onClick={() => openAudioDetail(row)}>查看明细</Button> },
+                ]}
+              />
+            </Space>
           </Card>
         </Space>
       ),
     },
   ].filter(Boolean) : []);
+  const visibleAdminTabs = adminMode
+    ? adminTabs.filter((item) => (ADMIN_SECTION_TABS[adminSection] || ADMIN_SECTION_TABS.courses).includes(item.key))
+    : [];
 
   const renderMagicHome = () => (
     <>
@@ -2785,11 +3533,11 @@ export default function MagicAcademyPage({ embedded = false }) {
       ) : null}
 
       {adminMode ? (
-        <Tabs
-          activeKey={activeTab}
-          onChange={handleTabChange}
-          items={adminTabs}
-        />
+          <Tabs
+            activeKey={activeTab}
+            onChange={handleTabChange}
+            items={visibleAdminTabs}
+          />
       ) : (
         userViewContent
       )}
@@ -2804,30 +3552,273 @@ export default function MagicAcademyPage({ embedded = false }) {
         onSubmit={submitVideo}
       />
 
-      <ReadingContentFormModal
+	      <ReadingContentFormModal
         open={readingContentModalOpen}
         mode={readingContentModalMode}
         submitting={readingContentSubmitting}
-        form={readingContentForm}
-        imageSource={readingImageSource}
-        editing={readingContentEditing}
-        imageFile={readingContentImageFile}
-        setImageFile={setReadingContentImageFile}
-        imageKeyword={readingImageKeyword}
-        setImageKeyword={setReadingImageKeyword}
-        imageAssets={readingImageAssets}
-        selectedAsset={selectedReadingImageAsset}
-        employeeUsers={employeeUsers}
+	        editing={readingContentEditing}
+	        readingSeriesOptions={activeReadingSeriesOptions}
+	        employeeUsers={employeeUsers}
         employeeDepartmentOptions={employeeDepartmentOptions}
         employeePositionOptions={employeePositionOptions}
         onCancel={() => {
           if (readingContentSubmitting) return;
           setReadingContentModalOpen(false);
           setReadingContentEditing(null);
-          setReadingContentImageFile(null);
         }}
-        onOk={handleSubmitReadingContent}
-      />
+	        onSubmit={handleSubmitReadingContent}
+	      />
+
+	      <Modal
+	        open={!!readingSeriesModal}
+	        title={readingSeriesModal?.id ? "编辑读书系列" : "新增读书系列"}
+	        onCancel={() => {
+	          if (readingSeriesSubmitting) return;
+	          setReadingSeriesModal(null);
+	        }}
+	        onOk={handleSubmitReadingSeries}
+	        confirmLoading={readingSeriesSubmitting}
+	        okText="保存"
+	        destroyOnHidden
+	      >
+	        <Form
+	          form={readingSeriesForm}
+	          layout="vertical"
+	          initialValues={{ status: "draft" }}
+	        >
+	          <Form.Item name="title" label="系列名称" rules={[{ required: true, message: "请输入系列名称" }]}>
+	            <Input placeholder="例如：新人三十天读书计划" />
+	          </Form.Item>
+	          <Form.Item name="description" label="系列说明">
+	            <Input.TextArea rows={3} placeholder="可填写该系列的阅读目标、适用范围或备注" />
+	          </Form.Item>
+	          <Form.Item name="date_range" label="计划周期" extra="用于限制和辅助选择该系列下的读书内容日期，不会自动生成推送任务。">
+	            <RangePicker style={{ width: "100%" }} />
+	          </Form.Item>
+	          <Card size="small" title="默认派发对象" style={{ marginBottom: 16 }}>
+	            <Space direction="vertical" size={12} style={{ width: "100%" }}>
+	              <Text type="secondary">新增读书内容选择该系列时，会默认带出这些派发对象；单条内容仍可单独调整。</Text>
+	              <Form.Item name="target_all" valuePropName="checked" style={{ marginBottom: 0 }}>
+	                <Switch checkedChildren="全部员工" unCheckedChildren="非全员" />
+	              </Form.Item>
+	              <Form.Item noStyle shouldUpdate={(prev, next) => prev.target_all !== next.target_all}>
+	                {({ getFieldValue }) => getFieldValue("target_all") ? null : (
+	                  <Space direction="vertical" size={12} style={{ width: "100%" }}>
+	                    <Form.Item name="target_department_ids" label="部门" style={{ marginBottom: 0 }}>
+	                      <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={employeeDepartmentOptions} placeholder="选择部门" />
+	                    </Form.Item>
+	                    <Form.Item name="target_position_ids" label="岗位" style={{ marginBottom: 0 }}>
+	                      <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={employeePositionOptions} placeholder="选择岗位" />
+	                    </Form.Item>
+	                    <Form.Item name="target_user_ids" label="指定人员" style={{ marginBottom: 0 }}>
+	                      <Select
+	                        mode="multiple"
+	                        allowClear
+	                        showSearch
+	                        optionFilterProp="label"
+	                        options={employeeUsers.map((item) => ({
+	                          value: item.id,
+	                          label: `${item.real_name || item.display_name || item.username} (${item.username})`,
+	                        }))}
+	                        placeholder="搜索并选择员工"
+	                      />
+	                    </Form.Item>
+	                  </Space>
+	                )}
+	              </Form.Item>
+	            </Space>
+	          </Card>
+	          <Form.Item
+	            name="status"
+	            label="状态"
+	            rules={[{ required: true, message: "请选择状态" }]}
+	            extra="草稿：准备中；启用：可用于新增读书内容；暂停：暂时不用于新增内容；已归档：长期不用，保留历史数据。"
+	          >
+	            <Select options={READING_SERIES_STATUS_OPTIONS} />
+	          </Form.Item>
+	        </Form>
+	      </Modal>
+
+	      <Modal
+	        open={readingSeriesDetailOpen}
+	        title={readingSeriesDetail ? `${readingSeriesDetail.title} · 读书内容` : "读书系列内容"}
+	        width={1080}
+	        footer={null}
+	        onCancel={() => setReadingSeriesDetailOpen(false)}
+	      >
+	        <Space direction="vertical" size={12} style={{ width: "100%", marginBottom: 12 }}>
+	          <Alert
+	            type="info"
+	            showIcon
+	            message={`系列周期：${readingSeriesDetail?.start_date || "未设置"} 至 ${readingSeriesDetail?.end_date || "未设置"}`}
+	            description={`默认派发对象：${readingSeriesDetail?.target_summary || getSeriesTargetSummary(readingSeriesDetail?.targets || [])}`}
+	          />
+	        </Space>
+	        <Table
+	          rowKey="id"
+	          loading={readingSeriesDetailLoading}
+	          dataSource={readingSeriesDetail?.contents || []}
+	          pagination={{ pageSize: 8 }}
+	          scroll={{ x: 1000 }}
+	          columns={[
+	            { title: "日期", dataIndex: "reading_date", width: 110 },
+	            { title: "周期状态", dataIndex: "out_of_range", width: 120, render: (value) => value ? <Tag color="warning">超出系列周期</Tag> : <Tag color="success">周期内</Tag> },
+	            { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+	            { title: "标题", dataIndex: "title", width: 180 },
+	            { title: "推送对象", render: (_, row) => getReadingTargetSummary(row), width: 180 },
+	            { title: "推送人数", dataIndex: "push_count", width: 90 },
+	            { title: "已完成", dataIndex: "completed_count", width: 90 },
+	            { title: "未完成", dataIndex: "pending_count", width: 90 },
+	            { title: "完成率", dataIndex: "completion_rate", width: 90, render: (value) => `${value || 0}%` },
+	            { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+	          ]}
+	        />
+	      </Modal>
+
+	      <Modal
+        open={readingImportPreviewOpen}
+        title="Excel 导入预览"
+        width={1100}
+        onCancel={() => {
+          if (readingImportSubmitting) return;
+          setReadingImportPreviewOpen(false);
+        }}
+        onOk={handleConfirmReadingImport}
+        okButtonProps={{ disabled: !readingImportRows.some((item) => item.can_import) }}
+        confirmLoading={readingImportSubmitting}
+        okText="确认导入"
+      >
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`共 ${readingImportSummary.total} 行，可导入 ${readingImportSummary.valid} 行，错误 ${readingImportSummary.invalid} 行`}
+          />
+          <Table
+            rowKey="row_number"
+            size="small"
+            pagination={{ pageSize: 8 }}
+            dataSource={readingImportRows}
+            rowClassName={(row) => (row.errors?.length ? "magic-table-row-error" : "")}
+            columns={[
+              { title: "行号", dataIndex: "row_number", width: 80 },
+              { title: "日期", render: (_, row) => row.parsed?.reading_date || "—" },
+              { title: "推送时间", render: (_, row) => row.parsed?.push_time || "—" },
+              { title: "标题", render: (_, row) => row.parsed?.title || "—" },
+              { title: "目标类型", render: (_, row) => row.parsed?.target_type || "—" },
+              { title: "目标人群", render: (_, row) => (row.parsed?.target_labels || []).join("、") || "—" },
+              { title: "补卡截止", render: (_, row) => row.parsed?.makeup_deadline_at || "—" },
+              { title: "错误/警告", render: (_, row) => [...(row.errors || []), ...(row.warnings || [])].join("；") || "—" },
+            ]}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        open={audioDetailOpen}
+        title={audioDetailRow ? `${audioDetailRow.reading_date} ${audioDetailRow.title}` : "完成明细"}
+        width={980}
+        footer={null}
+        onCancel={() => setAudioDetailOpen(false)}
+      >
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          {audioDetailLegacyHint ? <Alert type="info" showIcon message={audioDetailLegacyHint} /> : null}
+          <Table
+            rowKey="user_id"
+            loading={audioDetailLoading}
+            dataSource={audioDetailRows}
+            pagination={{ pageSize: 10 }}
+            columns={[
+              { title: "员工姓名", dataIndex: "user_name" },
+              { title: "部门", dataIndex: "department_name", render: (value) => value || "—" },
+              { title: "岗位", dataIndex: "position", render: (value) => value || "—" },
+              { title: "应完成", dataIndex: "should_complete", render: (value) => value ? "是" : "否" },
+              { title: "已完成", dataIndex: "completed", render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
+              { title: "上传时间", dataIndex: "uploaded_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "是否补卡", dataIndex: "is_makeup", render: (value) => value ? "是" : "否" },
+              { title: "补卡时间", dataIndex: "makeup_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "备注", dataIndex: "remark", render: (value) => value || "—" },
+              { title: "当前状态", dataIndex: "status_text" },
+            ]}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        open={audioExportModalOpen}
+        title="导出读书打卡统计"
+        width={880}
+        destroyOnHidden
+        onCancel={() => {
+          if (audioExportSubmitting) return;
+          setAudioExportModalOpen(false);
+        }}
+        onOk={handleConfirmAudioExport}
+        okText="确认导出"
+        cancelText="取消"
+        confirmLoading={audioExportSubmitting}
+        okButtonProps={{ disabled: audioExportColumns.length === 0 }}
+      >
+        <Space direction="vertical" size={16} style={{ width: "100%" }}>
+          <Alert
+            type="info"
+            showIcon
+            message="当前导出范围"
+            description={(
+              <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                {audioExportScopeLines.map((line) => (
+                  <Text key={line}>{line}</Text>
+                ))}
+              </Space>
+            )}
+          />
+          <Card
+            size="small"
+            title="字段选择"
+            extra={(
+              <Space wrap>
+                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_FIELD_GROUPS.flatMap((group) => group.fields.map((item) => item.key)))}>
+                  全选
+                </Button>
+                <Button size="small" onClick={() => setAudioExportColumns([])}>
+                  清空
+                </Button>
+                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_DEFAULT_COLUMNS)}>
+                  恢复默认
+                </Button>
+                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_EMPLOYEE_COLUMNS)}>
+                  仅员工明细字段
+                </Button>
+                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_STAT_COLUMNS)}>
+                  仅完成统计字段
+                </Button>
+              </Space>
+            )}
+          >
+            <Space direction="vertical" size={16} style={{ width: "100%" }}>
+              {AUDIO_EXPORT_FIELD_GROUPS.map((group) => (
+                <div key={group.key}>
+                  <Text strong>{group.title}</Text>
+                  <div style={{ marginTop: 8 }}>
+                    <Space wrap size={[16, 12]}>
+                      {group.fields.map((field) => (
+                        <Checkbox
+                          key={field.key}
+                          checked={audioExportColumns.includes(field.key)}
+                          onChange={(event) => handleToggleAudioExportColumn(field.key, event.target.checked)}
+                        >
+                          {field.label}
+                        </Checkbox>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+              ))}
+              {audioExportColumns.length === 0 ? <Text type="danger">请至少选择一个导出字段</Text> : null}
+            </Space>
+          </Card>
+        </Space>
+      </Modal>
 
       <WatchConfirmModal
         open={watchConfirmState.open}

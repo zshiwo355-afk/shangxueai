@@ -555,12 +555,22 @@ async def _collect_target_users(db: AsyncSession, video: MagicVideo, targets: li
     return list(unique.values())
 
 
-def _filter_stats_users(users: list[User], department: str | None = None, user_id: int | None = None) -> list[User]:
+def _filter_stats_users(
+    users: list[User],
+    department: list[str] | None = None,
+    user_id: list[int] | None = None,
+) -> list[User]:
     filtered = users
     if department:
-        filtered = [item for item in filtered if _department_matches_filter(item, department)]
+        department_set = set(department)
+        filtered = [
+            item
+            for item in filtered
+            if any(_department_matches_filter(item, department_item) for department_item in department_set)
+        ]
     if user_id:
-        filtered = [item for item in filtered if item.id == user_id]
+        user_id_set = set(int(item) for item in user_id)
+        filtered = [item for item in filtered if item.id in user_id_set]
     return filtered
 
 

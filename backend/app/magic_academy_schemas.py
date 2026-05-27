@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -210,6 +210,7 @@ class VideoWhitelistCreatePayload(BaseModel):
 
 
 class MagicAudioUploadPayload(BaseModel):
+    reading_content_id: int = Field(..., ge=1)
     file_name: str = Field(..., min_length=1, max_length=255)
     file_size: int = Field(default=0, ge=0)
     mime_type: str = Field(default="", max_length=128)
@@ -224,11 +225,98 @@ class AudioMakeupSettingPayload(BaseModel):
 
 
 class AudioMakeupPayload(BaseModel):
-    makeup_date: date
+    reading_content_id: int = Field(..., ge=1)
+    makeup_date: date | None = None
     file_name: str = Field(..., min_length=1, max_length=255)
     file_size: int = Field(default=0, ge=0)
     mime_type: str = Field(default="", max_length=128)
     remark: str = Field(default="", max_length=255)
+
+
+class AdminReadingAudioStatisticsExportPayload(BaseModel):
+    month: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    reading_content_id: int | None = Field(default=None, ge=1)
+    department: str | None = Field(default=None, max_length=255)
+    user_id: int | None = Field(default=None, ge=1)
+    status: str | None = Field(default=None, max_length=32)
+    columns: list[str] = Field(default_factory=list)
+
+    @field_validator("month", "start_date", "end_date", "department", "status", mode="before")
+    @classmethod
+    def _strip_optional_text(cls, value: Any) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @field_validator("columns", mode="before")
+    @classmethod
+    def _normalize_columns(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item or "").strip() for item in value if str(item or "").strip()]
+        raise ValueError("导出字段格式不正确。")
+
+
+class ReadingContentImportRowPayload(BaseModel):
+    reading_date: date
+    push_time: time
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+    image_source: str = Field(default="upload", max_length=32)
+    material_asset_id: int | None = Field(default=None, ge=1)
+    image_url: str = Field(default="", max_length=2048)
+    target_type: str = Field(..., min_length=1, max_length=32)
+    target_user_ids: list[int] = Field(default_factory=list)
+    target_department_ids: list[str] = Field(default_factory=list)
+    target_position_ids: list[str] = Field(default_factory=list)
+    makeup_deadline_at: datetime | None = None
+
+
+class ReadingContentImportConfirmPayload(BaseModel):
+    rows: list[ReadingContentImportRowPayload] = Field(default_factory=list)
+
+
+READING_SERIES_STATUSES = {"draft", "active", "paused", "archived"}
+READING_SERIES_TARGET_TYPES = {"all", "department", "position", "user"}
+
+
+class ReadingSeriesTargetPayload(BaseModel):
+    target_type: str = Field(..., min_length=1, max_length=32)
+    target_id: str | int | None = None
+
+    @field_validator("target_type")
+    @classmethod
+    def _target_type(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in READING_SERIES_TARGET_TYPES:
+            raise ValueError("不支持的读书系列派发对象类型。")
+        return normalized
+
+    @field_validator("target_id", mode="before")
+    @classmethod
+    def _target_id(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
+class ReadingSeriesPayload(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(default="", max_length=5000)
+    start_date: date | None = None
+    end_date: date | None = None
+    status: str = "draft"
+    targets: list[ReadingSeriesTargetPayload] = Field(default_factory=list)
+
+    @field_validator("status")
+    @classmethod
+    def _series_status(cls, value: str) -> str:
+        normalized = (value or "draft").strip().lower()
+        if normalized not in READING_SERIES_STATUSES:
+            raise ValueError("不支持的读书系列状态。")
+        return normalized
 
 
 class VideoSeriesPayload(BaseModel):

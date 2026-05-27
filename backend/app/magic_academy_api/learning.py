@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 from fastapi import Depends, HTTPException
@@ -56,6 +57,34 @@ from ._video_helpers import (
     _video_to_dict,
     _video_visible_to_user,
 )
+
+MAX_PROGRESS_SPEED_MULTIPLIER = 2.0
+MAX_PROGRESS_SKEW_SECONDS = 10.0
+
+
+def _clamp_trusted_progress(
+    progress: MagicVideoProgress | None,
+    *,
+    now: datetime,
+    duration: float,
+    reported_current_position: float,
+    reported_max_watched_position: float,
+) -> tuple[float, float]:
+    previous_current = max(float(progress.current_position or 0), 0) if progress else 0.0
+    previous_max = max(float(progress.max_watched_position or 0), 0) if progress else 0.0
+    previous_anchor = progress.last_watched_at or progress.updated_at if progress else None
+    elapsed_seconds = max((now - previous_anchor).total_seconds(), 0) if previous_anchor else 0
+    allowed_growth = elapsed_seconds * MAX_PROGRESS_SPEED_MULTIPLIER + MAX_PROGRESS_SKEW_SECONDS
+    trusted_ceiling = min(duration, previous_max + allowed_growth) if duration > 0 else previous_max + allowed_growth
+    trusted_current = min(max(reported_current_position, 0), duration or reported_current_position)
+    trusted_max = max(previous_max, reported_max_watched_position, trusted_current)
+    trusted_max = min(trusted_max, trusted_ceiling)
+    trusted_max = max(trusted_max, previous_max)
+    trusted_current = min(trusted_current, trusted_max if duration > 0 else trusted_current)
+    trusted_current = max(trusted_current, 0.0)
+    if trusted_max < previous_current:
+        trusted_max = previous_current
+    return trusted_current, trusted_max
 
 
 @router.get("/my/videos")
@@ -191,21 +220,34 @@ async def save_my_video_progress(
     targets, whitelisted = await _ensure_video_access(db, video, user)
     progress = await _get_progress(db, user.id, video_id, create=True)
     progress = await _ensure_progress_quiz_version(db, progress, video)
+    now = _now()
     all_progress_result = await db.execute(
         select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id)
     )
     all_progress_map = {item.video_id: item for item in all_progress_result.scalars().all()}
     duration = max(float(payload.duration_seconds or video.duration_seconds or progress.total_duration or 0), 0)
     progress.total_duration = duration
-    progress.current_position = min(max(float(payload.current_position or 0), 0), duration or float(payload.current_position or 0))
-    allowed_max = max(float(progress.max_watched_position or 0), float(payload.max_watched_position or 0))
-    if not _can_seek_freely(whitelisted, whitelist_permissions) and duration > 0:
-        allowed_max = min(allowed_max, duration)
-    progress.max_watched_position = allowed_max
-    progress.progress_percent = round((allowed_max / duration) * 100, 2) if duration > 0 else 0
+    reported_current_position = min(max(float(payload.current_position or 0), 0), duration or float(payload.current_position or 0))
+    reported_max_watched_position = min(max(float(payload.max_watched_position or 0), 0), duration or float(payload.max_watched_position or 0))
+    if _can_seek_freely(whitelisted, whitelist_permissions):
+        trusted_current = reported_current_position
+        trusted_max = max(float(progress.max_watched_position or 0), reported_max_watched_position, trusted_current)
+        if duration > 0:
+            trusted_max = min(trusted_max, duration)
+    else:
+        trusted_current, trusted_max = _clamp_trusted_progress(
+            progress,
+            now=now,
+            duration=duration,
+            reported_current_position=reported_current_position,
+            reported_max_watched_position=reported_max_watched_position,
+        )
+    progress.current_position = trusted_current
+    progress.max_watched_position = trusted_max
+    progress.progress_percent = round((trusted_max / duration) * 100, 2) if duration > 0 else 0
     progress.progress_source = progress.progress_source or SOURCE_MANUAL
     if payload.page_visible:
-        progress.last_watched_at = _now()
+        progress.last_watched_at = now
     answered = set(_json_loads(progress.answered_point_ids_json, []))
     point_result = await db.execute(
         select(MagicVideoQuizPoint.id)
@@ -215,7 +257,7 @@ async def save_my_video_progress(
     progress.quiz_passed = answered.issuperset(required_point_ids)
     if whitelist_permissions.get("course_exempt_enabled"):
         progress.quiz_passed = True
-    near_end = duration > 0 and allowed_max >= max(duration - 1.5, duration * 0.98)
+    near_end = duration > 0 and trusted_max >= max(duration - 1.5, duration * 0.98)
     if _can_seek_freely(whitelisted, whitelist_permissions):
         near_end = duration > 0 and progress.current_position >= 0
     if whitelist_permissions.get("course_exempt_enabled"):
@@ -223,11 +265,11 @@ async def save_my_video_progress(
         progress.completed_by_whitelist = True
         progress.progress_source = SOURCE_WHITELIST_EXEMPT
         if not progress.completed_at:
-            progress.completed_at = _now()
+            progress.completed_at = now
     elif near_end and progress.quiz_passed and video.status == "published":
         progress.is_completed = True
         if not progress.completed_at:
-            progress.completed_at = _now()
+            progress.completed_at = now
     await db.flush()
     series_context_map = await _get_series_context_map(
         db,

@@ -506,14 +506,55 @@ CREATE TABLE `material_assets` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材文件';
 
 -- ---------------------------------------------------------------------
--- 22) magic_reading_contents — 每日读书内容推送
+-- 22) magic_reading_series — 读书系列
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_reading_series`;
+CREATE TABLE `magic_reading_series` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `title`       VARCHAR(255) NOT NULL,
+  `description` TEXT         NULL,
+  `start_date`  DATE         NULL DEFAULT NULL,
+  `end_date`    DATE         NULL DEFAULT NULL,
+  `status`      VARCHAR(16)  NOT NULL DEFAULT 'draft',
+  `created_by`  BIGINT       NOT NULL,
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_series_status` (`status`, `created_at`),
+  KEY `idx_magic_reading_series_date` (`start_date`, `end_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书系列';
+
+-- ---------------------------------------------------------------------
+-- 23) magic_reading_series_targets — 读书系列默认派发对象
+-- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_reading_series_targets`;
+CREATE TABLE `magic_reading_series_targets` (
+  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+  `series_id`   BIGINT       NOT NULL,
+  `target_type` VARCHAR(32)  NOT NULL COMMENT 'all / department / position / user',
+  `target_id`   VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_magic_reading_series_targets_series` (`series_id`),
+  KEY `idx_magic_reading_series_targets_lookup` (`series_id`, `target_type`, `target_id`),
+  KEY `idx_magic_reading_series_targets_type_target` (`target_type`, `target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书系列默认派发对象';
+
+-- ---------------------------------------------------------------------
+-- 24) magic_reading_contents — 每日读书内容推送
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_reading_contents`;
 CREATE TABLE `magic_reading_contents` (
   `id`               BIGINT       NOT NULL AUTO_INCREMENT,
+  `series_id`        BIGINT       NULL DEFAULT NULL,
   `reading_date`     DATE         NOT NULL,
+  `push_time`        TIME         NULL DEFAULT NULL,
+  `push_at`          DATETIME     NULL DEFAULT NULL,
+  `makeup_deadline_at` DATETIME   NULL DEFAULT NULL,
   `title`            VARCHAR(255) NOT NULL,
   `description`      TEXT         NULL,
+  `source_type`      VARCHAR(32)  NOT NULL DEFAULT 'upload',
+  `material_asset_id` BIGINT      NULL DEFAULT NULL,
   `image_object_key` VARCHAR(1024) NOT NULL,
   `image_url`        VARCHAR(2048) NOT NULL DEFAULT '',
   `image_file_name`  VARCHAR(255) NOT NULL DEFAULT '',
@@ -526,11 +567,15 @@ CREATE TABLE `magic_reading_contents` (
   `is_deleted`       TINYINT(1)   NOT NULL DEFAULT 0,
   `deleted_at`       DATETIME     NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx_magic_reading_contents_date` (`reading_date`, `is_deleted`)
+  KEY `idx_magic_reading_contents_series` (`series_id`),
+  KEY `idx_magic_reading_contents_date` (`reading_date`, `is_deleted`),
+  KEY `idx_magic_reading_contents_push_at` (`push_at`),
+  KEY `idx_magic_reading_contents_makeup_deadline_at` (`makeup_deadline_at`),
+  KEY `idx_magic_reading_contents_material_asset` (`material_asset_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每日读书内容推送';
 
 -- ---------------------------------------------------------------------
--- 23) magic_reading_content_targets — 读书内容推送对象
+-- 25) magic_reading_content_targets — 读书内容推送对象
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_reading_content_targets`;
 CREATE TABLE `magic_reading_content_targets` (
@@ -544,12 +589,14 @@ CREATE TABLE `magic_reading_content_targets` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书内容推送对象';
 
 -- ---------------------------------------------------------------------
--- 24) magic_audio_uploads — 读书录音上传
+-- 25) magic_audio_uploads — 读书录音上传
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_audio_uploads`;
 CREATE TABLE `magic_audio_uploads` (
   `id`           BIGINT       NOT NULL AUTO_INCREMENT,
   `user_id`      BIGINT       NOT NULL,
+  `reading_content_id` BIGINT NULL DEFAULT NULL,
+  `active_reading_content_id` BIGINT GENERATED ALWAYS AS (CASE WHEN `is_deleted` = 0 THEN `reading_content_id` ELSE NULL END) STORED,
   `file_name`    VARCHAR(255) NOT NULL,
   `file_path`    VARCHAR(512) NOT NULL,
   `file_size`    BIGINT       NOT NULL DEFAULT 0,
@@ -564,7 +611,10 @@ CREATE TABLE `magic_audio_uploads` (
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_magic_audio_uploads_user_month` (`user_id`, `uploaded_date`, `is_deleted`)
+  UNIQUE KEY `uk_magic_audio_uploads_user_content` (`user_id`, `active_reading_content_id`),
+  KEY `idx_magic_audio_uploads_user_month` (`user_id`, `uploaded_date`, `is_deleted`),
+  KEY `idx_magic_audio_uploads_reading_content_id` (`reading_content_id`),
+  KEY `idx_magic_audio_uploads_user_content` (`user_id`, `reading_content_id`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院读书录音上传';
 
 -- ---------------------------------------------------------------------

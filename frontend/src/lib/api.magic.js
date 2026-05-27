@@ -11,6 +11,20 @@ function authHeaders(extra = {}) {
   return headers;
 }
 
+function parseDownloadFilename(disposition) {
+  const text = String(disposition || "");
+  const utf8Match = text.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      // ignore malformed encoding and fall back
+    }
+  }
+  const asciiMatch = text.match(/filename="?([^"]+)"?/i);
+  return asciiMatch?.[1] || "export.xlsx";
+}
+
 export function buildMagicVideoStreamUrl(videoId) {
   const url = new URL(buildApiUrl(`/api/magic-academy/videos/${videoId}/stream`), window.location.origin);
   const token = getToken();
@@ -185,15 +199,23 @@ export async function updateMagicWatchConfirmSetting(videoId, payload) {
 
 export async function fetchMagicVideoStats(videoId, params = {}) {
   const search = new URLSearchParams();
-  if (params.department) search.set("department", params.department);
-  if (params.user_id) search.set("user_id", String(params.user_id));
+  for (const item of params.departments || []) {
+    if (item) search.append("department", item);
+  }
+  for (const item of params.user_ids || []) {
+    if (item) search.append("user_id", String(item));
+  }
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/videos/${videoId}/stats${suffix}`, "学习统计加载失败。");
 }
 export async function fetchMagicVideoAnswers(videoId, params = {}) {
   const search = new URLSearchParams();
-  if (params.department) search.set("department", params.department);
-  if (params.user_id) search.set("user_id", String(params.user_id));
+  for (const item of params.departments || []) {
+    if (item) search.append("department", item);
+  }
+  for (const item of params.user_ids || []) {
+    if (item) search.append("user_id", String(item));
+  }
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/videos/${videoId}/answers${suffix}`, "答题详情加载失败。");
 }
@@ -205,8 +227,19 @@ export async function downloadMagicFile(path) {
   if (!response.ok) await throwRequestError(response, "下载失败。");
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  return { blob, filename: match?.[1] || "export.xlsx" };
+  return { blob, filename: parseDownloadFilename(disposition) };
+}
+
+export async function downloadMagicFileByPost(path, payload = {}, fallbackMessage = "下载失败。") {
+  const response = await safeFetch(buildApiUrl(path), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, fallbackMessage);
+  if (!response.ok) await throwRequestError(response, fallbackMessage);
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  return { blob, filename: parseDownloadFilename(disposition) };
 }
 
 export async function listMagicWhitelist() {
@@ -259,6 +292,7 @@ export async function fetchAdminReadingContents(params = {}) {
   const search = new URLSearchParams();
   if (params.month) search.set("month", params.month);
   if (params.date) search.set("date", params.date);
+  if (params.series_id !== undefined && params.series_id !== null && params.series_id !== "") search.set("series_id", String(params.series_id));
   if (params.keyword) search.set("keyword", params.keyword);
   if (params.page) search.set("page", String(params.page));
   if (params.page_size) search.set("page_size", String(params.page_size));
@@ -271,14 +305,19 @@ export async function fetchAdminReadingContentDetail(id) {
 async function submitReadingContentForm(url, method, payload, errorMessage) {
   const formData = new FormData();
   formData.append("reading_date", payload.reading_date);
+  formData.append("push_time", payload.push_time || "");
   formData.append("title", payload.title || "");
   formData.append("description", payload.description || "");
   formData.append("image_source", payload.image_source || "upload");
   if (payload.material_asset_id) formData.append("material_asset_id", String(payload.material_asset_id));
+  if (payload.series_id) formData.append("series_id", String(payload.series_id));
+  if (payload.image_url) formData.append("image_url", payload.image_url);
   formData.append("target_type", payload.target_type || "user");
   formData.append("target_user_ids", JSON.stringify(payload.target_user_ids || []));
   formData.append("target_department_ids", JSON.stringify(payload.target_department_ids || []));
   formData.append("target_position_ids", JSON.stringify(payload.target_position_ids || []));
+  if (Array.isArray(payload.targets) && payload.targets.length) formData.append("targets", JSON.stringify(payload.targets));
+  if (payload.makeup_deadline_at) formData.append("makeup_deadline_at", payload.makeup_deadline_at);
   if (payload.image) formData.append("image", payload.image);
   const response = await safeFetch(buildApiUrl(url), {
     method,
@@ -291,11 +330,67 @@ async function submitReadingContentForm(url, method, payload, errorMessage) {
 export async function createAdminReadingContent(payload) {
   return submitReadingContentForm("/api/magic-academy/admin/reading-contents", "POST", payload, "新增读书内容失败。");
 }
+export async function createAdminReadingContentsBatch(payload) {
+  const formData = new FormData();
+  formData.append("items_json", JSON.stringify(payload?.items || []));
+  for (const item of payload?.items || []) {
+    if (item?.client_key && item?.image instanceof File) {
+      formData.append(`image_file_${item.client_key}`, item.image);
+    }
+  }
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/admin/reading-contents/batch"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "批量新增读书内容失败。");
+  if (!response.ok) await throwRequestError(response, "批量新增读书内容失败。");
+  return parseJsonResponse(response, "批量新增读书内容失败。");
+}
 export async function updateAdminReadingContent(id, payload) {
   return submitReadingContentForm(`/api/magic-academy/admin/reading-contents/${id}`, "PUT", payload, "更新读书内容失败。");
 }
 export async function deleteAdminReadingContent(id) {
   return deleteJson(`/api/magic-academy/admin/reading-contents/${id}`, "删除读书内容失败。");
+}
+export async function updateAdminReadingContentStatus(id, status) {
+  return postJson(`/api/magic-academy/admin/reading-contents/${id}/status`, { status }, "更新读书内容状态失败。");
+}
+
+export async function fetchAdminReadingSeries(params = {}) {
+  const search = new URLSearchParams();
+  if (params.keyword) search.set("keyword", params.keyword);
+  if (params.status) search.set("status", params.status);
+  if (params.page) search.set("page", String(params.page));
+  if (params.page_size) search.set("page_size", String(params.page_size));
+  if (params.only_selectable) search.set("only_selectable", "true");
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/reading-series${suffix}`, "读书系列列表加载失败。");
+}
+export async function fetchAdminReadingSeriesDetail(id) {
+  return getJson(`/api/magic-academy/admin/reading-series/${id}`, "读书系列详情加载失败。");
+}
+export async function createAdminReadingSeries(payload) {
+  return postJson("/api/magic-academy/admin/reading-series", payload, "新增读书系列失败。");
+}
+export async function updateAdminReadingSeries(id, payload) {
+  return putJson(`/api/magic-academy/admin/reading-series/${id}`, payload, "更新读书系列失败。");
+}
+export async function archiveAdminReadingSeries(id) {
+  return postJson(`/api/magic-academy/admin/reading-series/${id}/archive`, {}, "归档读书系列失败。");
+}
+export async function previewAdminReadingContentsImport(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/admin/reading-contents/import-preview"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "读书内容导入预览失败。");
+  if (!response.ok) await throwRequestError(response, "读书内容导入预览失败。");
+  return parseJsonResponse(response, "读书内容导入预览失败。");
+}
+export async function confirmAdminReadingContentsImport(rows) {
+  return postJson("/api/magic-academy/admin/reading-contents/import-confirm", { rows }, "读书内容导入失败。");
 }
 
 export async function fetchMagicAudioStats(params = {}) {
@@ -306,6 +401,26 @@ export async function fetchMagicAudioStats(params = {}) {
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/admin/audio-stats${suffix}`, "录音统计加载失败。");
 }
+export async function fetchAdminReadingAudioStatistics(params = {}) {
+  const search = new URLSearchParams();
+  if (params.month) search.set("month", params.month);
+  if (params.start_date) search.set("start_date", params.start_date);
+  if (params.end_date) search.set("end_date", params.end_date);
+  if (params.reading_content_id) search.set("reading_content_id", String(params.reading_content_id));
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  if (params.status) search.set("status", params.status);
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/audio-statistics/reading-contents${suffix}`, "读书内容统计加载失败。");
+}
+export async function fetchAdminReadingAudioStatisticUsers(readingContentId, params = {}) {
+  const search = new URLSearchParams();
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  if (params.status) search.set("status", params.status);
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/audio-statistics/reading-contents/${readingContentId}/users${suffix}`, "读书内容完成明细加载失败。");
+}
 export async function fetchAdminAudioCalendar(params = {}) {
   const search = new URLSearchParams();
   if (params.month) search.set("month", params.month);
@@ -313,4 +428,24 @@ export async function fetchAdminAudioCalendar(params = {}) {
   if (params.user_id) search.set("user_id", String(params.user_id));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/admin/audios/calendar${suffix}`, "录音日历加载失败。");
+}
+export function buildAdminReadingAudioStatisticsExportPath(params = {}) {
+  const search = new URLSearchParams();
+  if (params.month) search.set("month", params.month);
+  if (params.start_date) search.set("start_date", params.start_date);
+  if (params.end_date) search.set("end_date", params.end_date);
+  if (params.reading_content_id) search.set("reading_content_id", String(params.reading_content_id));
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  if (params.status) search.set("status", params.status);
+  const query = search.toString();
+  return `/api/magic-academy/admin/audio-statistics/reading-contents/export${query ? `?${query}` : ""}`;
+}
+
+export async function exportAdminReadingAudioStatistics(payload = {}) {
+  return downloadMagicFileByPost(
+    "/api/magic-academy/admin/audio-statistics/reading-contents/export",
+    payload,
+    "读书打卡统计导出失败。",
+  );
 }

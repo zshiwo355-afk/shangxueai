@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -24,7 +25,7 @@ VIDEO_UPLOAD_STATUSES = {"pending", "uploading", "completed", "failed", "deleted
 TRANSCODE_STATUSES = {"none", "pending", "processing", "completed", "failed"}
 TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "role", "user"}
 VIDEO_SOURCE_TYPES = {"upload", "material"}
-IMAGE_SOURCE_TYPES = {"upload", "material"}
+IMAGE_SOURCE_TYPES = {"upload", "material", "url"}
 READING_TARGET_TYPES = {"all", "all_newcomers", "department", "position", "user"}
 QUESTION_TYPES = {"single", "multiple", "judge", "blank", "short_answer"}
 QUESTION_TYPE_ALIASES = {
@@ -150,6 +151,16 @@ def _safe_filename(name: str) -> str:
     return Path((name or "file").replace("\\", "/")).name or "file"
 
 
+def _attachment_disposition(filename: str | None) -> str:
+    name = (filename or "").strip() or "export.xlsx"
+    try:
+        ascii_name = name.encode("ascii").decode("ascii")
+        return f'attachment; filename="{ascii_name}"'
+    except UnicodeEncodeError:
+        fallback = _safe_filename(name.encode("ascii", "ignore").decode("ascii")) or "export.xlsx"
+        return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quote(name)}'
+
+
 def _strip_slashes(value: str) -> str:
     return (value or "").strip().strip("/")
 
@@ -216,7 +227,7 @@ def _xlsx_response(filename: str, headers: list[str], rows: list[list[Any]]) -> 
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Content-Disposition"] = _attachment_disposition(filename)
     return response
 
 

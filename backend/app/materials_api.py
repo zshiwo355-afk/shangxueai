@@ -1004,7 +1004,10 @@ async def delete_material_asset(
         raise HTTPException(status_code=400, detail="该素材已被课程视频使用，不能删除。")
     reading_ref = await db.execute(
         select(MagicReadingContent.id).where(
-            MagicReadingContent.image_object_key == asset.object_key,
+            or_(
+                MagicReadingContent.material_asset_id == asset.id,
+                MagicReadingContent.image_object_key == asset.object_key,
+            ),
             MagicReadingContent.is_deleted.is_(False),
         ).limit(1)
     )
