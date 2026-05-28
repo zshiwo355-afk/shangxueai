@@ -3,7 +3,7 @@ import { Button, Layout, Menu, Spin, Typography } from "antd";
 import { lazy, Suspense, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
-import { clearAuth, getCurrentUser, isSuperAdmin } from "../lib/auth";
+import { clearAuth, isSuperAdmin } from "../lib/auth";
 
 const UsersTab = lazy(() => import("./admin/UsersTab"));
 const OptionsTab = lazy(() => import("./admin/OptionsTab"));
@@ -37,7 +37,6 @@ function TabFallback() {
 export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const user = getCurrentUser();
   const showWhitelist = isSuperAdmin();
   const menuItems = useMemo(
     () => MENU_ITEMS.filter((item) => !item.superOnly || showWhitelist),
@@ -102,7 +101,7 @@ export default function AdminLayout() {
           <div style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 2 }}>
             <strong style={{ fontSize: 14, lineHeight: 1.3 }}>怀仁商学院</strong>
             <span style={{ fontSize: 12, color: "var(--text-mute)", lineHeight: 1.3 }}>
-              {user?.display_name || user?.username || "管理后台"}
+              管理后台
             </span>
           </div>
         </div>

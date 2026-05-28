@@ -1,843 +1,957 @@
 -- =====================================================================
--- ShangxueAI 数据库 · 一键完整安装（合并版）
+-- ShangxueAI full schema install
 --
--- 本文件 = 基准 init.sql 的全量 DDL + 种子数据，并已内含以下增量脚本的最终形态：
---   migrate_v2_chat_history.sql      （training_records / exam_attempts 对话历史）
---   migrate_v2_admin_review.sql      （考试固定参数、管理员复核与最终分）
---   migrate_v3_magic_academy.sql     （users 扩展字段 + 魔学院相关表）
---   migrate_v4_magic_video_oss.sql   （magic_videos OSS / 播放与上传状态等列）
---   migrate_v8_exam_papers.sql       （考试管理：题库 / 试卷 / 派发 / 提交 / 复核 / 导入）
+-- Purpose: create the complete current database schema only.
+-- Usage: mysql -u root -p shangxueai < backend/sql/full_install.sql
+-- After schema creation, run backend/sql/basic_seed.sql to insert baseline data.
 --
--- 全新库：只需执行本文件（或与之等价的 init.sql）即可，无需再跑 migrate_*.sql。
--- 已有旧库升级：请仍按版本顺序单独执行 migrate_*.sql；勿对本文件重复执行（含 DROP）。
---
--- 使用方式：
---   1) 先建库：CREATE DATABASE shangxueai DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
---   2) CMD（推荐）：mysql -u root -p shangxueai < "C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/full_install.sql"
---   3) 已在 mysql> 里用 SOURCE 时（Windows）：路径必须用正斜杠或双反斜杠，否则会报 Unknown command '\U'、路径错乱：
---        SOURCE C:/Users/你的用户名/Desktop/project/shangxue/backend/sql/full_install.sql;
---        或 SOURCE C:\\Users\\你的用户名\\Desktop\\project\\shangxue\\backend\\sql\\full_install.sql;
---
--- 初始管理员账号：admin / 123456 （md5: e10adc3949ba59abbe56e057f20f883e）
---
--- 说明：init.sql 与本文件正文一致时二者任选其一；后续若只维护一份，建议以本文件为准。
+-- Note: this file intentionally does not insert business data.
 -- =====================================================================
 
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8mb4 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
--- ---------------------------------------------------------------------
--- 1) users — 用户（管理员 + 普通学员）
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `users`;
-CREATE TABLE `users` (
-  `id`           BIGINT       NOT NULL AUTO_INCREMENT,
-  `username`     VARCHAR(64)  NOT NULL,
-  `password_md5` CHAR(32)     NOT NULL COMMENT 'md5(明文密码) 32位小写hex',
-  `display_name` VARCHAR(128) NOT NULL DEFAULT '',
-  `real_name`    VARCHAR(128) NOT NULL DEFAULT '',
-  `department`   VARCHAR(128) NOT NULL DEFAULT '',
-  `position`     VARCHAR(128) NOT NULL DEFAULT '',
-  `role`         VARCHAR(16)  NOT NULL DEFAULT 'user' COMMENT 'super_admin / admin / user',
-  `is_newcomer`  TINYINT(1)   NOT NULL DEFAULT 0,
-  `employment_status` VARCHAR(32) NOT NULL DEFAULT '',
-  `status`       VARCHAR(16)  NOT NULL DEFAULT 'active' COMMENT 'active / inactive',
-  `disabled`     TINYINT(1)   NOT NULL DEFAULT 0,
-  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_users_username` (`username`),
-  KEY `idx_users_role_disabled_status_dept` (`role`, `disabled`, `status`, `department`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
--- ---------------------------------------------------------------------
--- 2) config_options — 三类下拉项（训练类型/难度/客户类型）
--- ---------------------------------------------------------------------
+--
+-- Table structure for table `config_options`
+--
+
 DROP TABLE IF EXISTS `config_options`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `config_options` (
-  `id`         BIGINT       NOT NULL AUTO_INCREMENT,
-  `category`   VARCHAR(32)  NOT NULL COMMENT 'training_type / difficulty / customer_type',
-  `value`      VARCHAR(64)  NOT NULL,
-  `sort_order` INT          NOT NULL DEFAULT 0,
-  `enabled`    TINYINT(1)   NOT NULL DEFAULT 1,
-  `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_config_options_cat_val` (`category`, `value`),
-  KEY `idx_config_options_cat` (`category`, `enabled`, `sort_order`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='下拉选项配置（管理员维护）';
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'training_type / difficulty / customer_type',
+  `value` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_config_options_cat_val` (`category`,`value`) USING BTREE,
+  KEY `idx_config_options_cat` (`category`,`enabled`,`sort_order`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='下拉选项配置（管理员维护）';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 3) magic_audio_makeup_settings — 读书打卡补卡设置
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_audio_makeup_settings`;
-CREATE TABLE `magic_audio_makeup_settings` (
-  `id`           BIGINT     NOT NULL AUTO_INCREMENT,
-  `enabled`      TINYINT(1) NOT NULL DEFAULT 0,
-  `make_up_days` INT        NOT NULL DEFAULT 0,
-  `audio_random_window_minutes` INT NOT NULL DEFAULT 0,
-  `video_random_window_minutes` INT NOT NULL DEFAULT 0,
-  `updated_by`   BIGINT     NULL DEFAULT NULL,
-  `created_at`   DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`   DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书打卡补卡设置';
+--
+-- Table structure for table `exam_attempts`
+--
 
--- ---------------------------------------------------------------------
--- 4) training_sessions — 训练 / 考试通用会话（替代 V1 的 .sessions JSON）
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `training_sessions`;
-CREATE TABLE `training_sessions` (
-  `id`              VARCHAR(64) NOT NULL COMMENT 'session_id, uuid hex',
-  `user_id`         BIGINT      NOT NULL,
-  `mode`            VARCHAR(16) NOT NULL DEFAULT 'training' COMMENT 'training / exam',
-  `exam_attempt_id` BIGINT      NULL DEFAULT NULL,
-  `state_json`      LONGTEXT    NOT NULL COMMENT 'SessionState 完整序列化',
-  `created_at`      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_training_sessions_user` (`user_id`, `mode`),
-  KEY `idx_training_sessions_attempt` (`exam_attempt_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='训练/考试会话（运行时状态）';
-
--- ---------------------------------------------------------------------
--- 4) exams — 考试任务（管理员派发）
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `exams`;
-CREATE TABLE `exams` (
-  `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
-  `user_id`             BIGINT       NOT NULL COMMENT '应试者',
-  `title`               VARCHAR(255) NOT NULL DEFAULT '陪练考试',
-  `pass_score`          INT          NOT NULL DEFAULT 60,
-  `status`              VARCHAR(16)  NOT NULL DEFAULT 'pending'
-                        COMMENT 'pending / in_progress / pending_review / passed / failed',
-  `attempt_count`       INT          NOT NULL DEFAULT 0,
-  `max_attempts`        INT          NOT NULL DEFAULT 2,
-  `fixed_training_type` VARCHAR(64)  NULL DEFAULT NULL,
-  `fixed_difficulty`    VARCHAR(32)  NULL DEFAULT NULL,
-  `fixed_customer_type` VARCHAR(64)  NULL DEFAULT NULL,
-  `ai_weight`           FLOAT        NOT NULL DEFAULT 0.5
-                        COMMENT 'AI 评分占最终成绩比例，0-1',
-  `created_by`          BIGINT       NOT NULL,
-  `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `completed_at`        DATETIME     NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_exams_user_status` (`user_id`, `status`),
-  KEY `idx_exams_created_by` (`created_by`),
-  KEY `idx_exams_created_at` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='考试任务';
-
--- ---------------------------------------------------------------------
--- 5) exam_attempts — 单次考试尝试 + 复盘 + 管理员复核
--- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `exam_attempts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `exam_attempts` (
-  `id`                BIGINT      NOT NULL AUTO_INCREMENT,
-  `exam_id`           BIGINT      NOT NULL,
-  `attempt_no`        INT         NOT NULL COMMENT '1 或 2',
-  `training_type`     VARCHAR(64) NOT NULL,
-  `difficulty`        VARCHAR(32) NOT NULL DEFAULT '中等',
-  `customer_type`     VARCHAR(64) NOT NULL,
-  `session_id`        VARCHAR(64) NULL DEFAULT NULL,
-  `status`            VARCHAR(16) NOT NULL DEFAULT 'in_progress' COMMENT 'in_progress / completed / abandoned',
-  `score`             FLOAT       NULL DEFAULT NULL COMMENT 'AI 评分',
-  `is_pass`           TINYINT(1)  NULL DEFAULT NULL COMMENT 'AI 预判（仅供参考）',
-  `result`            VARCHAR(16) NULL DEFAULT NULL,
-  `review_json`       JSON        NULL DEFAULT NULL,
-  `chat_history_json` LONGTEXT    NULL DEFAULT NULL,
-  `admin_score`       FLOAT       NULL DEFAULT NULL,
-  `admin_comment`     TEXT        NULL DEFAULT NULL,
-  `final_score`       FLOAT       NULL DEFAULT NULL,
-  `final_is_pass`     TINYINT(1)  NULL DEFAULT NULL,
-  `reviewed_by`       BIGINT      NULL DEFAULT NULL,
-  `reviewed_at`       DATETIME    NULL DEFAULT NULL,
-  `started_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `completed_at`      DATETIME    NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_exam_attempts_session` (`session_id`),
-  KEY `idx_exam_attempts_exam` (`exam_id`, `attempt_no`),
-  KEY `idx_exam_attempts_review` (`status`, `reviewed_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='考试尝试与复盘';
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `exam_id` bigint NOT NULL,
+  `attempt_no` int NOT NULL COMMENT '1 或 2',
+  `training_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `difficulty` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '中等',
+  `customer_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `session_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'in_progress' COMMENT 'in_progress / completed / abandoned',
+  `score` float DEFAULT NULL COMMENT 'AI 评分',
+  `is_pass` tinyint(1) DEFAULT NULL COMMENT 'AI 预判（仅供参考）',
+  `result` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `review_json` json DEFAULT NULL,
+  `chat_history_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `admin_score` float DEFAULT NULL,
+  `admin_comment` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `final_score` float DEFAULT NULL,
+  `final_is_pass` tinyint(1) DEFAULT NULL,
+  `reviewed_by` bigint DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_exam_attempts_session` (`session_id`) USING BTREE,
+  KEY `idx_exam_attempts_exam` (`exam_id`,`attempt_no`) USING BTREE,
+  KEY `idx_exam_attempts_review` (`status`,`reviewed_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='考试尝试与复盘';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 6) training_records — 训练复盘记录（V2.1：含完整对话历史）
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `training_records`;
-CREATE TABLE `training_records` (
-  `id`                BIGINT      NOT NULL AUTO_INCREMENT,
-  `user_id`           BIGINT      NOT NULL,
-  `training_type`     VARCHAR(64) NOT NULL,
-  `difficulty`        VARCHAR(32) NOT NULL,
-  `customer_type`     VARCHAR(64) NOT NULL,
-  `score`             FLOAT       NULL DEFAULT NULL,
-  `is_pass`           TINYINT(1)  NULL DEFAULT NULL,
-  `result`            VARCHAR(16) NULL DEFAULT NULL,
-  `review_json`       JSON        NULL DEFAULT NULL,
-  `chat_history_json` LONGTEXT    NULL DEFAULT NULL COMMENT '完整对话历史 JSON',
-  `created_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_training_records_user_created` (`user_id`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='训练复盘记录';
+--
+-- Table structure for table `exams`
+--
 
--- ---------------------------------------------------------------------
--- 7) magic_videos — 魔学院视频
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_videos`;
-CREATE TABLE `magic_videos` (
-  `id`                    BIGINT       NOT NULL AUTO_INCREMENT,
-  `title`                 VARCHAR(255) NOT NULL,
-  `description`           TEXT         NULL,
-  `category`              VARCHAR(128) NOT NULL DEFAULT '',
-  `file_name`             VARCHAR(255) NOT NULL,
-  `file_path`             VARCHAR(512) NOT NULL,
-  `original_filename`     VARCHAR(255) NOT NULL DEFAULT '',
-  `stored_filename`       VARCHAR(255) NOT NULL DEFAULT '',
-  `storage_type`          VARCHAR(32)  NOT NULL DEFAULT 'local',
-  `oss_bucket`            VARCHAR(255) NOT NULL DEFAULT '',
-  `oss_endpoint`          VARCHAR(255) NOT NULL DEFAULT '',
-  `oss_object_key`        VARCHAR(1024) NOT NULL DEFAULT '',
-  `oss_url`               VARCHAR(2048) NOT NULL DEFAULT '',
-  `cdn_url`               VARCHAR(2048) NOT NULL DEFAULT '',
-  `play_url`              VARCHAR(2048) NOT NULL DEFAULT '',
-  `hls_url`               VARCHAR(2048) NULL DEFAULT NULL,
-  `cover_url`             VARCHAR(2048) NULL DEFAULT NULL,
-  `mime_type`             VARCHAR(128) NOT NULL DEFAULT 'video/mp4',
-  `file_size`             BIGINT       NOT NULL DEFAULT 0,
-  `duration_seconds`      INT          NOT NULL DEFAULT 0,
-  `duration`              INT          NOT NULL DEFAULT 0,
-  `is_required`           TINYINT(1)   NOT NULL DEFAULT 0,
-  `is_newcomer_required`  TINYINT(1)   NOT NULL DEFAULT 0,
-  `deadline_at`           DATETIME     NULL DEFAULT NULL,
-  `status`                VARCHAR(16)  NOT NULL DEFAULT 'draft' COMMENT 'draft / published / disabled',
-  `upload_status`         VARCHAR(16)  NOT NULL DEFAULT 'completed' COMMENT 'pending / uploading / completed / failed / deleted',
-  `upload_id`             VARCHAR(255) NOT NULL DEFAULT '',
-  `quiz_version`          INT          NOT NULL DEFAULT 1,
-  `upload_error`          TEXT         NULL,
-  `transcode_status`      VARCHAR(16)  NOT NULL DEFAULT 'none' COMMENT 'none / pending / processing / completed / failed',
-  `material_asset_id`     BIGINT       NULL DEFAULT NULL,
-  `replacement_upload_id` VARCHAR(255) NOT NULL DEFAULT '',
-  `replacement_object_key` VARCHAR(1024) NOT NULL DEFAULT '',
-  `replacement_original_filename` VARCHAR(255) NOT NULL DEFAULT '',
-  `replacement_mime_type` VARCHAR(128) NOT NULL DEFAULT '',
-  `replacement_file_size` BIGINT       NOT NULL DEFAULT 0,
-  `replacement_duration_seconds` INT   NOT NULL DEFAULT 0,
-  `created_by`            BIGINT       NOT NULL,
-  `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted_at`            DATETIME     NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_videos_status` (`status`, `created_at`),
-  KEY `idx_magic_videos_material_asset` (`material_asset_id`),
-  KEY `idx_magic_videos_deleted_created` (`deleted_at`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频';
+DROP TABLE IF EXISTS `exams`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `exams` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL COMMENT '应试者',
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '陪练考试',
+  `pass_score` int NOT NULL DEFAULT '60',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT 'pending / in_progress / pending_review / passed / failed',
+  `attempt_count` int NOT NULL DEFAULT '0',
+  `max_attempts` int NOT NULL DEFAULT '2',
+  `fixed_training_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fixed_difficulty` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fixed_customer_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ai_weight` float NOT NULL DEFAULT '0.5' COMMENT 'AI 评分占最终成绩比例，0-1',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `completed_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_exams_user_status` (`user_id`,`status`) USING BTREE,
+  KEY `idx_exams_created_by` (`created_by`) USING BTREE,
+  KEY `idx_exams_created_at` (`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='考试任务';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 8) magic_video_series — 视频系列
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_series`;
-CREATE TABLE `magic_video_series` (
-  `id`                        BIGINT       NOT NULL AUTO_INCREMENT,
-  `title`                     VARCHAR(255) NOT NULL,
-  `description`               TEXT         NULL,
-  `sequential_unlock_enabled` TINYINT(1)   NOT NULL DEFAULT 1,
-  `enabled`                   TINYINT(1)   NOT NULL DEFAULT 1,
-  `created_by`                BIGINT       NOT NULL,
-  `created_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `is_deleted`                TINYINT(1)   NOT NULL DEFAULT 0,
-  `deleted_at`                DATETIME     NULL DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频系列';
+--
+-- Table structure for table `magic_audio_makeup_settings`
+--
 
--- ---------------------------------------------------------------------
--- 9) magic_video_series_items — 系列视频关系
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_series_items`;
-CREATE TABLE `magic_video_series_items` (
-  `id`         BIGINT   NOT NULL AUTO_INCREMENT,
-  `series_id`  BIGINT   NOT NULL,
-  `video_id`   BIGINT   NOT NULL,
-  `sort_order` INT      NOT NULL DEFAULT 0,
-  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_magic_video_series_items_video` (`video_id`),
-  UNIQUE KEY `uk_magic_video_series_items_series_video` (`series_id`, `video_id`),
-  KEY `idx_magic_video_series_items_order` (`series_id`, `sort_order`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系列视频关系';
+DROP TABLE IF EXISTS `magic_audio_makeup_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_audio_makeup_settings` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `make_up_days` int NOT NULL DEFAULT '0',
+  `audio_random_window_minutes` int NOT NULL DEFAULT '0',
+  `video_random_window_minutes` int NOT NULL DEFAULT '0',
+  `updated_by` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Audio makeup settings';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 10) magic_video_targets — 视频适用对象
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_targets`;
-CREATE TABLE `magic_video_targets` (
-  `id`           BIGINT       NOT NULL AUTO_INCREMENT,
-  `video_id`     BIGINT       NOT NULL,
-  `target_type`  VARCHAR(32)  NOT NULL COMMENT 'all_users / all_newcomers / department / position / role / user',
-  `target_value` VARCHAR(255) NOT NULL DEFAULT '',
-  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_video_targets_video` (`video_id`, `target_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频适用对象';
+--
+-- Table structure for table `magic_audio_uploads`
+--
 
--- ---------------------------------------------------------------------
--- 11) magic_video_quiz_points — 视频答题节点
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_quiz_points`;
-CREATE TABLE `magic_video_quiz_points` (
-  `id`             BIGINT      NOT NULL AUTO_INCREMENT,
-  `video_id`       BIGINT      NOT NULL,
-  `trigger_second` INT         NOT NULL,
-  `question_count` INT         NOT NULL DEFAULT 0,
-  `pass_score`     INT         NOT NULL DEFAULT 60,
-  `enabled`        TINYINT(1)  NOT NULL DEFAULT 1,
-  `created_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_video_quiz_points_video` (`video_id`, `trigger_second`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频答题节点';
-
--- ---------------------------------------------------------------------
--- 12) magic_questions — 节点题目
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_questions`;
-CREATE TABLE `magic_questions` (
-  `id`                  BIGINT      NOT NULL AUTO_INCREMENT,
-  `quiz_point_id`       BIGINT      NOT NULL,
-  `question_type`       VARCHAR(16) NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
-  `stem`                TEXT        NOT NULL,
-  `options_json`        LONGTEXT    NULL,
-  `correct_answer_json` LONGTEXT    NULL,
-  `score`               FLOAT       NOT NULL DEFAULT 100,
-  `sort_order`          INT         NOT NULL DEFAULT 0,
-  `is_required`         TINYINT(1)  NOT NULL DEFAULT 1,
-  `created_at`          DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`          DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_questions_point` (`quiz_point_id`, `sort_order`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题题目';
-
--- ---------------------------------------------------------------------
--- 13) magic_video_progress — 员工观看进度
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_progress`;
-CREATE TABLE `magic_video_progress` (
-  `id`                       BIGINT      NOT NULL AUTO_INCREMENT,
-  `user_id`                  BIGINT      NOT NULL,
-  `video_id`                 BIGINT      NOT NULL,
-  `current_position`         FLOAT       NOT NULL DEFAULT 0,
-  `max_watched_position`     FLOAT       NOT NULL DEFAULT 0,
-  `progress_percent`         FLOAT       NOT NULL DEFAULT 0,
-  `is_completed`             TINYINT(1)  NOT NULL DEFAULT 0,
-  `completed_at`             DATETIME    NULL DEFAULT NULL,
-  `last_watched_at`          DATETIME    NULL DEFAULT NULL,
-  `total_duration`           FLOAT       NOT NULL DEFAULT 0,
-  `answered_point_ids_json`  LONGTEXT    NULL,
-  `quiz_passed`              TINYINT(1)  NOT NULL DEFAULT 0,
-  `quiz_version`             INT         NOT NULL DEFAULT 1,
-  `answer_attempt_count`     INT         NOT NULL DEFAULT 0,
-  `progress_source`          VARCHAR(32) NOT NULL DEFAULT 'manual',
-  `completed_by_whitelist`   TINYINT(1)  NOT NULL DEFAULT 0,
-  `created_at`               DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`               DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_magic_video_progress_user_video` (`user_id`, `video_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频观看进度';
-
--- ---------------------------------------------------------------------
--- 14) magic_quiz_answers — 每题答案明细
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_quiz_answers`;
-CREATE TABLE `magic_quiz_answers` (
-  `id`                  BIGINT      NOT NULL AUTO_INCREMENT,
-  `user_id`             BIGINT      NOT NULL,
-  `video_id`            BIGINT      NOT NULL,
-  `quiz_point_id`       BIGINT      NOT NULL,
-  `question_id`         BIGINT      NOT NULL,
-  `attempt_no`          INT         NOT NULL DEFAULT 1,
-  `answer_json`         LONGTEXT    NULL,
-  `correct_answer_json` LONGTEXT    NULL,
-  `is_correct`          TINYINT(1)  NOT NULL DEFAULT 0,
-  `score`               FLOAT       NOT NULL DEFAULT 0,
-  `answer_source`       VARCHAR(32) NOT NULL DEFAULT 'manual',
-  `auto_correct_by_whitelist` TINYINT(1) NOT NULL DEFAULT 0,
-  `submitted_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_quiz_answers_export` (`video_id`, `quiz_point_id`, `submitted_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题明细';
-
--- ---------------------------------------------------------------------
--- 15) magic_quiz_point_pass_records — 节点提交记录
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_quiz_point_pass_records`;
-CREATE TABLE `magic_quiz_point_pass_records` (
-  `id`            BIGINT      NOT NULL AUTO_INCREMENT,
-  `user_id`       BIGINT      NOT NULL,
-  `video_id`      BIGINT      NOT NULL,
-  `quiz_point_id` BIGINT      NOT NULL,
-  `attempt_no`    INT         NOT NULL DEFAULT 1,
-  `score`         FLOAT       NOT NULL DEFAULT 0,
-  `passed`        TINYINT(1)  NOT NULL DEFAULT 0,
-  `source`        VARCHAR(32) NOT NULL DEFAULT 'manual',
-  `passed_at`     DATETIME    NULL DEFAULT NULL,
-  `created_at`    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_quiz_point_pass_records` (`video_id`, `quiz_point_id`, `user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院答题节点提交记录';
-
--- ---------------------------------------------------------------------
--- 16) magic_video_watch_confirm_settings — 观看确认弹窗配置
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_watch_confirm_settings`;
-CREATE TABLE `magic_video_watch_confirm_settings` (
-  `id`               BIGINT       NOT NULL AUTO_INCREMENT,
-  `video_id`         BIGINT       NOT NULL,
-  `enabled`          TINYINT(1)   NOT NULL DEFAULT 0,
-  `interval_seconds` INT          NOT NULL DEFAULT 300,
-  `message`          VARCHAR(255) NOT NULL DEFAULT '请确认你正在观看视频',
-  `button_text`      VARCHAR(64)  NOT NULL DEFAULT '继续学习',
-  `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_magic_video_watch_confirm_settings_video` (`video_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频观看确认弹窗配置';
-
--- ---------------------------------------------------------------------
--- 17) magic_video_watch_confirm_logs — 观看确认弹窗日志
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_watch_confirm_logs`;
-CREATE TABLE `magic_video_watch_confirm_logs` (
-  `id`               BIGINT   NOT NULL AUTO_INCREMENT,
-  `user_id`          BIGINT   NOT NULL,
-  `video_id`         BIGINT   NOT NULL,
-  `progress_seconds` FLOAT    NOT NULL DEFAULT 0,
-  `confirm_round`    INT      NOT NULL DEFAULT 1,
-  `confirmed_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_video_watch_confirm_logs_video_user` (`video_id`, `user_id`, `confirmed_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='视频观看确认弹窗日志';
-
--- ---------------------------------------------------------------------
--- 18) magic_video_whitelist — 视频限制白名单
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_video_whitelist`;
-CREATE TABLE `magic_video_whitelist` (
-  `id`         BIGINT       NOT NULL AUTO_INCREMENT,
-  `video_id`   BIGINT       NOT NULL,
-  `user_id`    BIGINT       NOT NULL,
-  `note`       VARCHAR(255) NOT NULL DEFAULT '',
-  `created_by` BIGINT       NOT NULL,
-  `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_magic_video_whitelist_video_user` (`video_id`, `user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院视频白名单';
-
--- ---------------------------------------------------------------------
--- 19) user_whitelist — 用户白名单能力配置
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `user_whitelist`;
-CREATE TABLE `user_whitelist` (
-  `id`                    BIGINT       NOT NULL AUTO_INCREMENT,
-  `user_id`               BIGINT       NOT NULL,
-  `enabled`               TINYINT(1)   NOT NULL DEFAULT 1,
-  `auto_checkin_enabled`  TINYINT(1)   NOT NULL DEFAULT 0,
-  `course_exempt_enabled` TINYINT(1)   NOT NULL DEFAULT 0,
-  `allow_video_seek`      TINYINT(1)   NOT NULL DEFAULT 0,
-  `auto_answer_correct`   TINYINT(1)   NOT NULL DEFAULT 0,
-  `remark`                VARCHAR(255) NOT NULL DEFAULT '',
-  `created_by`            BIGINT       NOT NULL,
-  `created_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_whitelist_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户白名单能力配置';
-
--- ---------------------------------------------------------------------
--- 20) material_projects — 全局素材项目
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `material_projects`;
-CREATE TABLE `material_projects` (
-  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-  `name`        VARCHAR(255) NOT NULL,
-  `description` TEXT         NULL,
-  `oss_prefix`  VARCHAR(255) NOT NULL DEFAULT '',
-  `visibility`  VARCHAR(16)  NOT NULL DEFAULT 'admin',
-  `parent_id`   BIGINT       NULL DEFAULT NULL,
-  `sort_order`  INT          NOT NULL DEFAULT 0,
-  `created_by`  BIGINT       NOT NULL,
-  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `is_deleted`  TINYINT(1)   NOT NULL DEFAULT 0,
-  `deleted_at`  DATETIME     NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_material_projects_creator` (`created_by`, `is_deleted`),
-  KEY `idx_material_projects_parent_sort` (`parent_id`, `sort_order`, `is_deleted`),
-  KEY `idx_material_projects_visibility` (`is_deleted`, `visibility`, `created_by`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材项目';
-
--- ---------------------------------------------------------------------
--- 21) material_assets — 全局素材文件
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `material_assets`;
-CREATE TABLE `material_assets` (
-  `id`               BIGINT        NOT NULL AUTO_INCREMENT,
-  `project_id`       BIGINT        NOT NULL,
-  `sort_order`       INT           NOT NULL DEFAULT 0,
-  `name`             VARCHAR(255)  NOT NULL,
-  `asset_type`       VARCHAR(32)   NOT NULL DEFAULT 'other',
-  `file_name`        VARCHAR(255)  NOT NULL,
-  `object_key`       VARCHAR(1024) NOT NULL,
-  `mime_type`        VARCHAR(128)  NOT NULL DEFAULT '',
-  `file_size`        BIGINT        NOT NULL DEFAULT 0,
-  `duration_seconds` INT           NOT NULL DEFAULT 0,
-  `remark`           TEXT          NULL,
-  `tags`             TEXT          NULL,
-  `status`           VARCHAR(16)   NOT NULL DEFAULT 'active',
-  `created_by`       BIGINT        NOT NULL,
-  `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `is_deleted`       TINYINT(1)    NOT NULL DEFAULT 0,
-  `deleted_at`       DATETIME      NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_material_assets_project_type` (`project_id`, `asset_type`, `is_deleted`),
-  KEY `idx_material_assets_project_sort` (`project_id`, `sort_order`, `is_deleted`),
-  KEY `idx_material_assets_deleted_type_created` (`is_deleted`, `asset_type`, `created_at`, `id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='全局素材文件';
-
--- ---------------------------------------------------------------------
--- 22) magic_reading_series — 读书系列
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_reading_series`;
-CREATE TABLE `magic_reading_series` (
-  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-  `title`       VARCHAR(255) NOT NULL,
-  `description` TEXT         NULL,
-  `start_date`  DATE         NULL DEFAULT NULL,
-  `end_date`    DATE         NULL DEFAULT NULL,
-  `status`      VARCHAR(16)  NOT NULL DEFAULT 'draft',
-  `created_by`  BIGINT       NOT NULL,
-  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_reading_series_status` (`status`, `created_at`),
-  KEY `idx_magic_reading_series_date` (`start_date`, `end_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书系列';
-
--- ---------------------------------------------------------------------
--- 23) magic_reading_series_targets — 读书系列默认派发对象
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_reading_series_targets`;
-CREATE TABLE `magic_reading_series_targets` (
-  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-  `series_id`   BIGINT       NOT NULL,
-  `target_type` VARCHAR(32)  NOT NULL COMMENT 'all / department / position / user',
-  `target_id`   VARCHAR(255) NOT NULL DEFAULT '',
-  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_reading_series_targets_series` (`series_id`),
-  KEY `idx_magic_reading_series_targets_lookup` (`series_id`, `target_type`, `target_id`),
-  KEY `idx_magic_reading_series_targets_type_target` (`target_type`, `target_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书系列默认派发对象';
-
--- ---------------------------------------------------------------------
--- 24) magic_reading_contents — 每日读书内容推送
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_reading_contents`;
-CREATE TABLE `magic_reading_contents` (
-  `id`               BIGINT       NOT NULL AUTO_INCREMENT,
-  `series_id`        BIGINT       NULL DEFAULT NULL,
-  `reading_date`     DATE         NOT NULL,
-  `push_time`        TIME         NULL DEFAULT NULL,
-  `push_at`          DATETIME     NULL DEFAULT NULL,
-  `makeup_deadline_at` DATETIME   NULL DEFAULT NULL,
-  `title`            VARCHAR(255) NOT NULL,
-  `description`      TEXT         NULL,
-  `source_type`      VARCHAR(32)  NOT NULL DEFAULT 'upload',
-  `material_asset_id` BIGINT      NULL DEFAULT NULL,
-  `image_object_key` VARCHAR(1024) NOT NULL,
-  `image_url`        VARCHAR(2048) NOT NULL DEFAULT '',
-  `image_file_name`  VARCHAR(255) NOT NULL DEFAULT '',
-  `image_mime_type`  VARCHAR(128) NOT NULL DEFAULT '',
-  `image_size`       BIGINT       NOT NULL DEFAULT 0,
-  `status`           VARCHAR(16)  NOT NULL DEFAULT 'active',
-  `created_by`       BIGINT       NOT NULL,
-  `created_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `is_deleted`       TINYINT(1)   NOT NULL DEFAULT 0,
-  `deleted_at`       DATETIME     NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_reading_contents_series` (`series_id`),
-  KEY `idx_magic_reading_contents_date` (`reading_date`, `is_deleted`),
-  KEY `idx_magic_reading_contents_push_at` (`push_at`),
-  KEY `idx_magic_reading_contents_makeup_deadline_at` (`makeup_deadline_at`),
-  KEY `idx_magic_reading_contents_material_asset` (`material_asset_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每日读书内容推送';
-
--- ---------------------------------------------------------------------
--- 25) magic_reading_content_targets — 读书内容推送对象
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `magic_reading_content_targets`;
-CREATE TABLE `magic_reading_content_targets` (
-  `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-  `content_id`  BIGINT       NOT NULL,
-  `target_type` VARCHAR(32)  NOT NULL COMMENT 'all / department / user',
-  `target_id`   VARCHAR(255) NOT NULL DEFAULT '',
-  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_magic_reading_content_targets_lookup` (`content_id`, `target_type`, `target_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='读书内容推送对象';
-
--- ---------------------------------------------------------------------
--- 25) magic_audio_uploads — 读书录音上传
--- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS `magic_audio_uploads`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `magic_audio_uploads` (
-  `id`           BIGINT       NOT NULL AUTO_INCREMENT,
-  `user_id`      BIGINT       NOT NULL,
-  `reading_content_id` BIGINT NULL DEFAULT NULL,
-  `active_reading_content_id` BIGINT GENERATED ALWAYS AS (CASE WHEN `is_deleted` = 0 THEN `reading_content_id` ELSE NULL END) STORED,
-  `file_name`    VARCHAR(255) NOT NULL,
-  `file_path`    VARCHAR(512) NOT NULL,
-  `file_size`    BIGINT       NOT NULL DEFAULT 0,
-  `mime_type`    VARCHAR(128) NOT NULL DEFAULT '',
-  `remark`       VARCHAR(255) NOT NULL DEFAULT '',
-  `source`       VARCHAR(32)  NOT NULL DEFAULT 'manual',
-  `auto_checkin_by_whitelist` TINYINT(1) NOT NULL DEFAULT 0,
-  `uploaded_on`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `uploaded_date` DATE        NOT NULL DEFAULT (CURRENT_DATE),
-  `is_deleted`   TINYINT(1)   NOT NULL DEFAULT 0,
-  `deleted_at`   DATETIME     NULL DEFAULT NULL,
-  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_magic_audio_uploads_user_content` (`user_id`, `active_reading_content_id`),
-  KEY `idx_magic_audio_uploads_user_month` (`user_id`, `uploaded_date`, `is_deleted`),
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `reading_content_id` bigint DEFAULT NULL,
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_size` bigint NOT NULL DEFAULT '0',
+  `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `auto_checkin_by_whitelist` tinyint(1) NOT NULL DEFAULT '0',
+  `uploaded_on` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `uploaded_date` date NOT NULL DEFAULT (curdate()),
+  `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+  `deleted_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_audio_uploads_user_month` (`user_id`,`uploaded_date`,`is_deleted`) USING BTREE,
   KEY `idx_magic_audio_uploads_reading_content_id` (`reading_content_id`),
-  KEY `idx_magic_audio_uploads_user_content` (`user_id`, `reading_content_id`, `is_deleted`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='魔学院读书录音上传';
+  KEY `idx_magic_audio_uploads_user_content` (`user_id`,`reading_content_id`,`is_deleted`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院读书录音上传';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 25) magic_auto_actions — 白名单随机自动打卡/视频完成调度
--- ---------------------------------------------------------------------
+--
+-- Table structure for table `magic_auto_actions`
+--
+
 DROP TABLE IF EXISTS `magic_auto_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `magic_auto_actions` (
-  `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
-  `action_type`        VARCHAR(32)  NOT NULL,
-  `status`             VARCHAR(16)  NOT NULL DEFAULT 'pending',
-  `target_user_id`     BIGINT       NOT NULL,
-  `target_date`        DATE         NULL DEFAULT NULL,
-  `video_id`           BIGINT       NULL DEFAULT NULL,
-  `reading_content_id` BIGINT       NULL DEFAULT NULL,
-  `trigger_source`     VARCHAR(32)  NOT NULL DEFAULT '',
-  `trigger_ref_id`     BIGINT       NULL DEFAULT NULL,
-  `dedupe_key`         VARCHAR(255) NOT NULL,
-  `window_start_at`    DATETIME     NOT NULL,
-  `window_end_at`      DATETIME     NOT NULL,
-  `scheduled_at`       DATETIME     NOT NULL,
-  `executed_at`        DATETIME     NULL DEFAULT NULL,
-  `attempt_count`      INT          NOT NULL DEFAULT 0,
-  `last_error`         TEXT         NULL,
-  `created_by`         BIGINT       NULL DEFAULT NULL,
-  `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `action_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `target_user_id` bigint NOT NULL,
+  `target_date` date DEFAULT NULL,
+  `video_id` bigint DEFAULT NULL,
+  `reading_content_id` bigint DEFAULT NULL,
+  `trigger_source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `trigger_ref_id` bigint DEFAULT NULL,
+  `dedupe_key` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `window_start_at` datetime NOT NULL,
+  `window_end_at` datetime NOT NULL,
+  `scheduled_at` datetime NOT NULL,
+  `executed_at` datetime DEFAULT NULL,
+  `attempt_count` int NOT NULL DEFAULT '0',
+  `last_error` text COLLATE utf8mb4_unicode_ci,
+  `created_by` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_magic_auto_actions_dedupe` (`dedupe_key`),
-  KEY `idx_magic_auto_actions_due` (`status`, `scheduled_at`, `window_end_at`),
-  KEY `idx_magic_auto_actions_target` (`action_type`, `target_user_id`, `target_date`),
+  KEY `idx_magic_auto_actions_due` (`status`,`scheduled_at`,`window_end_at`),
+  KEY `idx_magic_auto_actions_target` (`action_type`,`target_user_id`,`target_date`),
   KEY `idx_magic_auto_actions_video` (`video_id`),
   KEY `idx_magic_auto_actions_reading` (`reading_content_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='白名单随机自动打卡/视频完成调度';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 16) question_bank — 题库（考试管理模块）
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `question_bank`;
-CREATE TABLE `question_bank` (
-  `id`                  BIGINT       NOT NULL AUTO_INCREMENT,
-  `question_type`       VARCHAR(16)  NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
-  `stem`                TEXT         NOT NULL,
-  `options_json`        LONGTEXT     NULL,
-  `correct_answer_json` LONGTEXT     NULL,
-  `default_score`       FLOAT        NOT NULL DEFAULT 5,
-  `category`            VARCHAR(128) NOT NULL DEFAULT '',
-  `tag`                 VARCHAR(255) NOT NULL DEFAULT '',
-  `difficulty`          VARCHAR(32)  NOT NULL DEFAULT '',
-  `explanation`         TEXT         NULL,
-  `status`              VARCHAR(16)  NOT NULL DEFAULT 'active',
-  `source`              VARCHAR(32)  NOT NULL DEFAULT 'manual',
-  `created_by`          BIGINT       NOT NULL,
-  `created_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+--
+-- Table structure for table `magic_questions`
+--
+
+DROP TABLE IF EXISTS `magic_questions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_questions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `quiz_point_id` bigint NOT NULL,
+  `question_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
+  `stem` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `correct_answer_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `score` float NOT NULL DEFAULT '100',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `is_required` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_questions_point` (`quiz_point_id`,`sort_order`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院答题题目';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_quiz_answers`
+--
+
+DROP TABLE IF EXISTS `magic_quiz_answers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_quiz_answers` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `video_id` bigint NOT NULL,
+  `quiz_point_id` bigint NOT NULL,
+  `question_id` bigint NOT NULL,
+  `attempt_no` int NOT NULL DEFAULT '1',
+  `answer_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `correct_answer_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `is_correct` tinyint(1) NOT NULL DEFAULT '0',
+  `score` float NOT NULL DEFAULT '0',
+  `answer_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `auto_correct_by_whitelist` tinyint(1) NOT NULL DEFAULT '0',
+  `submitted_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_quiz_answers_export` (`video_id`,`quiz_point_id`,`submitted_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院答题明细';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_quiz_point_pass_records`
+--
+
+DROP TABLE IF EXISTS `magic_quiz_point_pass_records`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_quiz_point_pass_records` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `video_id` bigint NOT NULL,
+  `quiz_point_id` bigint NOT NULL,
+  `attempt_no` int NOT NULL DEFAULT '1',
+  `score` float NOT NULL DEFAULT '0',
+  `passed` tinyint(1) NOT NULL DEFAULT '0',
+  `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `passed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_quiz_point_pass_records` (`video_id`,`quiz_point_id`,`user_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院答题节点提交记录';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_reading_content_targets`
+--
+
+DROP TABLE IF EXISTS `magic_reading_content_targets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_reading_content_targets` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `content_id` bigint NOT NULL,
+  `target_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'all / department / user',
+  `target_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_reading_content_targets_lookup` (`content_id`,`target_type`,`target_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Reading content targets';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_reading_contents`
+--
+
+DROP TABLE IF EXISTS `magic_reading_contents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_reading_contents` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `series_id` bigint DEFAULT NULL,
+  `reading_date` date NOT NULL,
+  `push_time` time DEFAULT NULL,
+  `push_at` datetime DEFAULT NULL,
+  `makeup_deadline_at` datetime DEFAULT NULL,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `source_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
+  `material_asset_id` bigint DEFAULT NULL,
+  `image_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `image_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_size` bigint NOT NULL DEFAULT '0',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_reading_contents_date` (`reading_date`,`is_deleted`) USING BTREE,
+  KEY `idx_magic_reading_contents_push_at` (`push_at`),
+  KEY `idx_magic_reading_contents_makeup_deadline_at` (`makeup_deadline_at`),
+  KEY `idx_magic_reading_contents_material_asset` (`material_asset_id`),
+  KEY `idx_magic_reading_contents_series` (`series_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Reading content pushes';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_reading_series`
+--
+
+DROP TABLE IF EXISTS `magic_reading_series`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_reading_series` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_question_bank_status_type` (`status`, `question_type`, `created_at`),
-  KEY `idx_question_bank_category` (`category`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题库';
+  KEY `idx_magic_reading_series_status` (`status`,`created_at`),
+  KEY `idx_magic_reading_series_date` (`start_date`,`end_date`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reading series';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 17) papers — 试卷模板
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `papers`;
-CREATE TABLE `papers` (
-  `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
-  `title`                    VARCHAR(255) NOT NULL,
-  `description`              TEXT         NULL,
-  `total_score`              FLOAT        NOT NULL DEFAULT 0,
-  `pass_score`               FLOAT        NOT NULL DEFAULT 60,
-  `duration_minutes`         INT          NOT NULL DEFAULT 0,
-  `auto_grade_objective`     TINYINT(1)   NOT NULL DEFAULT 1,
-  `manual_review_subjective` TINYINT(1)   NOT NULL DEFAULT 1,
-  `shuffle_questions`        TINYINT(1)   NOT NULL DEFAULT 0,
-  `show_answer_after`        VARCHAR(16)  NOT NULL DEFAULT 'after_submit',
-  `status`                   VARCHAR(16)  NOT NULL DEFAULT 'draft' COMMENT 'draft / published / archived',
-  `question_count`           INT          NOT NULL DEFAULT 0,
-  `created_by`               BIGINT       NOT NULL,
-  `created_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+--
+-- Table structure for table `magic_reading_series_targets`
+--
+
+DROP TABLE IF EXISTS `magic_reading_series_targets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_reading_series_targets` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `series_id` bigint NOT NULL,
+  `target_type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_id` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_papers_status_created` (`status`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷模板';
+  KEY `idx_magic_reading_series_targets_series` (`series_id`),
+  KEY `idx_magic_reading_series_targets_lookup` (`series_id`,`target_type`,`target_id`),
+  KEY `idx_magic_reading_series_targets_type_target` (`target_type`,`target_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reading series default targets';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 18) paper_questions — 试卷-题目关联
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `paper_questions`;
-CREATE TABLE `paper_questions` (
-  `id`             BIGINT       NOT NULL AUTO_INCREMENT,
-  `paper_id`       BIGINT       NOT NULL,
-  `question_id`    BIGINT       NOT NULL,
-  `score_override` FLOAT        NULL DEFAULT NULL,
-  `sort_order`     INT          NOT NULL DEFAULT 0,
-  `section_name`   VARCHAR(128) NOT NULL DEFAULT '',
-  `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_paper_questions_paper_q` (`paper_id`, `question_id`),
-  KEY `idx_paper_questions_paper_sort` (`paper_id`, `sort_order`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷-题目关联';
+--
+-- Table structure for table `magic_video_progress`
+--
 
--- ---------------------------------------------------------------------
--- 19) paper_assignments — 试卷派发任务
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `paper_assignments`;
-CREATE TABLE `paper_assignments` (
-  `id`                       BIGINT       NOT NULL AUTO_INCREMENT,
-  `paper_id`                 BIGINT       NOT NULL,
-  `user_id`                  BIGINT       NOT NULL,
-  `max_attempts`             INT          NOT NULL DEFAULT 1,
-  `attempt_count`            INT          NOT NULL DEFAULT 0,
-  `deadline_at`              DATETIME     NULL DEFAULT NULL,
-  `status`                   VARCHAR(16)  NOT NULL DEFAULT 'pending',
-  `wecom_push_status`        VARCHAR(16)  NOT NULL DEFAULT 'none',
-  `wecom_push_payload_json`  LONGTEXT     NULL,
-  `wecom_push_error`         TEXT         NULL,
-  `wecom_pushed_at`          DATETIME     NULL DEFAULT NULL,
-  `created_by`               BIGINT       NOT NULL,
-  `created_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_paper_assignments_paper_user` (`paper_id`, `user_id`),
-  KEY `idx_paper_assignments_user_status` (`user_id`, `status`),
-  KEY `idx_paper_assignments_paper_status` (`paper_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷派发任务';
+DROP TABLE IF EXISTS `magic_video_progress`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_progress` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `video_id` bigint NOT NULL,
+  `current_position` float NOT NULL DEFAULT '0',
+  `max_watched_position` float NOT NULL DEFAULT '0',
+  `progress_percent` float NOT NULL DEFAULT '0',
+  `is_completed` tinyint(1) NOT NULL DEFAULT '0',
+  `completed_at` datetime DEFAULT NULL,
+  `last_watched_at` datetime DEFAULT NULL,
+  `total_duration` float NOT NULL DEFAULT '0',
+  `answered_point_ids_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `quiz_passed` tinyint(1) NOT NULL DEFAULT '0',
+  `quiz_version` int NOT NULL DEFAULT '1',
+  `answer_attempt_count` int NOT NULL DEFAULT '0',
+  `progress_source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `completed_by_whitelist` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_video_progress_user_video` (`user_id`,`video_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频观看进度';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 20) paper_submissions — 试卷提交主表
--- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `paper_submissions`;
-CREATE TABLE `paper_submissions` (
-  `id`             BIGINT       NOT NULL AUTO_INCREMENT,
-  `assignment_id`  BIGINT       NOT NULL,
-  `paper_id`       BIGINT       NOT NULL,
-  `user_id`        BIGINT       NOT NULL,
-  `attempt_no`     INT          NOT NULL DEFAULT 1,
-  `status`         VARCHAR(16)  NOT NULL DEFAULT 'in_progress',
-  `auto_score`     FLOAT        NULL DEFAULT NULL,
-  `manual_score`   FLOAT        NULL DEFAULT NULL,
-  `final_score`    FLOAT        NULL DEFAULT NULL,
-  `is_pass`        TINYINT(1)   NULL DEFAULT NULL,
-  `started_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `submitted_at`   DATETIME     NULL DEFAULT NULL,
-  `graded_at`      DATETIME     NULL DEFAULT NULL,
-  `graded_by`      BIGINT       NULL DEFAULT NULL,
-  `comment`        TEXT         NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_paper_submissions_assign` (`assignment_id`, `attempt_no`),
-  KEY `idx_paper_submissions_status` (`status`, `submitted_at`),
-  KEY `idx_paper_submissions_user` (`user_id`, `paper_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷提交主表';
+--
+-- Table structure for table `magic_video_quiz_points`
+--
 
--- ---------------------------------------------------------------------
--- 21) paper_answers — 单题作答明细
--- ---------------------------------------------------------------------
+DROP TABLE IF EXISTS `magic_video_quiz_points`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_quiz_points` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `video_id` bigint NOT NULL,
+  `trigger_second` int NOT NULL,
+  `question_count` int NOT NULL DEFAULT '0',
+  `pass_score` int NOT NULL DEFAULT '60',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_video_quiz_points_video` (`video_id`,`trigger_second`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频答题节点';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_series`
+--
+
+DROP TABLE IF EXISTS `magic_video_series`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_series` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `sequential_unlock_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Magic video series';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_series_items`
+--
+
+DROP TABLE IF EXISTS `magic_video_series_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_series_items` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `series_id` bigint NOT NULL,
+  `video_id` bigint NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_video_series_items_video` (`video_id`) USING BTREE,
+  UNIQUE KEY `uk_magic_video_series_items_series_video` (`series_id`,`video_id`) USING BTREE,
+  KEY `idx_magic_video_series_items_order` (`series_id`,`sort_order`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Magic video series items';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_targets`
+--
+
+DROP TABLE IF EXISTS `magic_video_targets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_targets` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `video_id` bigint NOT NULL,
+  `target_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'all_users / all_newcomers / department / position / role / user',
+  `target_value` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_video_targets_video` (`video_id`,`target_type`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频适用对象';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_watch_confirm_logs`
+--
+
+DROP TABLE IF EXISTS `magic_video_watch_confirm_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_watch_confirm_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `video_id` bigint NOT NULL,
+  `progress_seconds` float NOT NULL DEFAULT '0',
+  `confirm_round` int NOT NULL DEFAULT '1',
+  `confirmed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_video_watch_confirm_logs_video_user` (`video_id`,`user_id`,`confirmed_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Video watch confirm logs';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_watch_confirm_settings`
+--
+
+DROP TABLE IF EXISTS `magic_video_watch_confirm_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_watch_confirm_settings` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `video_id` bigint NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `interval_seconds` int NOT NULL DEFAULT '300',
+  `message` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Please confirm you are still watching the video',
+  `button_text` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Continue learning',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_video_watch_confirm_settings_video` (`video_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Video watch confirm settings';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_video_whitelist`
+--
+
+DROP TABLE IF EXISTS `magic_video_whitelist`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_video_whitelist` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `video_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `note` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_video_whitelist_video_user` (`video_id`,`user_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频白名单';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_videos`
+--
+
+DROP TABLE IF EXISTS `magic_videos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_videos` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `category` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `stored_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `storage_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'local',
+  `oss_bucket` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `oss_endpoint` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `oss_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `oss_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `cdn_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `play_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `hls_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cover_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'video/mp4',
+  `file_size` bigint NOT NULL DEFAULT '0',
+  `duration_seconds` int NOT NULL DEFAULT '0',
+  `duration` int NOT NULL DEFAULT '0',
+  `is_required` tinyint(1) NOT NULL DEFAULT '0',
+  `is_newcomer_required` tinyint(1) NOT NULL DEFAULT '0',
+  `deadline_at` datetime DEFAULT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft' COMMENT 'draft / published / disabled',
+  `upload_status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'completed' COMMENT 'pending / uploading / completed / failed / deleted',
+  `upload_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `quiz_version` int NOT NULL DEFAULT '1',
+  `upload_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `transcode_status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none' COMMENT 'none / pending / processing / completed / failed',
+  `material_asset_id` bigint DEFAULT NULL,
+  `replacement_upload_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `replacement_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `replacement_original_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `replacement_mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `replacement_file_size` bigint NOT NULL DEFAULT '0',
+  `replacement_duration_seconds` int NOT NULL DEFAULT '0',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_videos_status` (`status`,`created_at`) USING BTREE,
+  KEY `idx_magic_videos_material_asset` (`material_asset_id`) USING BTREE,
+  KEY `idx_magic_videos_deleted_created` (`deleted_at`,`created_at`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `material_assets`
+--
+
+DROP TABLE IF EXISTS `material_assets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `material_assets` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `project_id` bigint NOT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `asset_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `file_size` bigint NOT NULL DEFAULT '0',
+  `duration_seconds` int NOT NULL DEFAULT '0',
+  `remark` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `tags` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_material_assets_project_type` (`project_id`,`asset_type`,`is_deleted`) USING BTREE,
+  KEY `idx_material_assets_project_sort` (`project_id`,`sort_order`,`is_deleted`) USING BTREE,
+  KEY `idx_material_assets_deleted_type_created` (`is_deleted`,`asset_type`,`created_at`,`id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Material assets';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `material_projects`
+--
+
+DROP TABLE IF EXISTS `material_projects`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `material_projects` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `oss_prefix` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `visibility` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'admin',
+  `parent_id` bigint DEFAULT NULL,
+  `sort_order` int NOT NULL DEFAULT '0',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_material_projects_creator` (`created_by`,`is_deleted`) USING BTREE,
+  KEY `idx_material_projects_parent_sort` (`parent_id`,`sort_order`,`is_deleted`) USING BTREE,
+  KEY `idx_material_projects_visibility` (`is_deleted`,`visibility`,`created_by`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Material projects';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `paper_answers`
+--
+
 DROP TABLE IF EXISTS `paper_answers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `paper_answers` (
-  `id`                BIGINT      NOT NULL AUTO_INCREMENT,
-  `submission_id`     BIGINT      NOT NULL,
-  `paper_question_id` BIGINT      NOT NULL,
-  `question_id`       BIGINT      NOT NULL,
-  `question_type`     VARCHAR(16) NOT NULL,
-  `answer_json`       LONGTEXT    NULL,
-  `auto_score`        FLOAT       NULL DEFAULT NULL,
-  `manual_score`      FLOAT       NULL DEFAULT NULL,
-  `final_score`       FLOAT       NULL DEFAULT NULL,
-  `is_correct`        TINYINT(1)  NULL DEFAULT NULL,
-  `comment`           TEXT        NULL,
-  `created_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_paper_answers_sub_pq` (`submission_id`, `paper_question_id`),
-  KEY `idx_paper_answers_submission` (`submission_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='试卷单题作答';
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `submission_id` bigint NOT NULL,
+  `paper_question_id` bigint NOT NULL,
+  `question_id` bigint NOT NULL,
+  `question_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `answer_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `auto_score` float DEFAULT NULL,
+  `manual_score` float DEFAULT NULL,
+  `ai_score` float DEFAULT NULL,
+  `final_score` float DEFAULT NULL,
+  `is_correct` tinyint(1) DEFAULT NULL,
+  `comment` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `ai_comment` text COLLATE utf8mb4_unicode_ci,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_paper_answers_sub_pq` (`submission_id`,`paper_question_id`) USING BTREE,
+  KEY `idx_paper_answers_submission` (`submission_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷单题作答';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- ---------------------------------------------------------------------
--- 22) question_import_jobs — 题库导入任务
--- ---------------------------------------------------------------------
+--
+-- Table structure for table `paper_assignments`
+--
+
+DROP TABLE IF EXISTS `paper_assignments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `paper_assignments` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `paper_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `max_attempts` int NOT NULL DEFAULT '1',
+  `attempt_count` int NOT NULL DEFAULT '0',
+  `deadline_at` datetime DEFAULT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending' COMMENT 'pending / in_progress / submitted / pending_review / graded / expired',
+  `wecom_push_status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none' COMMENT 'none / pending / sent / failed',
+  `wecom_push_payload_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `wecom_push_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `wecom_pushed_at` datetime DEFAULT NULL,
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_paper_assignments_paper_user` (`paper_id`,`user_id`) USING BTREE,
+  KEY `idx_paper_assignments_user_status` (`user_id`,`status`) USING BTREE,
+  KEY `idx_paper_assignments_paper_status` (`paper_id`,`status`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷派发任务';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `paper_questions`
+--
+
+DROP TABLE IF EXISTS `paper_questions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `paper_questions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `paper_id` bigint NOT NULL,
+  `question_id` bigint NOT NULL COMMENT '引用 question_bank.id',
+  `score_override` float DEFAULT NULL COMMENT 'NULL 表示用题库默认分',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `section_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_paper_questions_paper_q` (`paper_id`,`question_id`) USING BTREE,
+  KEY `idx_paper_questions_paper_sort` (`paper_id`,`sort_order`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷-题目关联';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `paper_submissions`
+--
+
+DROP TABLE IF EXISTS `paper_submissions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `paper_submissions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `assignment_id` bigint NOT NULL,
+  `paper_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `attempt_no` int NOT NULL DEFAULT '1',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'in_progress' COMMENT 'in_progress / submitted / graded',
+  `auto_score` float DEFAULT NULL,
+  `manual_score` float DEFAULT NULL,
+  `final_score` float DEFAULT NULL,
+  `is_pass` tinyint(1) DEFAULT NULL,
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `submitted_at` datetime DEFAULT NULL,
+  `graded_at` datetime DEFAULT NULL,
+  `graded_by` bigint DEFAULT NULL,
+  `comment` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_paper_submissions_assign` (`assignment_id`,`attempt_no`) USING BTREE,
+  KEY `idx_paper_submissions_status` (`status`,`submitted_at`) USING BTREE,
+  KEY `idx_paper_submissions_user` (`user_id`,`paper_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷提交主表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `papers`
+--
+
+DROP TABLE IF EXISTS `papers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `papers` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `total_score` float NOT NULL DEFAULT '0',
+  `pass_score` float NOT NULL DEFAULT '60',
+  `duration_minutes` int NOT NULL DEFAULT '0' COMMENT '0 表示不限时',
+  `auto_grade_objective` tinyint(1) NOT NULL DEFAULT '1',
+  `manual_review_subjective` tinyint(1) NOT NULL DEFAULT '1',
+  `shuffle_questions` tinyint(1) NOT NULL DEFAULT '0',
+  `show_answer_after` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'after_submit' COMMENT 'never / after_submit / after_grade',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft' COMMENT 'draft / published / archived',
+  `question_count` int NOT NULL DEFAULT '0',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_papers_status_created` (`status`,`created_at`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷模板';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `question_bank`
+--
+
+DROP TABLE IF EXISTS `question_bank`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `question_bank` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `question_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'single / multiple / judge / blank / short_answer',
+  `stem` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `correct_answer_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `default_score` float NOT NULL DEFAULT '5',
+  `category` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `tag` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `difficulty` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `explanation` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `ai_grading_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `grading_keywords` text COLLATE utf8mb4_unicode_ci,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active' COMMENT 'active / archived',
+  `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual' COMMENT 'manual / excel / docx',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_question_bank_status_type` (`status`,`question_type`,`created_at`) USING BTREE,
+  KEY `idx_question_bank_category` (`category`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='题库';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `question_import_jobs`
+--
+
 DROP TABLE IF EXISTS `question_import_jobs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `question_import_jobs` (
-  `id`              BIGINT       NOT NULL AUTO_INCREMENT,
-  `created_by`      BIGINT       NOT NULL,
-  `source`          VARCHAR(16)  NOT NULL DEFAULT 'excel',
-  `original_name`   VARCHAR(255) NOT NULL DEFAULT '',
-  `total_rows`      INT          NOT NULL DEFAULT 0,
-  `valid_rows`      INT          NOT NULL DEFAULT 0,
-  `invalid_rows`    INT          NOT NULL DEFAULT 0,
-  `rows_json`       LONGTEXT     NOT NULL,
-  `committed`       TINYINT(1)   NOT NULL DEFAULT 0,
-  `committed_count` INT          NOT NULL DEFAULT 0,
-  `committed_at`    DATETIME     NULL DEFAULT NULL,
-  `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_question_import_jobs_creator` (`created_by`, `created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题库导入任务流水';
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `created_by` bigint NOT NULL,
+  `source` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'excel' COMMENT 'excel / docx',
+  `original_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `total_rows` int NOT NULL DEFAULT '0',
+  `valid_rows` int NOT NULL DEFAULT '0',
+  `invalid_rows` int NOT NULL DEFAULT '0',
+  `rows_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '解析后逐行 JSON（含 ok / errors / data）',
+  `committed` tinyint(1) NOT NULL DEFAULT '0',
+  `committed_count` int NOT NULL DEFAULT '0',
+  `committed_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_question_import_jobs_creator` (`created_by`,`created_at`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='题库导入任务流水';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
-SET FOREIGN_KEY_CHECKS = 1;
+--
+-- Table structure for table `training_records`
+--
 
--- =====================================================================
--- 种子数据
--- =====================================================================
+DROP TABLE IF EXISTS `training_records`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_records` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `training_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `difficulty` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `customer_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `score` float DEFAULT NULL,
+  `is_pass` tinyint(1) DEFAULT NULL,
+  `result` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `review_json` json DEFAULT NULL,
+  `chat_history_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '完整对话历史 JSON',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_training_records_user_created` (`user_id`,`created_at`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='训练复盘记录';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
--- 默认管理员：admin / 123456
-INSERT INTO `users` (`username`, `password_md5`, `display_name`, `real_name`, `department`, `position`, `role`, `is_newcomer`, `status`, `disabled`)
-VALUES ('admin', 'e10adc3949ba59abbe56e057f20f883e', '系统管理员', '系统管理员', '平台', '管理员', 'admin', 0, 'active', 0);
+--
+-- Table structure for table `training_sessions`
+--
 
--- 默认下拉项
-INSERT INTO `config_options` (`category`, `value`, `sort_order`, `enabled`) VALUES
-  ('employment_status', '试岗',             10, 1),
-  ('employment_status', '试用',             20, 1),
-  ('employment_status', '转正',             30, 1),
-  ('employment_status', '离职',             40, 1),
-  ('training_type', '初购转化',         10, 1),
-  ('training_type', '复购转化',         20, 1),
-  ('training_type', '全链路成交',       30, 1),
+DROP TABLE IF EXISTS `training_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_sessions` (
+  `id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'session_id, uuid hex',
+  `user_id` bigint NOT NULL,
+  `mode` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'training' COMMENT 'training / exam',
+  `exam_attempt_id` bigint DEFAULT NULL,
+  `state_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'SessionState 完整序列化',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_training_sessions_user` (`user_id`,`mode`) USING BTREE,
+  KEY `idx_training_sessions_attempt` (`exam_attempt_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='训练/考试会话（运行时状态）';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
-  ('difficulty',    '简单',             10, 1),
-  ('difficulty',    '中等',             20, 1),
-  ('difficulty',    '困难',             30, 1),
+--
+-- Table structure for table `user_whitelist`
+--
 
-  ('customer_type', '随机',             10, 1),
-  ('customer_type', '送礼客户',         20, 1),
-  ('customer_type', '商务接待客户',     30, 1),
-  ('customer_type', '自饮客户',         40, 1),
-  ('customer_type', '企业客户',         50, 1),
-  ('customer_type', '价格敏感客户',     60, 1);
+DROP TABLE IF EXISTS `user_whitelist`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_whitelist` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `auto_checkin_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `course_exempt_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `allow_video_seek` tinyint(1) NOT NULL DEFAULT '0',
+  `auto_answer_correct` tinyint(1) NOT NULL DEFAULT '0',
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_user_whitelist_user` (`user_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='User whitelist capability settings';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `users`
+--
+
+DROP TABLE IF EXISTS `users`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `users` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password_md5` char(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'md5(明文密码) 32位小写hex',
+  `display_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `real_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `department` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `position` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `role` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'user' COMMENT 'super_admin / admin / user',
+  `is_newcomer` tinyint(1) NOT NULL DEFAULT '0',
+  `employment_status` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active' COMMENT 'active / inactive',
+  `disabled` tinyint(1) NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_users_username` (`username`) USING BTREE,
+  KEY `idx_users_role_disabled_status_dept` (`role`,`disabled`,`status`,`department`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=971 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='用户表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2026-05-28 11:10:37

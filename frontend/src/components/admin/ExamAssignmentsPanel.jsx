@@ -36,7 +36,7 @@ function statusTag(status) {
 export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const [exams, setExams] = useState([]);
   const [users, setUsers] = useState([]);
-  const [options, setOptions] = useState({ training_type: [], difficulty: [], customer_type: [] });
+  const [options, setOptions] = useState({ training_type: [], difficulty: [], customer_type: [], employment_status: [] });
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -48,12 +48,13 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const reload = async () => {
     setLoading(true);
     try {
-      const [examData, userData, ttData, dffData, ctData, pending] = await Promise.all([
+      const [examData, userData, ttData, dffData, ctData, employmentStatusData, pending] = await Promise.all([
         adminListExams(),
         adminListUsers(),
         adminListOptions("training_type"),
         adminListOptions("difficulty"),
         adminListOptions("customer_type"),
+        adminListOptions("employment_status"),
         adminListPendingReview().catch(() => []),
       ]);
       setExams(Array.isArray(examData) ? examData : []);
@@ -62,6 +63,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         training_type: (ttData || []).filter((o) => o.enabled).map((o) => o.value),
         difficulty: (dffData || []).filter((o) => o.enabled).map((o) => o.value),
         customer_type: (ctData || []).filter((o) => o.enabled).map((o) => o.value),
+        employment_status: (employmentStatusData || []).filter((o) => o.enabled).map((o) => o.value),
       });
       setPendingCount(Array.isArray(pending) ? pending.length : 0);
     } catch (err) {
@@ -189,10 +191,29 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     }));
   }, [userPool]);
 
+  const employmentStatusOptions = useMemo(() => {
+    const counts = new Map();
+    userPool.forEach((u) => {
+      const status = (u.employment_status || "").trim();
+      if (!status) return;
+      counts.set(status, (counts.get(status) || 0) + 1);
+    });
+    const orderedValues = options.employment_status.length
+      ? options.employment_status
+      : Array.from(counts.keys());
+    return orderedValues
+      .filter((value) => counts.has(value))
+      .map((value) => ({
+        value,
+        label: `${value}（${counts.get(value) || 0}人）`,
+      }));
+  }, [options.employment_status, userPool]);
+
   const dispatchMode = Form.useWatch("dispatch_mode", createForm);
   const watchedUserIds = Form.useWatch("user_ids", createForm);
   const watchedDepartments = Form.useWatch("departments", createForm);
   const watchedPositions = Form.useWatch("positions", createForm);
+  const watchedEmploymentStatuses = Form.useWatch("employment_statuses", createForm);
   const watchedNewcomerOnly = Form.useWatch("newcomer_only", createForm);
 
   const resolvedUserIds = useMemo(() => {
@@ -210,13 +231,20 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         .filter((u) => set.has((u.position || "").trim()))
         .map((u) => u.id);
     }
+    if (dispatchMode === "employment_status") {
+      const set = new Set(watchedEmploymentStatuses || []);
+      if (!set.size) return [];
+      return userPool
+        .filter((u) => set.has((u.employment_status || "").trim()))
+        .map((u) => u.id);
+    }
     if (dispatchMode === "all") {
       return userPool
         .filter((u) => (watchedNewcomerOnly ? u.is_newcomer : true))
         .map((u) => u.id);
     }
     return Array.isArray(watchedUserIds) ? watchedUserIds : [];
-  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedNewcomerOnly]);
+  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedEmploymentStatuses, watchedNewcomerOnly]);
 
   const buildOptionList = (values, label) => [
     { value: RANDOM_SENTINEL, label: `随机（每次重新抽取）` },
@@ -335,6 +363,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                 { value: "user", label: "指定用户" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员普通用户" },
               ]}
               optionType="button"
@@ -390,6 +419,24 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                 options={positionOptions}
                 placeholder={positionOptions.length ? "选择岗位" : "暂无可用岗位（用户的「岗位」字段为空）"}
                 disabled={!positionOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "employment_status" ? (
+            <Form.Item
+              label="选择在职状态（可多选）"
+              name="employment_statuses"
+              rules={[{ required: true, message: "请选择至少 1 个在职状态" }]}
+            >
+              <Select
+                mode="multiple"
+                showSearch
+                optionFilterProp="label"
+                options={employmentStatusOptions}
+                placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用状态（请先到「配置管理 → 在职状态」添加）"}
+                disabled={!employmentStatusOptions.length}
                 maxTagCount="responsive"
               />
             </Form.Item>
