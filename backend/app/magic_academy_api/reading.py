@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import mimetypes
 from collections.abc import Iterable
@@ -9,6 +10,7 @@ from io import BytesIO
 from typing import Any
 
 from fastapi import Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import RedirectResponse
 from sqlalchemy import and_, case, delete as sql_delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +19,7 @@ from ..auth import get_current_user, require_admin
 from ..db import get_db
 from ..magic_academy_schemas import ReadingContentImportConfirmPayload, ReadingSeriesPayload
 from ..magic_auto_actions import enqueue_audio_actions_for_reading_content
-from ..models import MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, MagicReadingSeriesTarget, MaterialAsset, User
+from ..models import ConfigOption, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, MagicReadingSeriesTarget, MaterialAsset, User
 from . import router
 from ._oss import (
     _build_oss_object_url,
@@ -53,6 +55,9 @@ READING_IMPORT_TARGET_TYPE_ALIASES = {
     "全员": "all",
     "all": "all",
     "全部员工": "all",
+    "仅新人": "all_newcomers",
+    "新人": "all_newcomers",
+    "all_newcomers": "all_newcomers",
     "部门": "department",
     "department": "department",
     "员工": "user",
@@ -60,6 +65,8 @@ READING_IMPORT_TARGET_TYPE_ALIASES = {
     "user": "user",
     "岗位": "position",
     "position": "position",
+    "在职状态": "employment_status",
+    "employment_status": "employment_status",
 }
 
 
@@ -140,12 +147,15 @@ def _reading_series_targets_summary(targets: list[MagicReadingSeriesTarget]) -> 
         return "全部员工"
     departments = [item.target_id for item in targets if item.target_type == "department" and item.target_id]
     positions = [item.target_id for item in targets if item.target_type == "position" and item.target_id]
+    employment_statuses = [item.target_id for item in targets if item.target_type == "employment_status" and item.target_id]
     users = [item.target_id for item in targets if item.target_type == "user" and item.target_id]
     parts: list[str] = []
     if departments:
         parts.append("部门：" + "、".join(departments[:2]) + (f"等 {len(departments)} 个" if len(departments) > 2 else ""))
     if positions:
         parts.append("岗位：" + "、".join(positions[:2]) + (f"等 {len(positions)} 个" if len(positions) > 2 else ""))
+    if employment_statuses:
+        parts.append("在职状态：" + "、".join(employment_statuses[:2]) + (f"等 {len(employment_statuses)} 个" if len(employment_statuses) > 2 else ""))
     if users:
         parts.append(f"人员 {len(users)} 人")
     return "；".join(parts) or "未设置"
@@ -183,7 +193,7 @@ async def _replace_reading_series_targets(
         target_id = str(getattr(target, "target_id", "") or "").strip()
         if target_type == "all":
             target_id = ""
-        if target_type not in {"all", "department", "position", "user"}:
+        if target_type not in {"all", "department", "position", "employment_status", "user"}:
             continue
         if target_type != "all" and not target_id:
             continue
@@ -242,8 +252,20 @@ def _safe_reading_image_url(object_key: str, fallback: str = "") -> str:
         return fallback or ""
 
 
+def _is_empty_import_row(values: list[Any], embedded_image: dict[str, Any] | None = None) -> bool:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                return False
+            continue
+        return False
+    return embedded_image is None
+
+
 def _default_push_at(reading_date: date) -> datetime:
-    return datetime.combine(reading_date, time(hour=0, minute=0, second=0))
+    return datetime.combine(reading_date, time(hour=18, minute=30, second=0))
 
 
 def _effective_push_at(item: MagicReadingContent) -> datetime:
@@ -847,8 +869,21 @@ async def _resolve_image_payload(
     material_asset_id: int | None,
     image: UploadFile | None,
     image_url_text: str = "",
+    embedded_image_bytes: bytes | None = None,
+    embedded_image_name: str = "",
+    embedded_image_mime_type: str = "",
 ) -> dict[str, Any]:
     normalized_image_source = _normalize_image_source(image_source)
+    if normalized_image_source == "upload" and image is None and embedded_image_bytes is None:
+        return {
+            "source_type": "upload",
+            "material_asset_id": None,
+            "image_object_key": "",
+            "image_url": "",
+            "image_file_name": "",
+            "image_mime_type": "",
+            "image_size": 0,
+        }
     if normalized_image_source == "material":
         if not material_asset_id:
             raise HTTPException(status_code=400, detail="请选择素材库图片。")
@@ -875,21 +910,30 @@ async def _resolve_image_payload(
             "image_mime_type": mimetypes.guess_type(normalized_url)[0] or "image/jpeg",
             "image_size": 0,
         }
-    if image is None:
+    raw: bytes
+    mime_type: str
+    file_name: str
+    if embedded_image_bytes is not None:
+        raw = embedded_image_bytes
+        mime_type = (embedded_image_mime_type or "").strip() or mimetypes.guess_type(embedded_image_name)[0] or "image/png"
+        file_name = embedded_image_name or "reading-content.png"
+    elif image is not None:
+        raw = await image.read()
+        mime_type = (image.content_type or "").strip() or mimetypes.guess_type(image.filename or "")[0] or "image/jpeg"
+        file_name = image.filename or "reading-content.jpg"
+    else:
         raise HTTPException(status_code=400, detail="请先上传读书内容图片。")
-    raw = await image.read()
-    mime_type = (image.content_type or "").strip() or mimetypes.guess_type(image.filename or "")[0] or "image/jpeg"
-    extension = _validate_reading_image_payload(image.filename or "", len(raw), mime_type)
+    extension = _validate_reading_image_payload(file_name, len(raw), mime_type)
     from ._oss import _build_object_key_and_name
 
-    object_key, stored_filename = _build_object_key_and_name(image.filename or f"reading-content{extension}", extension)
+    object_key, stored_filename = _build_object_key_and_name(file_name or f"reading-content{extension}", extension)
     await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
     return {
         "source_type": "upload",
         "material_asset_id": None,
         "image_object_key": object_key,
         "image_url": _build_oss_object_url(_ensure_oss_settings()["public_base_url"], object_key),
-        "image_file_name": _safe_filename(image.filename or stored_filename),
+        "image_file_name": _safe_filename(file_name or stored_filename),
         "image_mime_type": mime_type,
         "image_size": len(raw),
     }
@@ -925,6 +969,9 @@ async def _create_reading_content_record(
     targets_payload: Any = None,
     image: UploadFile | None = None,
     image_url_text: str = "",
+    embedded_image_bytes: bytes | None = None,
+    embedded_image_name: str = "",
+    embedded_image_mime_type: str = "",
 ) -> dict[str, Any]:
     normalized_title = (title or "").strip()
     if not normalized_title:
@@ -956,6 +1003,9 @@ async def _create_reading_content_record(
         material_asset_id=material_asset_id,
         image=image,
         image_url_text=image_url_text,
+        embedded_image_bytes=embedded_image_bytes,
+        embedded_image_name=embedded_image_name,
+        embedded_image_mime_type=embedded_image_mime_type,
     )
     row = MagicReadingContent(
         series_id=resolved_series_id,
@@ -1047,22 +1097,31 @@ async def _resolve_import_targets(
     user_id_map: dict[int, User],
     department_names: set[str],
     position_names: set[str],
-) -> tuple[list[int], list[str], list[str], list[str]]:
+    employment_status_names: set[str],
+) -> tuple[list[int], list[str], list[str], list[str], list[str]]:
     errors: list[str] = []
     if target_type == "all":
-        return [], [], [], []
+        return [], [], [], [], []
+    if target_type == "all_newcomers":
+        return [], [], [], [], []
     if target_type == "department":
         names = sorted({item for item in raw_targets if item})
         missing = [item for item in names if item not in department_names]
         if missing:
             errors.append(f"目标部门不存在：{'、'.join(missing)}")
-        return [], names, [], errors
+        return [], names, [], [], errors
     if target_type == "position":
         names = sorted({item for item in raw_targets if item})
         missing = [item for item in names if item not in position_names]
         if missing:
             errors.append(f"目标岗位不存在：{'、'.join(missing)}")
-        return [], [], names, errors
+        return [], [], names, [], errors
+    if target_type == "employment_status":
+        names = sorted({item for item in raw_targets if item})
+        missing = [item for item in names if item not in employment_status_names]
+        if missing:
+            errors.append(f"在职状态不存在：{'、'.join(missing)}")
+        return [], [], [], names, errors
     user_ids: list[int] = []
     for item in raw_targets:
         if not item:
@@ -1082,7 +1141,85 @@ async def _resolve_import_targets(
             errors.append(f"目标员工重名，请使用员工 ID：{item}")
             continue
         user_ids.append(int(candidates[0].id))
-    return sorted(set(user_ids)), [], [], errors
+    return sorted(set(user_ids)), [], [], [], errors
+
+
+def _extract_import_embedded_images(sheet: Any) -> dict[int, dict[str, Any]]:
+    images = getattr(sheet, "_images", None) or []
+    if not images:
+        return {}
+    result: dict[int, dict[str, Any]] = {}
+    for image in images:
+        anchor = getattr(image, "anchor", None)
+        marker = getattr(anchor, "_from", None)
+        row_index = getattr(marker, "row", None)
+        if row_index is None:
+            continue
+        excel_row = int(row_index) + 1
+        try:
+            raw = image._data()
+        except Exception:
+            continue
+        if not raw:
+            continue
+        image_format = str(getattr(image, "format", "") or "").lower()
+        if image_format == "jpg":
+            image_format = "jpeg"
+        mime_type = f"image/{image_format}" if image_format else "image/png"
+        extension = mimetypes.guess_extension(mime_type) or ".png"
+        result[excel_row] = {
+            "bytes": raw,
+            "mime_type": mime_type,
+            "file_name": f"reading-import-row-{excel_row}{extension}",
+        }
+    return result
+
+
+def _normalize_series_lookup_key(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_dispimg_formula(value: str) -> bool:
+    text = str(value or "").strip().upper()
+    return text.startswith("=DISPIMG(")
+
+
+async def _resolve_import_series(
+    db: AsyncSession,
+    *,
+    admin: User,
+    series_value: Any,
+    series_by_id: dict[int, MagicReadingSeries],
+    series_by_title: dict[str, list[MagicReadingSeries]],
+) -> tuple[int | None, list[str], list[str], str]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    text = str(series_value or "").strip()
+    if not text:
+        return None, errors, warnings, ""
+    if text in {"未归属系列", "无", "none", "null", "-"}:
+        return None, errors, warnings, "未归属系列"
+    row: MagicReadingSeries | None = None
+    if text.isdigit():
+        row = series_by_id.get(int(text))
+        if not row:
+            errors.append(f"读书系列 ID 不存在：{text}")
+            return None, errors, warnings, text
+    else:
+        candidates = series_by_title.get(_normalize_series_lookup_key(text), [])
+        if not candidates:
+            errors.append(f"读书系列不存在：{text}")
+            return None, errors, warnings, text
+        if len(candidates) > 1:
+            errors.append(f"读书系列重名，请改用系列 ID：{text}")
+            return None, errors, warnings, text
+        row = candidates[0]
+    try:
+        resolved_id = await _validate_reading_series_id(db, admin, int(row.id))
+    except HTTPException as exc:
+        errors.append(str(exc.detail))
+        return None, errors, warnings, row.title
+    return resolved_id, errors, warnings, row.title
 
 
 async def _resolve_import_image(
@@ -1091,34 +1228,75 @@ async def _resolve_import_image(
     image_value: str,
     asset_by_id: dict[int, MaterialAsset],
     asset_by_name: dict[str, list[MaterialAsset]],
-) -> tuple[str, int | None, str, list[str], list[str]]:
+    embedded_image: dict[str, Any] | None = None,
+) -> tuple[str, int | None, str, str, str, str, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     text = (image_value or "").strip()
+    if embedded_image and not text:
+        return (
+            "upload",
+            None,
+            "",
+            base64.b64encode(embedded_image["bytes"]).decode("ascii"),
+            embedded_image["file_name"],
+            embedded_image["mime_type"],
+            errors,
+            ["已识别 Excel 内嵌图片，将按上传图片导入。"],
+        )
+    if _is_dispimg_formula(text):
+        if embedded_image:
+            warnings.append("已识别公式图片对应的 Excel 内嵌图片，将按上传图片导入。")
+            return (
+                "upload",
+                None,
+                "",
+                base64.b64encode(embedded_image["bytes"]).decode("ascii"),
+                embedded_image["file_name"],
+                embedded_image["mime_type"],
+                errors,
+                warnings,
+            )
+        errors.append("当前不支持识别 =DISPIMG(...) 公式图片。请直接插入 Excel 图片，或填写图片 URL / 素材库资源 ID/名称。")
+        return "upload", None, "", "", "", "", errors, warnings
     if not text:
         warnings.append("未识别到图片，将以空图导入。")
-        return "url", None, "", errors, warnings
+        return "url", None, "", "", "", "", errors, warnings
     if text.startswith("http://") or text.startswith("https://"):
-        return "url", None, text, errors, warnings
+        return "url", None, text, "", "", "", errors, warnings
     if text.isdigit():
         asset = asset_by_id.get(int(text))
         if not asset:
             errors.append(f"素材库资源 ID 不存在：{text}")
-            return "url", None, "", errors, warnings
-        return "material", int(asset.id), "", errors, warnings
+            return "url", None, "", "", "", "", errors, warnings
+        return "material", int(asset.id), "", "", "", "", errors, warnings
     candidates = asset_by_name.get(text, [])
     if not candidates:
-        warnings.append(f"未匹配到素材库图片，已按 URL 原样写入：{text}")
-        return "url", None, text, errors, warnings
+        if embedded_image:
+            warnings.append(f"“{text}”未匹配到素材库图片，已优先使用 Excel 内嵌图片导入。")
+            return (
+                "upload",
+                None,
+                "",
+                base64.b64encode(embedded_image["bytes"]).decode("ascii"),
+                embedded_image["file_name"],
+                embedded_image["mime_type"],
+                errors,
+                warnings,
+            )
+        errors.append(f"未匹配到素材库图片：{text}。请填写有效图片 URL、素材库资源 ID/名称，或直接插入 Excel 图片。")
+        return "upload", None, "", "", "", "", errors, warnings
     if len(candidates) > 1:
         errors.append(f"素材名称重复，请改用资源 ID：{text}")
-        return "url", None, "", errors, warnings
-    return "material", int(candidates[0].id), "", errors, warnings
+        return "url", None, "", "", "", "", errors, warnings
+    return "material", int(candidates[0].id), "", "", "", "", errors, warnings
 
 
 async def _parse_import_workbook(
     db: AsyncSession,
     workbook_bytes: bytes,
+    *,
+    admin: User,
 ) -> list[dict[str, Any]]:
     try:
         from openpyxl import load_workbook
@@ -1126,11 +1304,12 @@ async def _parse_import_workbook(
         raise HTTPException(status_code=500, detail="未安装 openpyxl，暂时无法导入 Excel。") from exc
     workbook = load_workbook(filename=BytesIO(workbook_bytes), data_only=True)
     sheet = workbook.active
+    embedded_images_by_row = _extract_import_embedded_images(sheet)
     rows = list(sheet.iter_rows(values_only=True))
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 内容为空。")
     header = [str(item or "").strip() for item in rows[0]]
-    expected = ["日期", "推送时间", "标题", "描述", "推送图片", "目标人群类型", "目标人群", "补卡截止时间"]
+    expected = ["日期", "推送时间", "标题", "描述", "所属系列", "推送图片", "目标人群类型", "目标人群", "补卡截止时间"]
     if header[: len(expected)] != expected:
         raise HTTPException(status_code=400, detail="Excel 模板表头不匹配，请先下载最新模板。")
 
@@ -1143,6 +1322,15 @@ async def _parse_import_workbook(
                 user_name_map.setdefault(key, []).append(item)
     department_names = {(item.department or "").strip() for item in users if (item.department or "").strip()}
     position_names = {(item.position or "").strip() for item in users if (item.position or "").strip()}
+    employment_status_names = {
+        (item.value or "").strip()
+        for item in (
+            await db.execute(
+                select(ConfigOption).where(ConfigOption.category == "employment_status", ConfigOption.enabled.is_(True))
+            )
+        ).scalars().all()
+        if (item.value or "").strip()
+    }
     asset_rows = (
         await db.execute(select(MaterialAsset).where(MaterialAsset.is_deleted.is_(False), MaterialAsset.asset_type == "image"))
     ).scalars().all()
@@ -1150,12 +1338,45 @@ async def _parse_import_workbook(
     asset_by_name: dict[str, list[MaterialAsset]] = {}
     for item in asset_rows:
         asset_by_name.setdefault((item.name or "").strip(), []).append(item)
+    series_rows = (
+        await db.execute(select(MagicReadingSeries))
+    ).scalars().all()
+    series_by_id = {int(item.id): item for item in series_rows}
+    series_by_title: dict[str, list[MagicReadingSeries]] = {}
+    for item in series_rows:
+        key = _normalize_series_lookup_key(item.title)
+        if key:
+            series_by_title.setdefault(key, []).append(item)
 
     parsed_rows: list[dict[str, Any]] = []
     for index, raw in enumerate(rows[1:], start=2):
-        date_value, push_time_value, title_value, description_value, image_value, target_type_value, targets_value, deadline_value = (
-            list(raw[:8]) + [None] * 8
-        )[:8]
+        (
+            date_value,
+            push_time_value,
+            title_value,
+            description_value,
+            series_value,
+            image_value,
+            target_type_value,
+            targets_value,
+            deadline_value,
+        ) = (list(raw[:9]) + [None] * 9)[:9]
+        embedded_image = embedded_images_by_row.get(index)
+        if _is_empty_import_row(
+            [
+                date_value,
+                push_time_value,
+                title_value,
+                description_value,
+                series_value,
+                image_value,
+                target_type_value,
+                targets_value,
+                deadline_value,
+            ],
+            embedded_image,
+        ):
+            continue
         errors: list[str] = []
         warnings: list[str] = []
         normalized: dict[str, Any] = {}
@@ -1176,6 +1397,17 @@ async def _parse_import_workbook(
             errors.append("标题不能为空。")
         normalized["title"] = title_text
         normalized["description"] = str(description_value or "").strip()
+        resolved_series_id, series_errors, series_warnings, series_title = await _resolve_import_series(
+            db,
+            admin=admin,
+            series_value=series_value,
+            series_by_id=series_by_id,
+            series_by_title=series_by_title,
+        )
+        errors.extend(series_errors)
+        warnings.extend(series_warnings)
+        normalized["series_id"] = resolved_series_id
+        normalized["series_title"] = series_title
         try:
             target_type = _normalize_import_target_type(target_type_value)
             normalized["target_type"] = target_type
@@ -1191,25 +1423,45 @@ async def _parse_import_workbook(
         except ValueError as exc:
             errors.append(str(exc))
             deadline = None
-        image_source, material_asset_id, image_url, image_errors, image_warnings = await _resolve_import_image(
+        (
+            image_source,
+            material_asset_id,
+            image_url,
+            embedded_image_base64,
+            embedded_image_name,
+            embedded_image_mime_type,
+            image_errors,
+            image_warnings,
+        ) = await _resolve_import_image(
             db,
             image_value=str(image_value or "").strip(),
             asset_by_id=asset_by_id,
             asset_by_name=asset_by_name,
+            embedded_image=embedded_image,
         )
         errors.extend(image_errors)
         warnings.extend(image_warnings)
         normalized["image_source"] = image_source
         normalized["material_asset_id"] = material_asset_id
         normalized["image_url"] = image_url
+        normalized["embedded_image_base64"] = embedded_image_base64
+        normalized["embedded_image_name"] = embedded_image_name
+        normalized["embedded_image_mime_type"] = embedded_image_mime_type
         target_user_ids: list[int] = []
         target_department_ids: list[str] = []
         target_position_ids: list[str] = []
+        target_employment_status_ids: list[str] = []
         target_errors: list[str] = []
-        if target_type != "all" and not raw_targets:
+        if target_type not in {"all", "all_newcomers"} and not raw_targets:
             target_errors.append("目标人群不能为空。")
         else:
-            target_user_ids, target_department_ids, target_position_ids, target_errors = await _resolve_import_targets(
+            (
+                target_user_ids,
+                target_department_ids,
+                target_position_ids,
+                target_employment_status_ids,
+                target_errors,
+            ) = await _resolve_import_targets(
                 db,
                 target_type=target_type,
                 raw_targets=raw_targets,
@@ -1217,16 +1469,23 @@ async def _parse_import_workbook(
                 user_id_map=user_id_map,
                 department_names=department_names,
                 position_names=position_names,
+                employment_status_names=employment_status_names,
             )
         errors.extend(target_errors)
         normalized["target_user_ids"] = target_user_ids
         normalized["target_department_ids"] = target_department_ids
         normalized["target_position_ids"] = target_position_ids
+        normalized["target_employment_status_ids"] = target_employment_status_ids
         if reading_date and push_time:
             push_at = _build_push_at(reading_date, push_time)
             normalized["push_at"] = push_at.isoformat(sep=" ")
             if deadline and deadline < push_at:
                 errors.append("补卡截止时间不能早于推送时间。")
+            if reading_date and normalized["series_id"]:
+                try:
+                    await _assert_reading_date_allowed_by_series(db, normalized["series_id"], reading_date)
+                except HTTPException as exc:
+                    errors.append(str(exc.detail))
         parsed_rows.append(
             {
                 "row_number": index,
@@ -1235,6 +1494,7 @@ async def _parse_import_workbook(
                     "推送时间": push_time_value,
                     "标题": title_value,
                     "描述": description_value,
+                    "所属系列": series_value,
                     "推送图片": image_value,
                     "目标人群类型": target_type_value,
                     "目标人群": targets_value,
@@ -1522,8 +1782,61 @@ async def list_admin_reading_contents(
                 is_locked=lock_map.get(int(row.id), False),
                 completed_count=completed_count,
             )
-        )
+    )
     return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+# 注意：路径里包含静态字段（template / import-preview / import-confirm / batch），
+# 必须放在 /{content_id} 之前，否则 FastAPI 会优先把 "template" 之类当成 content_id 解析。
+@router.get("/admin/reading-contents/template")
+async def download_reading_contents_template(
+    admin: User = Depends(require_admin),
+) -> Any:
+    del admin
+    return _xlsx_response(
+        "reading-contents-template.xlsx",
+        ["日期", "推送时间", "标题", "描述", "所属系列", "推送图片", "目标人群类型", "目标人群", "补卡截止时间"],
+        [[
+            "2026-06-01",
+            "09:00",
+            "第一章阅读",
+            "请阅读第一章内容并完成打卡",
+            "新员工启航计划",
+            "https://example.com/reading-cover.jpg",
+            "部门",
+            "销售部,市场部",
+            "2026-06-03 23:59",
+        ], [
+            "2026-06-02",
+            "09:30",
+            "第二章阅读",
+            "图片也可以填素材库图片名称、素材 ID，或直接把图片插入到 Excel 这一行。",
+            "1",
+            "门店晨读封面",
+            "在职状态",
+            "试用,转正",
+            "2026-06-04 23:59",
+        ]],
+    )
+
+
+@router.get("/admin/reading-contents/{content_id}/image", response_model=None)
+async def preview_admin_reading_content_image(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权查看该读书内容。")
+    object_key = (row.image_object_key or "").strip()
+    if object_key:
+        signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+        return RedirectResponse(signed_url, status_code=307)
+    fallback = (row.image_url or "").strip()
+    if fallback.startswith("http://") or fallback.startswith("https://"):
+        return RedirectResponse(fallback, status_code=307)
+    raise HTTPException(status_code=404, detail="该读书内容未配置图片。")
 
 
 @router.get("/admin/reading-contents/{content_id}")
@@ -1552,38 +1865,16 @@ async def get_admin_reading_content_detail(
     )
 
 
-@router.get("/admin/reading-contents/template")
-async def download_reading_contents_template(
-    admin: User = Depends(require_admin),
-) -> Any:
-    del admin
-    return _xlsx_response(
-        "reading-contents-template.xlsx",
-        ["日期", "推送时间", "标题", "描述", "推送图片", "目标人群类型", "目标人群", "补卡截止时间"],
-        [[
-            "2026-06-01",
-            "09:00",
-            "第一章阅读",
-            "请阅读第一章内容并完成打卡",
-            "https://example.com/reading-cover.jpg",
-            "部门",
-            "销售部,市场部",
-            "2026-06-03 23:59",
-        ]],
-    )
-
-
 @router.post("/admin/reading-contents/import-preview")
 async def preview_reading_contents_import(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     if not (file.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="仅支持导入 .xlsx 文件。")
     workbook_bytes = await file.read()
-    rows = await _parse_import_workbook(db, workbook_bytes)
+    rows = await _parse_import_workbook(db, workbook_bytes, admin=admin)
     return {
         "rows": rows,
         "summary": {
@@ -1614,14 +1905,18 @@ async def confirm_reading_contents_import(
                 description=row.description,
                 image_source=row.image_source,
                 material_asset_id=row.material_asset_id,
-                series_id=None,
+                series_id=row.series_id,
                 target_type=row.target_type,
                 target_user_ids=row.target_user_ids,
                 target_department_ids=row.target_department_ids,
                 target_position_ids=row.target_position_ids,
+                target_employment_status_ids=row.target_employment_status_ids,
                 makeup_deadline_at=row.makeup_deadline_at,
                 image=None,
                 image_url_text=row.image_url,
+                embedded_image_bytes=base64.b64decode(row.embedded_image_base64) if row.embedded_image_base64 else None,
+                embedded_image_name=row.embedded_image_name,
+                embedded_image_mime_type=row.embedded_image_mime_type,
             )
         )
     return {"count": len(created_items), "items": created_items}
@@ -1641,7 +1936,7 @@ async def create_admin_reading_contents_batch(
     upload_files = {
         key: value
         for key, value in form.multi_items()
-        if isinstance(value, UploadFile)
+        if getattr(value, "filename", None) and callable(getattr(value, "read", None))
     }
     created_items: list[dict[str, Any]] = []
     for item in items:

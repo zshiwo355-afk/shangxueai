@@ -266,13 +266,18 @@ class ReadingContentImportRowPayload(BaseModel):
     push_time: time
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(default="", max_length=5000)
+    series_id: int | None = Field(default=None, ge=1)
     image_source: str = Field(default="upload", max_length=32)
     material_asset_id: int | None = Field(default=None, ge=1)
     image_url: str = Field(default="", max_length=2048)
+    embedded_image_base64: str = Field(default="", max_length=20_000_000)
+    embedded_image_name: str = Field(default="", max_length=255)
+    embedded_image_mime_type: str = Field(default="", max_length=128)
     target_type: str = Field(..., min_length=1, max_length=32)
     target_user_ids: list[int] = Field(default_factory=list)
     target_department_ids: list[str] = Field(default_factory=list)
     target_position_ids: list[str] = Field(default_factory=list)
+    target_employment_status_ids: list[str] = Field(default_factory=list)
     makeup_deadline_at: datetime | None = None
 
 
@@ -281,7 +286,7 @@ class ReadingContentImportConfirmPayload(BaseModel):
 
 
 READING_SERIES_STATUSES = {"draft", "active", "paused", "archived"}
-READING_SERIES_TARGET_TYPES = {"all", "department", "position", "user"}
+READING_SERIES_TARGET_TYPES = {"all", "department", "position", "employment_status", "user"}
 
 
 class ReadingSeriesTargetPayload(BaseModel):

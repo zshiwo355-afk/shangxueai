@@ -258,8 +258,6 @@ async def save_my_video_progress(
     if whitelist_permissions.get("course_exempt_enabled"):
         progress.quiz_passed = True
     near_end = duration > 0 and trusted_max >= max(duration - 1.5, duration * 0.98)
-    if _can_seek_freely(whitelisted, whitelist_permissions):
-        near_end = duration > 0 and progress.current_position >= 0
     if whitelist_permissions.get("course_exempt_enabled"):
         progress.is_completed = True
         progress.completed_by_whitelist = True

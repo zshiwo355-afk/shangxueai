@@ -21,7 +21,6 @@ import {
   Button,
   Calendar,
   Card,
-  Checkbox,
   Empty,
   Form,
   DatePicker,
@@ -118,22 +117,33 @@ import {
 import { adminListUsers } from "../lib/api.admin";
 import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
-import QuestionFormModal from "./magicAcademy/QuestionFormModal";
-import ReadingContentFormModal from "./magicAcademy/ReadingContentFormModal";
 import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
 import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
-import {
-  QuizAnswerModal,
-  QuizPointFormModal,
-  SeriesFormModal,
-  WatchConfirmModal,
-} from "./magicAcademy/MagicAcademyMiscModals";
+import MagicAcademyPageModals from "./magicAcademy/MagicAcademyPageModals";
+import { buildReadingAdminTabItems } from "./magicAcademy/MagicAcademyReadingAdminTabs";
 import {
   answerColumns,
   buildAdminVideoColumns,
   buildStatsColumns,
   buildWhitelistColumns,
 } from "./magicAcademy/adminColumns";
+import {
+  ADMIN_SECTION_TABS,
+  AUDIO_EXPORT_DEFAULT_COLUMNS,
+  AUDIO_EXPORT_EMPLOYEE_COLUMNS,
+  AUDIO_EXPORT_FIELD_GROUPS,
+  AUDIO_EXPORT_STAT_COLUMNS,
+  READING_SERIES_STATUS_FILTER_OPTIONS,
+  READING_SERIES_STATUS_META,
+} from "./magicAcademy/magicAcademyPageConfig";
+import {
+  buildSeriesTargetFormValues,
+  getDefaultAdminTab,
+  getSeriesTargetSummary,
+  isReadingDateOutOfRange,
+  isSamePrimitiveArray,
+  normalizeSeriesTargetsFromForm,
+} from "./magicAcademy/magicAcademyPageHelpers";
 import {
   buildAudioCalendarMap,
   buildSeriesSections,
@@ -162,159 +172,6 @@ import {
 
 const { Title, Text, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
-const ADMIN_SECTION_TABS = {
-  courses: ["video_manage", "quiz", "series", "stats"],
-  reading: ["reading_contents", "reading_series", "audio_stats"],
-};
-
-function getDefaultAdminTab(section) {
-  return section === "reading" ? "reading_contents" : "video_manage";
-}
-
-const READING_SERIES_STATUS_OPTIONS = [
-  { value: "draft", label: "草稿" },
-  { value: "active", label: "启用" },
-  { value: "paused", label: "暂停" },
-  { value: "archived", label: "已归档" },
-];
-const READING_SERIES_STATUS_FILTER_OPTIONS = [
-  { value: "all", label: "全部" },
-  ...READING_SERIES_STATUS_OPTIONS,
-];
-const READING_SERIES_STATUS_META = {
-  draft: { label: "草稿", color: "default" },
-  active: { label: "启用", color: "success" },
-  paused: { label: "暂停", color: "warning" },
-  archived: { label: "已归档", color: "default" },
-};
-const AUDIO_EXPORT_DEFAULT_COLUMNS = [
-  "reading_content_id",
-  "reading_date",
-  "push_time",
-  "title",
-  "target_summary",
-  "employee_name",
-  "department",
-  "position",
-  "should_complete",
-  "is_completed",
-  "uploaded_at",
-  "is_makeup",
-  "makeup_deadline",
-  "current_status",
-];
-const AUDIO_EXPORT_EMPLOYEE_COLUMNS = [
-  "employee_id",
-  "employee_name",
-  "department",
-  "position",
-  "should_complete",
-  "is_completed",
-  "uploaded_at",
-  "is_makeup",
-  "current_status",
-];
-const AUDIO_EXPORT_STAT_COLUMNS = [
-  "reading_content_id",
-  "series_name",
-  "reading_date",
-  "push_time",
-  "title",
-  "target_summary",
-  "pushed_count",
-  "completion_rate",
-  "makeup_deadline",
-  "content_status",
-];
-const AUDIO_EXPORT_FIELD_GROUPS = [
-  {
-    key: "content",
-    title: "读书内容信息",
-    fields: [
-      { key: "reading_content_id", label: "读书内容ID" },
-      { key: "series_name", label: "所属系列" },
-      { key: "reading_date", label: "读书日期" },
-      { key: "push_time", label: "推送时间" },
-      { key: "title", label: "标题" },
-      { key: "target_summary", label: "推送对象" },
-      { key: "pushed_count", label: "推送人数" },
-      { key: "completion_rate", label: "完成率" },
-      { key: "makeup_deadline", label: "补卡截止时间" },
-      { key: "content_status", label: "内容状态" },
-      { key: "created_by_name", label: "创建人" },
-      { key: "created_at", label: "创建时间" },
-    ],
-  },
-  {
-    key: "employee",
-    title: "员工信息",
-    fields: [
-      { key: "employee_id", label: "员工ID" },
-      { key: "employee_name", label: "员工姓名" },
-      { key: "department", label: "部门" },
-      { key: "position", label: "岗位" },
-    ],
-  },
-  {
-    key: "status",
-    title: "打卡状态",
-    fields: [
-      { key: "should_complete", label: "是否应完成" },
-      { key: "is_completed", label: "是否完成" },
-      { key: "uploaded_at", label: "上传时间" },
-      { key: "is_makeup", label: "是否补卡" },
-      { key: "current_status", label: "当前状态" },
-    ],
-  },
-];
-
-function normalizeSeriesTargetsFromForm(values) {
-  if (values.target_all) return [{ target_type: "all", target_id: null }];
-  return [
-    ...(values.target_department_ids || []).map((item) => ({ target_type: "department", target_id: item })),
-    ...(values.target_position_ids || []).map((item) => ({ target_type: "position", target_id: item })),
-    ...(values.target_employment_status_ids || []).map((item) => ({ target_type: "employment_status", target_id: item })),
-    ...(values.target_user_ids || []).map((item) => ({ target_type: "user", target_id: item })),
-  ];
-}
-
-function buildSeriesTargetFormValues(targets = []) {
-  return {
-    target_all: targets.some((item) => item.target_type === "all"),
-    target_department_ids: targets.filter((item) => item.target_type === "department").map((item) => item.target_id),
-    target_position_ids: targets.filter((item) => item.target_type === "position").map((item) => item.target_id),
-    target_employment_status_ids: targets.filter((item) => item.target_type === "employment_status").map((item) => item.target_id),
-    target_user_ids: targets.filter((item) => item.target_type === "user").map((item) => Number(item.target_id)).filter(Boolean),
-  };
-}
-
-function getSeriesTargetSummary(targets = []) {
-  if (!targets.length) return "未设置";
-  if (targets.some((item) => item.target_type === "all")) return "全部员工";
-  const departments = targets.filter((item) => item.target_type === "department");
-  const positions = targets.filter((item) => item.target_type === "position");
-  const employmentStatuses = targets.filter((item) => item.target_type === "employment_status");
-  const users = targets.filter((item) => item.target_type === "user");
-  const parts = [];
-  if (departments.length) parts.push(`部门 ${departments.length} 个`);
-  if (positions.length) parts.push(`岗位 ${positions.length} 个`);
-  if (employmentStatuses.length) parts.push(`在职状态 ${employmentStatuses.length} 个`);
-  if (users.length) parts.push(`人员 ${users.length} 人`);
-  return parts.join("、") || "未设置";
-}
-
-function isReadingDateOutOfRange(readingDate, startDate, endDate) {
-  const current = dayjs(readingDate);
-  if (startDate && current.isBefore(dayjs(startDate), "day")) return true;
-  if (endDate && current.isAfter(dayjs(endDate), "day")) return true;
-  return false;
-}
-
-function isSamePrimitiveArray(left = [], right = []) {
-  if (left === right) return true;
-  if (left.length !== right.length) return false;
-  return left.every((item, index) => item === right[index]);
-}
 
 export default function MagicAcademyPage({ embedded = false, adminSection = "courses" }) {
   const adminMode = isAdmin();
@@ -384,6 +241,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [readingContentModalOpen, setReadingContentModalOpen] = useState(false);
   const [readingContentModalMode, setReadingContentModalMode] = useState("create");
   const [readingContentEditing, setReadingContentEditing] = useState(null);
+  const [readingContentPreferredSeriesId, setReadingContentPreferredSeriesId] = useState(null);
   const [readingContentSubmitting, setReadingContentSubmitting] = useState(false);
   const [readingContentKeyword, setReadingContentKeyword] = useState("");
   const [readingContentMonth, setReadingContentMonth] = useState(getCurrentMonthText());
@@ -1791,6 +1649,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const openCreateReadingContentModal = () => {
     setReadingContentModalMode("create");
     setReadingContentEditing(null);
+    setReadingContentPreferredSeriesId(null);
     setReadingContentModalOpen(true);
   };
 
@@ -1802,6 +1661,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       const detail = await fetchAdminReadingContentDetail(row.id);
       setReadingContentModalMode("edit");
       setReadingContentEditing(detail);
+      setReadingContentPreferredSeriesId(null);
       setReadingContentModalOpen(true);
     } catch (error) {
       message.error(error?.message || "读书内容详情加载失败。");
@@ -1859,12 +1719,23 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         } else {
           await createAdminReadingContentsBatch({ items: payloadItems });
         }
+        const firstReadingDate = payloadItems[0]?.reading_date || "";
+        const nextMonth = firstReadingDate ? String(firstReadingDate).slice(0, 7) : "";
+        if (nextMonth) {
+          setReadingContentMonth(nextMonth);
+        }
         message.success("读书内容已创建。");
       }
       setReadingContentModalOpen(false);
       setReadingContentEditing(null);
-      await reloadAdminReadingContents({ page: 1 });
+      setReadingContentPreferredSeriesId(null);
       setReadingContentPage(1);
+      await reloadAdminReadingContents({
+        page: 1,
+        month: readingContentModalMode === "edit"
+          ? readingContentMonth
+          : (items[0]?.reading_date ? String(items[0].reading_date).slice(0, 7) : readingContentMonth),
+      });
     } catch (error) {
       message.error(error?.message || "读书内容保存失败。");
     } finally {
@@ -1946,7 +1817,8 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         await updateAdminReadingSeries(readingSeriesModal.id, payload);
         message.success("读书系列已更新。");
       } else {
-        await createAdminReadingSeries(payload);
+        const createdSeries = await createAdminReadingSeries(payload);
+        setReadingContentPreferredSeriesId(createdSeries?.id || null);
         message.success("读书系列已创建。");
       }
       setReadingSeriesModal(null);
@@ -2973,229 +2845,37 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         </Space>
       ),
     } : null,
-    {
-      key: "reading_contents",
-      label: "读书内容推送",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card>
-            <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
-              <Space wrap>
-                <Input
-                  style={{ width: 160 }}
-                  placeholder="YYYY-MM"
-                  value={readingContentMonth}
-                  onChange={(e) => {
-                    setReadingContentMonth(e.target.value);
-                    setReadingContentPage(1);
-                  }}
-                />
-	                <Input.Search
-	                  style={{ width: 240 }}
-	                  placeholder="搜索标题/描述"
-                  value={readingContentKeyword}
-                  onChange={(e) => {
-                    setReadingContentKeyword(e.target.value);
-                    setReadingContentPage(1);
-                  }}
-                  onSearch={(value) => {
-                    setReadingContentKeyword(value);
-                    setReadingContentPage(1);
-	                  }}
-	                />
-	                <Select
-	                  allowClear
-	                  showSearch
-	                  optionFilterProp="label"
-	                  style={{ width: 220 }}
-	                  placeholder="按读书系列筛选"
-	                  value={readingContentSeriesId || undefined}
-	                  onChange={(value) => {
-	                    setReadingContentSeriesId(value || null);
-	                    setReadingContentPage(1);
-	                  }}
-	                  options={[
-	                    { value: 0, label: "未归属系列" },
-	                    ...readingSeriesRows.map((item) => ({ value: item.id, label: item.title })),
-	                  ]}
-	                />
-	              </Space>
-              <Space wrap>
-                <Button
-                  icon={<DownloadOutlined />}
-                  onClick={async () => saveBlob(await downloadMagicFile("/api/magic-academy/admin/reading-contents/template"))}
-                >
-                  下载 Excel 模板
-                </Button>
-                <Upload showUploadList={false} beforeUpload={handlePreviewReadingImport}>
-                  <Button loading={readingImportSubmitting} icon={<UploadOutlined />}>Excel 导入</Button>
-                </Upload>
-                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateReadingContentModal}>
-                  新增读书内容
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-          <Card>
-            <Table
-              rowKey="id"
-              dataSource={readingContents}
-	              scroll={{ x: 1400 }}
-              pagination={{
-                current: readingContentPage,
-                pageSize: 20,
-                total: readingContentsTotal,
-                onChange: (page) => setReadingContentPage(page),
-              }}
-              columns={[
-	                { title: "日期", dataIndex: "reading_date", width: 120 },
-	                { title: "所属系列", width: 140, render: (_, row) => row.series_title || "未归属系列" },
-	                { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-                { title: "标题", dataIndex: "title" },
-                {
-                  title: "图片",
-                  dataIndex: "image_url",
-                  render: (value, row) => value ? (
-                    <Image
-                      src={value}
-                      alt={row.title}
-                      width={96}
-                      style={{ borderRadius: 8 }}
-                      preview={{ src: value }}
-                    />
-                  ) : "—",
-                },
-                { title: "推送对象", render: (_, row) => getReadingTargetSummary(row) },
-                { title: "推送人数", dataIndex: "push_count", width: 100 },
-                { title: "已完成", dataIndex: "completed_count", width: 90 },
-                { title: "未完成", dataIndex: "pending_count", width: 90 },
-                { title: "完成率", dataIndex: "completion_rate", width: 100, render: (value) => `${value || 0}%` },
-                { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-                { title: "创建人", dataIndex: "creator_name", render: (value) => value || "—", width: 120 },
-                { title: "创建时间", dataIndex: "created_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—", width: 180 },
-                {
-                  title: "操作",
-                  width: 260,
-	                  render: (_, row) => (
-	                    <Space>
-                      <Tooltip title={row.is_locked ? "该内容已有打卡记录，为保证统计一致性，核心字段不可修改。" : ""}>
-                        <Button size="small" onClick={() => openEditReadingContentModal(row)}>编辑</Button>
-                      </Tooltip>
-                      <Button size="small" onClick={() => handleToggleReadingContentStatus(row)}>
-                        {row.status === "active" ? "停用" : "启用"}
-                      </Button>
-                      <Popconfirm
-                        title={row.is_locked ? "该内容已有打卡记录，不允许删除，请使用停用。" : "删除后员工端将不再显示该读书内容，确认继续？"}
-                        onConfirm={() => handleDeleteReadingContent(row)}
-                      >
-                        <Button size="small" danger>删除</Button>
-                      </Popconfirm>
-                    </Space>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-        </Space>
-      ),
-    },
-	    {
-	      key: "reading_series",
-	      label: "读书系列管理",
-	      children: (
-	        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-	          <Card>
-	            <Space wrap style={{ width: "100%", justifyContent: "space-between" }}>
-	              <Space wrap>
-	                <Input.Search
-	                  style={{ width: 260 }}
-	                  placeholder="搜索系列名称"
-	                  value={readingSeriesKeyword}
-	                  onChange={(e) => {
-	                    setReadingSeriesKeyword(e.target.value);
-	                    setReadingSeriesPage(1);
-	                  }}
-	                  onSearch={(value) => {
-	                    setReadingSeriesKeyword(value);
-	                    setReadingSeriesPage(1);
-	                  }}
-	                />
-	                <Select
-	                  allowClear
-	                  style={{ width: 180 }}
-	                  placeholder="全部状态"
-	                  value={readingSeriesStatus || undefined}
-	                  onChange={(value) => {
-	                    setReadingSeriesStatus(value || "");
-	                    setReadingSeriesPage(1);
-	                  }}
-	                  options={READING_SERIES_STATUS_FILTER_OPTIONS}
-	                />
-	              </Space>
-	              <Button type="primary" icon={<PlusOutlined />} onClick={() => openReadingSeriesModal()}>
-	                新增系列
-	              </Button>
-	            </Space>
-	          </Card>
-	          <Card>
-	            <Table
-	              rowKey="id"
-	              dataSource={readingSeriesRows}
-	              pagination={{
-	                current: readingSeriesPage,
-	                pageSize: 10,
-	                total: readingSeriesTotal,
-	                onChange: (page) => setReadingSeriesPage(page),
-	              }}
-	              columns={[
-	                { title: "系列名称", dataIndex: "title", render: (value) => value || "—" },
-	                {
-	                  title: "计划周期",
-	                  width: 220,
-	                  render: (_, row) => row.start_date || row.end_date ? `${row.start_date || "未设置"} 至 ${row.end_date || "未设置"}` : "未设置",
-	                },
-	                { title: "派发对象", dataIndex: "target_summary", width: 180, render: (_, row) => row.target_summary || getSeriesTargetSummary(row.targets || []) },
-	                {
-	                  title: "状态",
-	                  dataIndex: "status",
-	                  width: 100,
-	                  render: (value) => {
-	                    const meta = READING_SERIES_STATUS_META[value] || READING_SERIES_STATUS_META.draft;
-	                    return <Tag bordered={false} color={meta.color}>{meta.label}</Tag>;
-	                  },
-	                },
-	                { title: "内容数量", dataIndex: "content_count", width: 100 },
-	                { title: "超出周期", dataIndex: "out_of_range_content_count", width: 100, render: (value) => value ? <Tag color="warning">{value}</Tag> : "0" },
-	                { title: "创建时间", dataIndex: "created_at", width: 180, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-	                {
-	                  title: "操作",
-	                  width: 260,
-	                  render: (_, row) => (
-	                    <Space wrap>
-	                      <Button size="small" onClick={() => openReadingSeriesModal(row)} disabled={row.status === "archived"}>编辑</Button>
-	                      <Button size="small" onClick={() => openReadingSeriesDetail(row)}>查看内容</Button>
-	                      {row.status !== "archived" ? (
-	                        <Button size="small" onClick={() => handleToggleReadingSeriesStatus(row)}>
-	                          {row.status === "active" ? "暂停" : "启用"}
-	                        </Button>
-	                      ) : null}
-	                      {row.status !== "archived" ? (
-	                        <Popconfirm
-	                          title="归档后该系列不会出现在新增读书内容的系列选择中，但历史内容和统计不会删除。是否继续？"
-	                          onConfirm={() => handleArchiveReadingSeries(row)}
-	                        >
-	                          <Button size="small" danger>归档</Button>
-	                        </Popconfirm>
-	                      ) : null}
-	                    </Space>
-	                  ),
-	                },
-	              ]}
-	            />
-	          </Card>
-	        </Space>
-	      ),
-	    },
+    ...buildReadingAdminTabItems({
+      readingContentMonth,
+      setReadingContentMonth,
+      readingContentKeyword,
+      setReadingContentKeyword,
+      setReadingContentPage,
+      readingContentSeriesId,
+      setReadingContentSeriesId,
+      readingSeriesRows,
+      downloadMagicFile,
+      handlePreviewReadingImport,
+      readingImportSubmitting,
+      openCreateReadingContentModal,
+      readingContents,
+      readingContentPage,
+      readingContentsTotal,
+      openEditReadingContentModal,
+      handleToggleReadingContentStatus,
+      handleDeleteReadingContent,
+      readingSeriesKeyword,
+      setReadingSeriesKeyword,
+      readingSeriesPage,
+      setReadingSeriesPage,
+      readingSeriesTotal,
+      readingSeriesStatus,
+      setReadingSeriesStatus,
+      openReadingSeriesModal,
+      openReadingSeriesDetail,
+      handleToggleReadingSeriesStatus,
+      handleArchiveReadingSeries,
+    }),
     {
       key: "audio_stats",
       label: "打卡统计",
@@ -3554,329 +3234,74 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         userViewContent
       )}
 
-      <VideoDispatchFormModal
-        open={!!videoModal}
-        editing={videoModal && videoModal.id ? videoModal : null}
+      <MagicAcademyPageModals
+        videoDetail={videoDetail}
+        videoModal={videoModal}
         users={users}
-        submitting={videoSubmitting}
-        uploadProgress={videoUploadProgress}
-        onCancel={() => setVideoModal(null)}
-        onSubmit={submitVideo}
-      />
-
-	      <ReadingContentFormModal
-        open={readingContentModalOpen}
-        mode={readingContentModalMode}
-        submitting={readingContentSubmitting}
-	        editing={readingContentEditing}
-	        readingSeriesOptions={activeReadingSeriesOptions}
+        videoSubmitting={videoSubmitting}
+        videoUploadProgress={videoUploadProgress}
+        setVideoModal={setVideoModal}
+        submitVideo={submitVideo}
+        VideoDispatchFormModal={VideoDispatchFormModal}
+        readingContentModalOpen={readingContentModalOpen}
+        readingContentModalMode={readingContentModalMode}
+        readingContentSubmitting={readingContentSubmitting}
+        readingContentEditing={readingContentEditing}
+        readingContentPreferredSeriesId={readingContentPreferredSeriesId}
+        activeReadingSeriesOptions={activeReadingSeriesOptions}
         employeeUsers={employeeUsers}
         employeeDepartmentOptions={employeeDepartmentOptions}
         employeePositionOptions={employeePositionOptions}
         employmentStatusOptions={employmentStatusOptions}
-        onCancel={() => {
-          if (readingContentSubmitting) return;
-          setReadingContentModalOpen(false);
-          setReadingContentEditing(null);
-        }}
-	        onSubmit={handleSubmitReadingContent}
-	      />
-
-	      <Modal
-	        open={!!readingSeriesModal}
-	        title={readingSeriesModal?.id ? "编辑读书系列" : "新增读书系列"}
-	        onCancel={() => {
-	          if (readingSeriesSubmitting) return;
-	          setReadingSeriesModal(null);
-	        }}
-	        onOk={handleSubmitReadingSeries}
-	        confirmLoading={readingSeriesSubmitting}
-	        okText="保存"
-	        destroyOnHidden
-	      >
-	        <Form
-	          form={readingSeriesForm}
-	          layout="vertical"
-	          initialValues={{ status: "draft" }}
-	        >
-	          <Form.Item name="title" label="系列名称" rules={[{ required: true, message: "请输入系列名称" }]}>
-	            <Input placeholder="例如：新人三十天读书计划" />
-	          </Form.Item>
-	          <Form.Item name="description" label="系列说明">
-	            <Input.TextArea rows={3} placeholder="可填写该系列的阅读目标、适用范围或备注" />
-	          </Form.Item>
-	          <Form.Item name="date_range" label="计划周期" extra="用于限制和辅助选择该系列下的读书内容日期，不会自动生成推送任务。">
-	            <RangePicker style={{ width: "100%" }} />
-	          </Form.Item>
-	          <Card size="small" title="默认派发对象" style={{ marginBottom: 16 }}>
-	            <Space direction="vertical" size={12} style={{ width: "100%" }}>
-	              <Text type="secondary">新增读书内容选择该系列时，会默认带出这些派发对象；单条内容仍可单独调整。</Text>
-	              <Form.Item name="target_all" valuePropName="checked" style={{ marginBottom: 0 }}>
-	                <Switch checkedChildren="全部员工" unCheckedChildren="非全员" />
-	              </Form.Item>
-	              <Form.Item noStyle shouldUpdate={(prev, next) => prev.target_all !== next.target_all}>
-	                {({ getFieldValue }) => getFieldValue("target_all") ? null : (
-	                  <Space direction="vertical" size={12} style={{ width: "100%" }}>
-	                    <Form.Item name="target_department_ids" label="部门" style={{ marginBottom: 0 }}>
-	                      <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={employeeDepartmentOptions} placeholder="选择部门" />
-	                    </Form.Item>
-	                    <Form.Item name="target_position_ids" label="岗位" style={{ marginBottom: 0 }}>
-	                      <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={employeePositionOptions} placeholder="选择岗位" />
-	                    </Form.Item>
-	                    <Form.Item name="target_employment_status_ids" label="在职状态" style={{ marginBottom: 0 }}>
-	                      <Select
-	                        mode="multiple"
-	                        allowClear
-	                        showSearch
-	                        optionFilterProp="label"
-	                        options={employmentStatusOptions.map((item) => ({ value: item, label: item }))}
-	                        placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用在职状态"}
-	                        disabled={!employmentStatusOptions.length}
-	                      />
-	                    </Form.Item>
-	                    <Form.Item name="target_user_ids" label="指定人员" style={{ marginBottom: 0 }}>
-	                      <Select
-	                        mode="multiple"
-	                        allowClear
-	                        showSearch
-	                        optionFilterProp="label"
-	                        options={employeeUsers.map((item) => ({
-	                          value: item.id,
-	                          label: `${item.real_name || item.display_name || item.username} (${item.username})`,
-	                        }))}
-	                        placeholder="搜索并选择员工"
-	                      />
-	                    </Form.Item>
-	                  </Space>
-	                )}
-	              </Form.Item>
-	            </Space>
-	          </Card>
-	          <Form.Item
-	            name="status"
-	            label="状态"
-	            rules={[{ required: true, message: "请选择状态" }]}
-	            extra="草稿：准备中；启用：可用于新增读书内容；暂停：暂时不用于新增内容；已归档：长期不用，保留历史数据。"
-	          >
-	            <Select options={READING_SERIES_STATUS_OPTIONS} />
-	          </Form.Item>
-	        </Form>
-	      </Modal>
-
-	      <Modal
-	        open={readingSeriesDetailOpen}
-	        title={readingSeriesDetail ? `${readingSeriesDetail.title} · 读书内容` : "读书系列内容"}
-	        width={1080}
-	        footer={null}
-	        onCancel={() => setReadingSeriesDetailOpen(false)}
-	      >
-	        <Space direction="vertical" size={12} style={{ width: "100%", marginBottom: 12 }}>
-	          <Alert
-	            type="info"
-	            showIcon
-	            message={`系列周期：${readingSeriesDetail?.start_date || "未设置"} 至 ${readingSeriesDetail?.end_date || "未设置"}`}
-	            description={`默认派发对象：${readingSeriesDetail?.target_summary || getSeriesTargetSummary(readingSeriesDetail?.targets || [])}`}
-	          />
-	        </Space>
-	        <Table
-	          rowKey="id"
-	          loading={readingSeriesDetailLoading}
-	          dataSource={readingSeriesDetail?.contents || []}
-	          pagination={{ pageSize: 8 }}
-	          scroll={{ x: 1000 }}
-	          columns={[
-	            { title: "日期", dataIndex: "reading_date", width: 110 },
-	            { title: "周期状态", dataIndex: "out_of_range", width: 120, render: (value) => value ? <Tag color="warning">超出系列周期</Tag> : <Tag color="success">周期内</Tag> },
-	            { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-	            { title: "标题", dataIndex: "title", width: 180 },
-	            { title: "推送对象", render: (_, row) => getReadingTargetSummary(row), width: 180 },
-	            { title: "推送人数", dataIndex: "push_count", width: 90 },
-	            { title: "已完成", dataIndex: "completed_count", width: 90 },
-	            { title: "未完成", dataIndex: "pending_count", width: 90 },
-	            { title: "完成率", dataIndex: "completion_rate", width: 90, render: (value) => `${value || 0}%` },
-	            { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-	          ]}
-	        />
-	      </Modal>
-
-	      <Modal
-        open={readingImportPreviewOpen}
-        title="Excel 导入预览"
-        width={1100}
-        onCancel={() => {
-          if (readingImportSubmitting) return;
-          setReadingImportPreviewOpen(false);
-        }}
-        onOk={handleConfirmReadingImport}
-        okButtonProps={{ disabled: !readingImportRows.some((item) => item.can_import) }}
-        confirmLoading={readingImportSubmitting}
-        okText="确认导入"
-      >
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-          <Alert
-            type="info"
-            showIcon
-            message={`共 ${readingImportSummary.total} 行，可导入 ${readingImportSummary.valid} 行，错误 ${readingImportSummary.invalid} 行`}
-          />
-          <Table
-            rowKey="row_number"
-            size="small"
-            pagination={{ pageSize: 8 }}
-            dataSource={readingImportRows}
-            rowClassName={(row) => (row.errors?.length ? "magic-table-row-error" : "")}
-            columns={[
-              { title: "行号", dataIndex: "row_number", width: 80 },
-              { title: "日期", render: (_, row) => row.parsed?.reading_date || "—" },
-              { title: "推送时间", render: (_, row) => row.parsed?.push_time || "—" },
-              { title: "标题", render: (_, row) => row.parsed?.title || "—" },
-              { title: "目标类型", render: (_, row) => row.parsed?.target_type || "—" },
-              { title: "目标人群", render: (_, row) => (row.parsed?.target_labels || []).join("、") || "—" },
-              { title: "补卡截止", render: (_, row) => row.parsed?.makeup_deadline_at || "—" },
-              { title: "错误/警告", render: (_, row) => [...(row.errors || []), ...(row.warnings || [])].join("；") || "—" },
-            ]}
-          />
-        </Space>
-      </Modal>
-
-      <Modal
-        open={audioDetailOpen}
-        title={audioDetailRow ? `${audioDetailRow.reading_date} ${audioDetailRow.title}` : "完成明细"}
-        width={980}
-        footer={null}
-        onCancel={() => setAudioDetailOpen(false)}
-      >
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-          {audioDetailLegacyHint ? <Alert type="info" showIcon message={audioDetailLegacyHint} /> : null}
-          <Table
-            rowKey="user_id"
-            loading={audioDetailLoading}
-            dataSource={audioDetailRows}
-            pagination={{ pageSize: 10 }}
-            columns={[
-              { title: "员工姓名", dataIndex: "user_name" },
-              { title: "部门", dataIndex: "department_name", render: (value) => value || "—" },
-              { title: "岗位", dataIndex: "position", render: (value) => value || "—" },
-              { title: "应完成", dataIndex: "should_complete", render: (value) => value ? "是" : "否" },
-              { title: "已完成", dataIndex: "completed", render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
-              { title: "上传时间", dataIndex: "uploaded_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-              { title: "是否补卡", dataIndex: "is_makeup", render: (value) => value ? "是" : "否" },
-              { title: "补卡时间", dataIndex: "makeup_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-              { title: "备注", dataIndex: "remark", render: (value) => value || "—" },
-              { title: "当前状态", dataIndex: "status_text" },
-            ]}
-          />
-        </Space>
-      </Modal>
-
-      <Modal
-        open={audioExportModalOpen}
-        title="导出读书打卡统计"
-        width={880}
-        destroyOnHidden
-        onCancel={() => {
-          if (audioExportSubmitting) return;
-          setAudioExportModalOpen(false);
-        }}
-        onOk={handleConfirmAudioExport}
-        okText="确认导出"
-        cancelText="取消"
-        confirmLoading={audioExportSubmitting}
-        okButtonProps={{ disabled: audioExportColumns.length === 0 }}
-      >
-        <Space direction="vertical" size={16} style={{ width: "100%" }}>
-          <Alert
-            type="info"
-            showIcon
-            message="当前导出范围"
-            description={(
-              <Space direction="vertical" size={4} style={{ width: "100%" }}>
-                {audioExportScopeLines.map((line) => (
-                  <Text key={line}>{line}</Text>
-                ))}
-              </Space>
-            )}
-          />
-          <Card
-            size="small"
-            title="字段选择"
-            extra={(
-              <Space wrap>
-                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_FIELD_GROUPS.flatMap((group) => group.fields.map((item) => item.key)))}>
-                  全选
-                </Button>
-                <Button size="small" onClick={() => setAudioExportColumns([])}>
-                  清空
-                </Button>
-                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_DEFAULT_COLUMNS)}>
-                  恢复默认
-                </Button>
-                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_EMPLOYEE_COLUMNS)}>
-                  仅员工明细字段
-                </Button>
-                <Button size="small" onClick={() => setAudioExportColumns(AUDIO_EXPORT_STAT_COLUMNS)}>
-                  仅完成统计字段
-                </Button>
-              </Space>
-            )}
-          >
-            <Space direction="vertical" size={16} style={{ width: "100%" }}>
-              {AUDIO_EXPORT_FIELD_GROUPS.map((group) => (
-                <div key={group.key}>
-                  <Text strong>{group.title}</Text>
-                  <div style={{ marginTop: 8 }}>
-                    <Space wrap size={[16, 12]}>
-                      {group.fields.map((field) => (
-                        <Checkbox
-                          key={field.key}
-                          checked={audioExportColumns.includes(field.key)}
-                          onChange={(event) => handleToggleAudioExportColumn(field.key, event.target.checked)}
-                        >
-                          {field.label}
-                        </Checkbox>
-                      ))}
-                    </Space>
-                  </div>
-                </div>
-              ))}
-              {audioExportColumns.length === 0 ? <Text type="danger">请至少选择一个导出字段</Text> : null}
-            </Space>
-          </Card>
-        </Space>
-      </Modal>
-
-      <WatchConfirmModal
-        open={watchConfirmState.open}
-        message={videoDetail?.watch_confirm_setting?.message}
-        buttonText={videoDetail?.watch_confirm_setting?.button_text}
-        onContinue={handleWatchConfirmContinue}
-      />
-
-      <SeriesFormModal
-        editing={seriesModal}
-        form={seriesForm}
-        onCancel={() => setSeriesModal(null)}
-        onOk={submitSeries}
-      />
-
-      <QuizPointFormModal
-        editing={pointModal}
-        form={pointForm}
-        onCancel={() => setPointModal(null)}
-        onOk={submitPoint}
-      />
-
-      <QuestionFormModal
-        open={!!questionModal}
-        editing={questionModal?.id ? questionModal : null}
-        pointId={questionModal?.pointId}
-        onCancel={() => setQuestionModal(null)}
-        onSubmit={submitQuestion}
-      />
-
-      <QuizAnswerModal
-        state={quizAnswerState}
-        setState={setQuizAnswerState}
-        onSubmit={handleQuizSubmit}
+        openReadingSeriesModal={openReadingSeriesModal}
+        setReadingContentModalOpen={setReadingContentModalOpen}
+        setReadingContentEditing={setReadingContentEditing}
+        handleSubmitReadingContent={handleSubmitReadingContent}
+        readingSeriesModal={readingSeriesModal}
+        readingSeriesSubmitting={readingSeriesSubmitting}
+        setReadingSeriesModal={setReadingSeriesModal}
+        handleSubmitReadingSeries={handleSubmitReadingSeries}
+        readingSeriesForm={readingSeriesForm}
+        readingSeriesDetailOpen={readingSeriesDetailOpen}
+        readingSeriesDetail={readingSeriesDetail}
+        readingSeriesDetailLoading={readingSeriesDetailLoading}
+        setReadingSeriesDetailOpen={setReadingSeriesDetailOpen}
+        readingImportPreviewOpen={readingImportPreviewOpen}
+        readingImportSubmitting={readingImportSubmitting}
+        setReadingImportPreviewOpen={setReadingImportPreviewOpen}
+        handleConfirmReadingImport={handleConfirmReadingImport}
+        readingImportRows={readingImportRows}
+        readingImportSummary={readingImportSummary}
+        audioDetailOpen={audioDetailOpen}
+        audioDetailRow={audioDetailRow}
+        setAudioDetailOpen={setAudioDetailOpen}
+        audioDetailLegacyHint={audioDetailLegacyHint}
+        audioDetailLoading={audioDetailLoading}
+        audioDetailRows={audioDetailRows}
+        audioExportModalOpen={audioExportModalOpen}
+        audioExportSubmitting={audioExportSubmitting}
+        setAudioExportModalOpen={setAudioExportModalOpen}
+        handleConfirmAudioExport={handleConfirmAudioExport}
+        audioExportColumns={audioExportColumns}
+        setAudioExportColumns={setAudioExportColumns}
+        audioExportScopeLines={audioExportScopeLines}
+        handleToggleAudioExportColumn={handleToggleAudioExportColumn}
+        watchConfirmState={watchConfirmState}
+        handleWatchConfirmContinue={handleWatchConfirmContinue}
+        seriesModal={seriesModal}
+        seriesForm={seriesForm}
+        setSeriesModal={setSeriesModal}
+        submitSeries={submitSeries}
+        pointModal={pointModal}
+        pointForm={pointForm}
+        setPointModal={setPointModal}
+        submitPoint={submitPoint}
+        questionModal={questionModal}
+        setQuestionModal={setQuestionModal}
+        submitQuestion={submitQuestion}
+        quizAnswerState={quizAnswerState}
+        setQuizAnswerState={setQuizAnswerState}
+        handleQuizSubmit={handleQuizSubmit}
       />
     </div>
   );

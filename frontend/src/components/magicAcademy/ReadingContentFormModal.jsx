@@ -49,7 +49,7 @@ function buildEmptyItem(dateText) {
   return {
     client_key: `${dateText}-${Math.random().toString(36).slice(2, 8)}`,
     reading_date: dateText,
-    push_time: "09:00:00",
+    push_time: "18:30:00",
     title: "",
     description: "",
     image_source: "upload",
@@ -84,7 +84,7 @@ function normalizeItem(item) {
   return {
     client_key: `edit-${item?.id || dayjs().valueOf()}`,
     reading_date: item?.reading_date || dayjs().format("YYYY-MM-DD"),
-    push_time: item?.push_time || "09:00:00",
+    push_time: item?.push_time || "18:30:00",
     title: item?.title || "",
     description: item?.description || "",
     image_source: item?.source_type === "material" ? "material" : item?.source_type === "url" ? "url" : "upload",
@@ -93,7 +93,7 @@ function normalizeItem(item) {
     series_id: item?.series_id || null,
     series_title: item?.series_title || "",
     image_url: item?.image_url || "",
-    target_type,
+    target_type: targetType,
     target_user_ids: (item?.targets || []).filter((target) => target.target_type === "user").map((target) => Number(target.target_id)),
     target_department_ids: (item?.targets || []).filter((target) => target.target_type === "department").map((target) => target.target_id),
     target_position_ids: (item?.targets || []).filter((target) => target.target_type === "position").map((target) => target.target_id),
@@ -117,12 +117,23 @@ function enumerateRangeDates(rangeValue) {
   return dates;
 }
 
+function resolveManualTargetType(item) {
+  if (item?.target_type === "all" || item?.target_type === "all_newcomers") return item.target_type;
+  if (item?.target_department_ids?.length) return "department";
+  if (item?.target_position_ids?.length) return "position";
+  if (item?.target_employment_status_ids?.length) return "employment_status";
+  if (item?.target_user_ids?.length) return "user";
+  return "user";
+}
+
 export default function ReadingContentFormModal({
   open,
   mode,
   submitting,
   editing,
   readingSeriesOptions = [],
+  preferredSeriesId = null,
+  onCreateSeries,
   employeeUsers,
   employeeDepartmentOptions,
   employeePositionOptions,
@@ -218,6 +229,19 @@ export default function ReadingContentFormModal({
     };
   };
 
+  const hasSelectedTargets = (item) => (
+    !!(
+      item?.targets?.length
+      || item?.target_user_ids?.length
+      || item?.target_department_ids?.length
+      || item?.target_position_ids?.length
+      || item?.target_employment_status_ids?.length
+      || ["all", "all_newcomers", "department", "position", "employment_status"].includes(item?.target_type)
+    )
+  );
+
+  const hasInheritedSeriesTargets = (item) => !!(item?.series_id && item?.targets?.length);
+
   const isDateAllowedByActiveSeries = (dateText) => {
     if (!activeSeries) return true;
     const day = dayjs(dateText);
@@ -282,19 +306,17 @@ export default function ReadingContentFormModal({
         if (series?.end_date && day.isAfter(dayjs(series.end_date), "day")) return false;
         return true;
       })
-      .map((item) => (seriesId ? applySeriesDefaults(item, series) : { ...item, series_id: null })));
+      .map((item) => (seriesId ? applySeriesDefaults(item, series) : {
+        ...item,
+        series_id: null,
+        series_title: "",
+        targets: [],
+        target_type: resolveManualTargetType(item),
+      })));
   };
 
   const handleActiveSeriesChange = (seriesId) => {
-    const hasSelectedTargets = items.some((item) => (
-      item.targets?.length
-      || item.target_user_ids?.length
-      || item.target_department_ids?.length
-      || item.target_position_ids?.length
-      || item.target_employment_status_ids?.length
-      || ["all", "all_newcomers", "department", "position", "employment_status"].includes(item.target_type)
-    ));
-    if (seriesId && hasSelectedTargets) {
+    if (seriesId && items.some((item) => hasSelectedTargets(item))) {
       Modal.confirm({
         title: "覆盖派发对象确认",
         content: "是否使用新系列的默认派发对象覆盖当前已选择的派发对象？",
@@ -306,6 +328,47 @@ export default function ReadingContentFormModal({
     }
     applyActiveSeriesChange(seriesId);
   };
+
+  const applySeriesToItem = (readingDate, seriesId) => {
+    const series = readingSeriesOptions.find((option) => String(option.value) === String(seriesId))?.series || null;
+    setItems((prev) => prev.map((item) => {
+      if (item.reading_date !== readingDate) return item;
+      if (!seriesId || !series) {
+        return {
+          ...item,
+          series_id: null,
+          series_title: "",
+          targets: [],
+          target_type: resolveManualTargetType(item),
+        };
+      }
+      return applySeriesDefaults(item, series);
+    }));
+  };
+
+  const handleItemSeriesChange = (item, seriesId) => {
+    if (!seriesId) {
+      applySeriesToItem(item.reading_date, null);
+      return;
+    }
+    if (hasSelectedTargets(item)) {
+      Modal.confirm({
+        title: "覆盖派发对象确认",
+        content: "切换系列后，将使用该系列默认派发对象覆盖当前这一天已选择的派发对象。是否继续？",
+        okText: "覆盖",
+        cancelText: "取消",
+        onOk: () => applySeriesToItem(item.reading_date, seriesId),
+      });
+      return;
+    }
+    applySeriesToItem(item.reading_date, seriesId);
+  };
+
+  useEffect(() => {
+    if (!open || mode !== "create" || !preferredSeriesId) return;
+    if (!readingSeriesOptions.some((item) => String(item.value) === String(preferredSeriesId))) return;
+    applyActiveSeriesChange(preferredSeriesId);
+  }, [open, mode, preferredSeriesId, readingSeriesOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateItem = (readingDate, patch) => {
     setItems((prev) => prev.map((item) => (item.reading_date === readingDate ? { ...item, ...patch } : item)));
@@ -409,7 +472,12 @@ export default function ReadingContentFormModal({
           <Card size="small" title="选择日期">
             <Space direction="vertical" size={12} style={{ width: "100%" }}>
               <Space direction="vertical" size={6} style={{ width: "100%" }}>
-                <Text type="secondary">所属系列</Text>
+                <Space wrap style={{ justifyContent: "space-between", width: "100%" }}>
+                  <Text type="secondary">所属系列</Text>
+                  <Button size="small" type="link" onClick={() => onCreateSeries?.()}>
+                    新建系列
+                  </Button>
+                </Space>
                 <Select
                   allowClear
                   showSearch
@@ -610,6 +678,7 @@ export default function ReadingContentFormModal({
 
         {items.length ? items.map((item) => {
           const selectedAsset = materialAssets.find((asset) => asset.id === item.material_asset_id) || null;
+          const usingSeriesTargets = hasInheritedSeriesTargets(item);
           return (
             <Card
               key={item.reading_date}
@@ -651,7 +720,32 @@ export default function ReadingContentFormModal({
                     />
                   </div>
                 </Space>
-                <Text type="secondary">所属系列：{getSeriesLabel(item)}</Text>
+                {mode === "create" ? (
+                  <Space wrap style={{ justifyContent: "space-between", width: "100%" }}>
+                    <div style={{ minWidth: 260, flex: 1 }}>
+                      <Text type="secondary">所属系列</Text>
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        style={{ width: "100%", marginTop: 4 }}
+                        placeholder="未归属系列"
+                        value={item.series_id || undefined}
+                        disabled={lockedEditing}
+                        onChange={(value) => handleItemSeriesChange(item, value || null)}
+                        options={readingSeriesOptions}
+                      />
+                      <Text type="secondary" style={{ display: "block", marginTop: 4 }}>
+                        当前：{getSeriesLabel(item)}
+                      </Text>
+                    </div>
+                    <Button size="small" type="link" onClick={() => onCreateSeries?.()}>
+                      新建系列
+                    </Button>
+                  </Space>
+                ) : (
+                  <Text type="secondary">所属系列：{getSeriesLabel(item)}</Text>
+                )}
                 <Input
                   placeholder="标题"
                   value={item.title}
@@ -724,39 +818,40 @@ export default function ReadingContentFormModal({
                     {item.image_url ? <Image src={item.image_url} width={140} /> : null}
                   </Space>
                 )}
-                <Space direction="vertical" size={8} style={{ width: "100%" }}>
-                  <Text strong>最终派发对象</Text>
-                  <Radio.Group
-                    value={item.target_type}
-                    disabled={lockedEditing}
-                    onChange={(e) => updateItem(item.reading_date, {
-                      target_type: e.target.value,
-                      target_user_ids: [],
-                      target_department_ids: [],
-                      target_position_ids: [],
-                      target_employment_status_ids: [],
-                      targets: [],
-                    })}
-                    options={[
-                      { value: "user", label: "指定员工" },
-                      { value: "department", label: "按部门" },
-                      { value: "position", label: "按岗位" },
-                      { value: "employment_status", label: "按在职状态" },
-                      { value: "all", label: "全员" },
-                      { value: "all_newcomers", label: "仅新人" },
-                    ]}
-                    optionType="button"
-                  />
-                </Space>
-                {item.targets?.length ? (
+                {usingSeriesTargets ? (
                   <Alert
                     type="info"
                     showIcon
-                    message="已应用系列默认派发对象"
-                    description={`保存后会写入本条读书内容派发对象：${item.targets.some((target) => target.target_type === "all") ? "全部员工" : `${item.targets.length} 个对象`}`}
+                    message="已继承系列默认派发对象"
+                    description={`当前已按系列自动带出推送人群：${item.targets.some((target) => target.target_type === "all") ? "全部员工" : `${item.targets.length} 个对象`}。如需单独指定，请先清空所属系列。`}
                   />
-                ) : null}
-                {item.target_type === "user" ? (
+                ) : (
+                  <>
+                    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                      <Text strong>最终派发对象</Text>
+                      <Radio.Group
+                        value={item.target_type}
+                        disabled={lockedEditing}
+                        onChange={(e) => updateItem(item.reading_date, {
+                          target_type: e.target.value,
+                          target_user_ids: [],
+                          target_department_ids: [],
+                          target_position_ids: [],
+                          target_employment_status_ids: [],
+                          targets: [],
+                        })}
+                        options={[
+                          { value: "user", label: "指定员工" },
+                          { value: "department", label: "按部门" },
+                          { value: "position", label: "按岗位" },
+                          { value: "employment_status", label: "按在职状态" },
+                          { value: "all", label: "全员" },
+                          { value: "all_newcomers", label: "仅新人" },
+                        ]}
+                        optionType="button"
+                      />
+                    </Space>
+                    {item.target_type === "user" ? (
                   <div style={{ width: "100%", minWidth: 0 }}>
                     <Select
                       mode="multiple"
@@ -772,8 +867,8 @@ export default function ReadingContentFormModal({
                       placeholder="选择员工"
                     />
                   </div>
-                ) : null}
-                {item.target_type === "department" ? (
+                    ) : null}
+                    {item.target_type === "department" ? (
                   <div style={{ width: "100%", minWidth: 0 }}>
                     <Select
                       mode="multiple"
@@ -789,8 +884,8 @@ export default function ReadingContentFormModal({
                       placeholder="选择部门"
                     />
                   </div>
-                ) : null}
-                {item.target_type === "position" ? (
+                    ) : null}
+                    {item.target_type === "position" ? (
                   <div style={{ width: "100%", minWidth: 0 }}>
                     <Select
                       mode="multiple"
@@ -806,8 +901,8 @@ export default function ReadingContentFormModal({
                       placeholder="选择岗位"
                     />
                   </div>
-                ) : null}
-                {item.target_type === "employment_status" ? (
+                    ) : null}
+                    {item.target_type === "employment_status" ? (
                   <div style={{ width: "100%", minWidth: 0 }}>
                     <Select
                       mode="multiple"
@@ -823,7 +918,9 @@ export default function ReadingContentFormModal({
                       placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用在职状态"}
                     />
                   </div>
-                ) : null}
+                    ) : null}
+                  </>
+                )}
               </Space>
             </Card>
           );

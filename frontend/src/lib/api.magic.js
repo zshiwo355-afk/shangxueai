@@ -32,6 +32,13 @@ export function buildMagicVideoStreamUrl(videoId) {
   return url.toString();
 }
 
+export function buildReadingContentImageUrl(contentId) {
+  const url = new URL(buildApiUrl(`/api/magic-academy/admin/reading-contents/${contentId}/image`), window.location.origin);
+  const token = getToken();
+  if (token) url.searchParams.set("access_token", token);
+  return url.toString();
+}
+
 export async function uploadMagicVideoFile(file, durationSeconds = 0) {
   const formData = new FormData();
   formData.append("file", file);
