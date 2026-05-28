@@ -43,9 +43,13 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
       const map = {};
       (data.answers || []).forEach((a) => {
         if (!a.is_objective) {
+          // 默认值：人工分 > AI 分 > 0；不动则保留当前态（AI 分仍是终评，
+          // 真正写入 manual_score 只在 admin 主动改后）
           map[a.id] = {
-            score: a.manual_score ?? 0,
+            score: a.manual_score ?? a.ai_score ?? 0,
             comment: a.comment || "",
+            // 记录初始值用于判断 admin 是否真的改过分数
+            initial_score: a.manual_score ?? null,
           };
         }
       });
@@ -65,11 +69,34 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
     if (!detail) return;
     setSaving(true);
     try {
-      const answers = Object.entries(drafts).map(([id, v]) => ({
-        answer_id: Number(id),
-        manual_score: Number(v.score) || 0,
-        comment: v.comment || "",
-      }));
+      // 只把"管理员改过的题"作为 manual 评分送上去：
+      //   - initial_score 是从 detail 读到的当前 manual_score（可能是 null）
+      //   - 如果 v.score 跟 initial_score 相同，说明 admin 没动 → 不发，让 AI 分继续作为终评
+      //   - admin 改了 → 发 manual_score 覆盖
+      // 评语任何变动都发（这样能保留 AI 评语之外的额外说明）
+      const answers = [];
+      Object.entries(drafts).forEach(([id, v]) => {
+        const newScore = Number(v.score) || 0;
+        const initial = v.initial_score;
+        const scoreChanged = initial == null ? true : Number(initial) !== newScore;
+        // 情况 1：admin 改了分数 → 发 manual_score
+        // 情况 2：题原本已有 manual_score（initial != null），但 admin 没改 → 重发原值（避免空 patch 把它清掉）
+        // 情况 3：admin 没改，且原本就是 AI 分 → 不发（保留 ai_score 为终评）
+        if (scoreChanged || initial != null) {
+          answers.push({
+            answer_id: Number(id),
+            manual_score: newScore,
+            comment: v.comment || "",
+          });
+        } else if ((v.comment || "").trim()) {
+          // 仅评语变动也算介入（admin 加了批注）
+          answers.push({
+            answer_id: Number(id),
+            manual_score: newScore,
+            comment: v.comment || "",
+          });
+        }
+      });
       await gradeSubmission(submissionId, {
         answers,
         overall_comment: overall,
@@ -88,8 +115,8 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
   const paper = detail?.paper;
   const answers = detail?.answers || [];
 
-  const isReadOnly = sub?.status === "graded";
-
+  // AI 判分默认即终评，admin 进 drawer 是抽查 + 可选覆盖。
+  // graded 状态也允许编辑（覆盖现有人工分），不再 readonly。
   return (
     <Drawer
       open={open}
@@ -98,12 +125,10 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
       title={paper ? `${paper.title} · 第 ${sub?.attempt_no || 1} 次提交` : "提交详情"}
       destroyOnHidden
       footer={
-        isReadOnly ? null : (
-          <Space style={{ float: "right" }}>
-            <Button onClick={onClose}>取消</Button>
-            <Button type="primary" loading={saving} onClick={submit}>提交评分</Button>
-          </Space>
-        )
+        <Space style={{ float: "right" }}>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" loading={saving} onClick={submit}>提交评分</Button>
+        </Space>
       }
     >
       {detail ? (
@@ -132,7 +157,13 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
                   <Text type="secondary">本题 {a.score} 分</Text>
                   {a.is_objective ? (
                     a.is_correct ? <Tag color="success">答对</Tag> : <Tag color="error">答错</Tag>
-                  ) : <Tag color="gold">需人工评分</Tag>}
+                  ) : a.manual_score != null ? (
+                    <Tag color="orange">人工已评</Tag>
+                  ) : a.ai_score != null ? (
+                    <Tag color="purple">🤖 AI 已评</Tag>
+                  ) : (
+                    <Tag color="gold">待人工评分</Tag>
+                  )}
                 </Space>
               }
             >
@@ -161,6 +192,26 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
                 ) : null}
               </div>
 
+              {!a.is_objective && a.ai_score != null ? (
+                <div style={{
+                  background: "#f5f0ff",
+                  border: "1px solid #d3adf7",
+                  borderRadius: 6,
+                  padding: "10px 12px",
+                  marginBottom: 12,
+                }}>
+                  <Space size={8} style={{ marginBottom: 4 }}>
+                    <Text strong style={{ color: "#722ed1" }}>🤖 AI 预评分</Text>
+                    <Text strong>{Math.round((a.ai_score + Number.EPSILON) * 10) / 10} / {a.score}</Text>
+                  </Space>
+                  {a.ai_comment ? (
+                    <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap", color: "#1f1f1f", fontSize: 13 }}>
+                      {a.ai_comment}
+                    </Paragraph>
+                  ) : null}
+                </div>
+              ) : null}
+
               {!a.is_objective ? (
                 <Space direction="vertical" style={{ width: "100%" }}>
                   <Space>
@@ -169,15 +220,16 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
                       min={0}
                       max={a.score}
                       step={0.5}
-                      disabled={isReadOnly}
-                      value={drafts[a.id]?.score ?? a.manual_score ?? 0}
+                      value={drafts[a.id]?.score ?? a.manual_score ?? a.ai_score ?? 0}
                       onChange={(v) => setDrafts((d) => ({ ...d, [a.id]: { ...(d[a.id] || {}), score: v } }))}
                     />
+                    {a.ai_score != null && drafts[a.id]?.initial_score == null ? (
+                      <Text type="secondary" style={{ fontSize: 12 }}>不改即采纳 AI 分</Text>
+                    ) : null}
                   </Space>
                   <Input.TextArea
                     rows={2}
                     placeholder="评语（可选）"
-                    disabled={isReadOnly}
                     value={drafts[a.id]?.comment ?? a.comment ?? ""}
                     onChange={(e) => setDrafts((d) => ({ ...d, [a.id]: { ...(d[a.id] || {}), comment: e.target.value } }))}
                   />
@@ -191,7 +243,6 @@ export default function GradeSubmissionDrawer({ submissionId, open, onClose, onG
           <Card size="small" title="整卷评语">
             <Input.TextArea
               rows={3}
-              disabled={isReadOnly}
               value={overall}
               onChange={(e) => setOverall(e.target.value)}
               placeholder="整体反馈（可选）"

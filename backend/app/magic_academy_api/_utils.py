@@ -23,10 +23,10 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".wav", ".aac", ".amr", ".webm", ".ogg"}
 VIDEO_STATUSES = {"draft", "published", "disabled"}
 VIDEO_UPLOAD_STATUSES = {"pending", "uploading", "completed", "failed", "deleted"}
 TRANSCODE_STATUSES = {"none", "pending", "processing", "completed", "failed"}
-TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "role", "user"}
+TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "employment_status", "role", "user"}
 VIDEO_SOURCE_TYPES = {"upload", "material"}
 IMAGE_SOURCE_TYPES = {"upload", "material", "url"}
-READING_TARGET_TYPES = {"all", "all_newcomers", "department", "position", "user"}
+READING_TARGET_TYPES = {"all", "all_newcomers", "department", "position", "employment_status", "user"}
 QUESTION_TYPES = {"single", "multiple", "judge", "blank", "short_answer"}
 QUESTION_TYPE_ALIASES = {
     "fill": "blank",

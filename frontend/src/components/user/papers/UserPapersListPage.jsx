@@ -8,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { App as AntdApp, Button, Card, Empty, Pagination, Skeleton, Space, Tag, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMyPaperAssignments } from "../../../lib/api.userPapers";
 
 const { Paragraph, Text, Title } = Typography;
@@ -19,6 +19,11 @@ const FILTER_OPTIONS = [
   { key: "todo", label: "待处理" },
   { key: "done", label: "已结束" },
 ];
+const VALID_FILTER_KEYS = new Set(FILTER_OPTIONS.map((item) => item.key));
+
+function normalizeFilterKey(value) {
+  return VALID_FILTER_KEYS.has(value) ? value : "all";
+}
 
 function formatTime(value) {
   if (!value) return "";
@@ -73,12 +78,37 @@ function scoreTone(score) {
   return { color: "#dc2626", label: "待提升" };
 }
 
+function statusTagNormalized(item) {
+  if (item.is_expired && item.last_status !== "graded") {
+    return <Tag bordered={false}>已截止</Tag>;
+  }
+  if (item.last_status === "graded") {
+    return item.last_is_pass ? (
+      <Tag bordered={false} color="success">已通过</Tag>
+    ) : (
+      <Tag bordered={false} color="error">未通过</Tag>
+    );
+  }
+  if (item.last_status === "submitted") {
+    return item.manual_review_subjective ? (
+      <Tag bordered={false} color="gold">待复核</Tag>
+    ) : (
+      <Tag bordered={false} color="processing">评分中</Tag>
+    );
+  }
+  if (item.last_status === "in_progress") {
+    return <Tag bordered={false} color="warning">进行中</Tag>;
+  }
+  return <Tag bordered={false}>未开始</Tag>;
+}
+
 export default function UserPapersListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { message } = AntdApp.useApp();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterKey, setFilterKey] = useState("all");
+  const [filterKey, setFilterKey] = useState(() => normalizeFilterKey(searchParams.get("filter")));
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -121,6 +151,20 @@ export default function UserPapersListPage() {
   }, [filterKey, sorted]);
 
   useEffect(() => {
+    const nextFilter = normalizeFilterKey(searchParams.get("filter"));
+    setFilterKey((current) => (current === nextFilter ? current : nextFilter));
+  }, [searchParams]);
+
+  const applyFilter = (nextFilter) => {
+    const normalized = normalizeFilterKey(nextFilter);
+    setFilterKey(normalized);
+    const nextParams = new URLSearchParams(searchParams);
+    if (normalized === "all") nextParams.delete("filter");
+    else nextParams.set("filter", normalized);
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  useEffect(() => {
     setPage(1);
   }, [filterKey]);
 
@@ -143,7 +187,7 @@ export default function UserPapersListPage() {
         <div className="history-record-card__top">
           <div className="history-record-card__content">
             <Space size={[8, 8]} wrap>
-              {statusTag(item)}
+              {statusTagNormalized(item)}
               <Tag bordered={false} color="blue">
                 <ClockCircleOutlined />{" "}
                 {item.duration_minutes > 0 ? `${item.duration_minutes} 分钟` : "不限时"}
@@ -219,6 +263,24 @@ export default function UserPapersListPage() {
     () => sorted.find((it) => !isDoneItem(it) && canTake(it)),
     [sorted],
   );
+  const firstRetry = useMemo(
+    () => sorted.find((it) => Number(it.attempt_count || 0) > 0 && canTake(it)),
+    [sorted],
+  );
+  const openTodoAssignments = () => {
+    if (firstTodo) {
+      navigate(`/papers/${firstTodo.id}/take`);
+      return;
+    }
+    applyFilter("todo");
+  };
+  const openRetryAssignments = () => {
+    if (firstRetry) {
+      navigate(`/papers/${firstRetry.id}/take`);
+      return;
+    }
+    applyFilter("todo");
+  };
 
   return (
     <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
@@ -243,13 +305,7 @@ export default function UserPapersListPage() {
               <button
                 type="button"
                 className="cta-arrow-btn"
-                onClick={() => {
-                  if (firstTodo) {
-                    navigate(`/papers/${firstTodo.id}/take`);
-                  } else {
-                    setFilterKey("todo");
-                  }
-                }}
+                onClick={openTodoAssignments}
               >
                 <FormOutlined />
                 <span>{firstTodo ? "立即答题" : "查看待办考试"}</span>
@@ -258,7 +314,7 @@ export default function UserPapersListPage() {
               <button
                 type="button"
                 className="cta-arrow-btn cta-arrow-btn--ghost"
-                onClick={() => setFilterKey("done")}
+                onClick={() => applyFilter("done")}
               >
                 <HistoryOutlined />
                 <span>查看历史成绩</span>
@@ -271,19 +327,19 @@ export default function UserPapersListPage() {
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
                 <span>全部任务</span>
-                <strong>{summary.total}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={() => applyFilter("all")}>{summary.total}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>待处理</span>
-                <strong>{summary.todo}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={() => applyFilter("todo")}>{summary.todo}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>可立即答题</span>
-                <strong>{summary.available}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openTodoAssignments}>{summary.available}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>可重做</span>
-                <strong>{summary.retry}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openRetryAssignments}>{summary.retry}</button></strong>
               </li>
             </ul>
           </aside>
@@ -317,7 +373,7 @@ export default function UserPapersListPage() {
               <Button
                 key={option.key}
                 type={filterKey === option.key ? "primary" : "default"}
-                onClick={() => setFilterKey(option.key)}
+                onClick={() => applyFilter(option.key)}
               >
                 {option.label}
               </Button>

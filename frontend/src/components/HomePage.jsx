@@ -42,6 +42,16 @@ function paperAttemptsLeft(item) {
   return Math.max(0, Number(item.max_attempts || 1) - Number(item.attempt_count || 0));
 }
 
+function paperStatusLabelNormalized(item) {
+  if (item.is_expired && item.last_status !== "graded") return "已截止";
+  if (item.last_status === "graded") return item.last_is_pass ? "已通过" : "未通过";
+  if (item.last_status === "submitted") {
+    return item.manual_review_subjective ? "待复核" : "评分中";
+  }
+  if (item.last_status === "in_progress") return "进行中";
+  return "待开始";
+}
+
 function paperIsTodo(item) {
   if (item.last_status === "graded") return false;
   if (item.is_expired && paperAttemptsLeft(item) <= 0) return false;
@@ -215,7 +225,7 @@ export default function HomePage() {
           key: "paper",
           icon: <FormOutlined />,
           title: todoPapers[0].last_status === "submitted" ? "查看考试结果" : "处理待办考试",
-          description: `${todoPapers[0].paper_title} · ${paperStatusLabel(todoPapers[0])}`,
+          description: `${todoPapers[0].paper_title} · ${paperStatusLabelNormalized(todoPapers[0])}`,
           action: todoPapers[0].last_status === "submitted" ? "查看" : "进入",
           onClick: () =>
             navigate(
@@ -275,6 +285,17 @@ export default function HomePage() {
   );
 
   const yearText = dayjs().format("YYYY");
+  const openTodoPapers = () => navigate("/papers?filter=todo");
+  const openTodoChallenges = () => {
+    const exam = todoChallenges[0]?.exam;
+    if (exam) {
+      navigate(exam.status === "pending_review" ? `/exam/${exam.id}/result` : `/exam/${exam.id}/intro`);
+      return;
+    }
+    navigate("/training/challenges");
+  };
+  const openTrainingRecords = () => navigate("/training/records");
+  const openAudioCheckin = () => navigate("/magic-academy?tab=audio");
 
   return (
     <div className="portal-home portal-home--editorial portal-home--minimal">
@@ -324,19 +345,19 @@ export default function HomePage() {
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
                 <span>待办考试</span>
-                <strong>{todoPapers.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openTodoPapers}>{todoPapers.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>待办通关</span>
-                <strong>{todoChallenges.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openTodoChallenges}>{todoChallenges.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>训练均分</span>
-                <strong>{averageScore}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openTrainingRecords}>{averageScore}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>本月打卡</span>
-                <strong>{monthAudioCount}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openAudioCheckin}>{monthAudioCount}</button></strong>
               </li>
             </ul>
           </aside>

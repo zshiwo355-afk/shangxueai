@@ -28,6 +28,7 @@ import {
   buildUsersTemplateUrl,
 } from "../../lib/api.admin";
 import { getCurrentUser, isSuperAdmin } from "../../lib/auth";
+import { fetchOptions } from "../../lib/api.options";
 
 const { Dragger } = Upload;
 
@@ -42,6 +43,8 @@ export default function UsersTab() {
   const [keyword, setKeyword] = useState("");
   const [department, setDepartment] = useState();
   const [departments, setDepartments] = useState([]);
+  const [employmentStatus, setEmploymentStatus] = useState();
+  const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -57,7 +60,13 @@ export default function UsersTab() {
   const reload = async () => {
     setLoading(true);
     try {
-      const data = await adminSearchUsers({ page, page_size: pageSize, keyword, department });
+      const data = await adminSearchUsers({
+        page,
+        page_size: pageSize,
+        keyword,
+        department,
+        employment_status: employmentStatus,
+      });
       setItems(Array.isArray(data?.items) ? data.items : []);
       setTotal(Number(data?.total || 0));
     } catch (err) {
@@ -76,8 +85,18 @@ export default function UsersTab() {
     }
   };
 
-  useEffect(() => { reload(); }, [page, pageSize, keyword, department]);
+  const reloadEmploymentStatusOptions = async () => {
+    try {
+      const data = await fetchOptions();
+      setEmploymentStatusOptions(Array.isArray(data?.employment_status) ? data.employment_status : []);
+    } catch {
+      // 忽略：在职状态字典是辅助筛选用的
+    }
+  };
+
+  useEffect(() => { reload(); }, [page, pageSize, keyword, department, employmentStatus]);
   useEffect(() => { reloadDepartments(); }, []);
+  useEffect(() => { reloadEmploymentStatusOptions(); }, []);
 
   const departmentOptions = useMemo(
     () => departments.map((d) => ({ value: d, label: d })),
@@ -96,6 +115,7 @@ export default function UsersTab() {
         position: "",
         role: "user",
         is_newcomer: false,
+        employment_status: "",
         status: "active",
         disabled: false,
       });
@@ -115,6 +135,7 @@ export default function UsersTab() {
         position: editingUser.position || "",
         role: editingUser.role || "user",
         is_newcomer: Boolean(editingUser.is_newcomer),
+        employment_status: editingUser.employment_status || "",
         status: normalizedStatus,
         disabled: Boolean(editingUser.disabled),
       });
@@ -248,6 +269,12 @@ export default function UsersTab() {
       render: (v) => v ? <Tag bordered={false} color="gold">新人</Tag> : "—",
     },
     {
+      title: "在职状态",
+      dataIndex: "employment_status",
+      width: 100,
+      render: (v) => v ? <Tag bordered={false} color="blue">{v}</Tag> : "—",
+    },
+    {
       title: "状态",
       width: 80,
       render: (_, row) => {
@@ -295,6 +322,14 @@ export default function UsersTab() {
           options={departmentOptions}
           value={department}
           onChange={(v) => { setPage(1); setDepartment(v); }}
+        />
+        <Select
+          allowClear
+          placeholder="按在职状态筛选"
+          style={{ width: 160 }}
+          options={employmentStatusOptions.map((s) => ({ value: s, label: s }))}
+          value={employmentStatus}
+          onChange={(v) => { setPage(1); setEmploymentStatus(v); }}
         />
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建用户</Button>
         <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>批量导入</Button>
@@ -398,6 +433,13 @@ export default function UsersTab() {
           </Form.Item>
           <Form.Item label="是否新人" name="is_newcomer" valuePropName="checked">
             <Switch />
+          </Form.Item>
+          <Form.Item label="在职状态" name="employment_status">
+            <Select
+              allowClear
+              placeholder="（可选）从字典中选择"
+              options={employmentStatusOptions.map((s) => ({ value: s, label: s }))}
+            />
           </Form.Item>
           <Form.Item label="账号状态" name="status">
             <Select

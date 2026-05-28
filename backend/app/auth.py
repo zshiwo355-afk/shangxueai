@@ -178,6 +178,7 @@ class MeResponse(BaseModel):
     position: str = ""
     role: str
     is_newcomer: bool = False
+    employment_status: str = ""
     status: str = "active"
 
 
@@ -213,6 +214,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
             "position": user.position or "",
             "role": user.role,
             "is_newcomer": bool(user.is_newcomer),
+            "employment_status": user.employment_status or "",
             "status": user.status or "active",
         },
     )
@@ -229,6 +231,7 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
         position=user.position or "",
         role=user.role,
         is_newcomer=bool(user.is_newcomer),
+        employment_status=user.employment_status or "",
         status=user.status or "active",
     )
 

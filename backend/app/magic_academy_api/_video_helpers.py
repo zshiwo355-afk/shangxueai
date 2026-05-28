@@ -413,6 +413,8 @@ def _user_matches_target(user: User, target: MagicVideoTarget) -> bool:
         return (user.department or "").strip() == tvalue
     if ttype == "position":
         return (user.position or "").strip() == tvalue
+    if ttype == "employment_status":
+        return (user.employment_status or "").strip() == tvalue
     if ttype == "role":
         return (user.role or "").strip() == tvalue
     if ttype == "user":

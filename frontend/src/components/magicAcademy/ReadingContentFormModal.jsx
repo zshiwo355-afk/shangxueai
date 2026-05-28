@@ -62,6 +62,7 @@ function buildEmptyItem(dateText) {
     target_user_ids: [],
     target_department_ids: [],
     target_position_ids: [],
+    target_employment_status_ids: [],
     targets: [],
     newcomer_only: false,
     makeup_deadline_at: `${dayjs(dateText).add(2, "day").format("YYYY-MM-DD")} 23:59:59`,
@@ -73,11 +74,13 @@ function normalizeItem(item) {
     ? "department"
     : item?.targets?.some((target) => target.target_type === "position")
       ? "position"
-      : item?.targets?.some((target) => target.target_type === "all_newcomers")
-        ? "all_newcomers"
-        : item?.targets?.some((target) => target.target_type === "all")
-          ? "all"
-          : "user";
+      : item?.targets?.some((target) => target.target_type === "employment_status")
+        ? "employment_status"
+        : item?.targets?.some((target) => target.target_type === "all_newcomers")
+          ? "all_newcomers"
+          : item?.targets?.some((target) => target.target_type === "all")
+            ? "all"
+            : "user";
   return {
     client_key: `edit-${item?.id || dayjs().valueOf()}`,
     reading_date: item?.reading_date || dayjs().format("YYYY-MM-DD"),
@@ -94,6 +97,7 @@ function normalizeItem(item) {
     target_user_ids: (item?.targets || []).filter((target) => target.target_type === "user").map((target) => Number(target.target_id)),
     target_department_ids: (item?.targets || []).filter((target) => target.target_type === "department").map((target) => target.target_id),
     target_position_ids: (item?.targets || []).filter((target) => target.target_type === "position").map((target) => target.target_id),
+    target_employment_status_ids: (item?.targets || []).filter((target) => target.target_type === "employment_status").map((target) => target.target_id),
     targets: (item?.targets || []).map((target) => ({ target_type: target.target_type, target_id: target.target_id })),
     newcomer_only: targetType === "all_newcomers",
     makeup_deadline_at: item?.makeup_deadline_at ? item.makeup_deadline_at.replace("T", " ").slice(0, 19) : "",
@@ -122,6 +126,7 @@ export default function ReadingContentFormModal({
   employeeUsers,
   employeeDepartmentOptions,
   employeePositionOptions,
+  employmentStatusOptions = [],
   onCancel,
   onSubmit,
 }) {
@@ -197,7 +202,7 @@ export default function ReadingContentFormModal({
     const targets = Array.isArray(series.targets) ? series.targets : [];
     const next = { ...item, series_id: series.id, series_title: series.title || "" };
     if (targets.some((target) => target.target_type === "all")) {
-      return { ...next, target_type: "all", target_user_ids: [], target_department_ids: [], target_position_ids: [], targets };
+      return { ...next, target_type: "all", target_user_ids: [], target_department_ids: [], target_position_ids: [], target_employment_status_ids: [], targets };
     }
     if (!targets.length) {
       return { ...next, targets: [] };
@@ -208,6 +213,7 @@ export default function ReadingContentFormModal({
       target_user_ids: targets.filter((target) => target.target_type === "user").map((target) => Number(target.target_id)).filter(Boolean),
       target_department_ids: targets.filter((target) => target.target_type === "department").map((target) => target.target_id),
       target_position_ids: targets.filter((target) => target.target_type === "position").map((target) => target.target_id),
+      target_employment_status_ids: targets.filter((target) => target.target_type === "employment_status").map((target) => target.target_id),
       targets,
     };
   };
@@ -285,7 +291,8 @@ export default function ReadingContentFormModal({
       || item.target_user_ids?.length
       || item.target_department_ids?.length
       || item.target_position_ids?.length
-      || ["all", "all_newcomers", "department", "position"].includes(item.target_type)
+      || item.target_employment_status_ids?.length
+      || ["all", "all_newcomers", "department", "position", "employment_status"].includes(item.target_type)
     ));
     if (seriesId && hasSelectedTargets) {
       Modal.confirm({
@@ -321,6 +328,7 @@ export default function ReadingContentFormModal({
       target_user_ids: [...source.target_user_ids],
       target_department_ids: [...source.target_department_ids],
       target_position_ids: [...source.target_position_ids],
+      target_employment_status_ids: [...source.target_employment_status_ids],
       targets: [...(source.targets || [])],
       newcomer_only: source.newcomer_only,
       makeup_deadline_at: source.makeup_deadline_at,
@@ -359,6 +367,9 @@ export default function ReadingContentFormModal({
       }
       if (item.target_type === "position" && !item.target_position_ids.length) {
         throw new Error(`请为 ${item.reading_date} 选择至少一个岗位。`);
+      }
+      if (item.target_type === "employment_status" && !item.target_employment_status_ids.length) {
+        throw new Error(`请选择 ${item.reading_date} 的在职状态。`);
       }
       return {
         ...item,
@@ -723,12 +734,14 @@ export default function ReadingContentFormModal({
                       target_user_ids: [],
                       target_department_ids: [],
                       target_position_ids: [],
+                      target_employment_status_ids: [],
                       targets: [],
                     })}
                     options={[
                       { value: "user", label: "指定员工" },
                       { value: "department", label: "按部门" },
                       { value: "position", label: "按岗位" },
+                      { value: "employment_status", label: "按在职状态" },
                       { value: "all", label: "全员" },
                       { value: "all_newcomers", label: "仅新人" },
                     ]}
@@ -791,6 +804,23 @@ export default function ReadingContentFormModal({
                       onChange={(value) => updateItem(item.reading_date, { target_position_ids: value, targets: [] })}
                       options={employeePositionOptions}
                       placeholder="选择岗位"
+                    />
+                  </div>
+                ) : null}
+                {item.target_type === "employment_status" ? (
+                  <div style={{ width: "100%", minWidth: 0 }}>
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      style={{ width: "100%" }}
+                      maxTagCount="responsive"
+                      value={item.target_employment_status_ids}
+                      disabled={lockedEditing || !employmentStatusOptions.length}
+                      onChange={(value) => updateItem(item.reading_date, { target_employment_status_ids: value, targets: [] })}
+                      options={employmentStatusOptions.map((value) => ({ value, label: value }))}
+                      placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用在职状态"}
                     />
                   </div>
                 ) : null}

@@ -116,6 +116,7 @@ import {
   addMagicVideoSeriesItem,
 } from "../lib/api.magic";
 import { adminListUsers } from "../lib/api.admin";
+import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
 import QuestionFormModal from "./magicAcademy/QuestionFormModal";
 import ReadingContentFormModal from "./magicAcademy/ReadingContentFormModal";
@@ -272,6 +273,7 @@ function normalizeSeriesTargetsFromForm(values) {
   return [
     ...(values.target_department_ids || []).map((item) => ({ target_type: "department", target_id: item })),
     ...(values.target_position_ids || []).map((item) => ({ target_type: "position", target_id: item })),
+    ...(values.target_employment_status_ids || []).map((item) => ({ target_type: "employment_status", target_id: item })),
     ...(values.target_user_ids || []).map((item) => ({ target_type: "user", target_id: item })),
   ];
 }
@@ -281,6 +283,7 @@ function buildSeriesTargetFormValues(targets = []) {
     target_all: targets.some((item) => item.target_type === "all"),
     target_department_ids: targets.filter((item) => item.target_type === "department").map((item) => item.target_id),
     target_position_ids: targets.filter((item) => item.target_type === "position").map((item) => item.target_id),
+    target_employment_status_ids: targets.filter((item) => item.target_type === "employment_status").map((item) => item.target_id),
     target_user_ids: targets.filter((item) => item.target_type === "user").map((item) => Number(item.target_id)).filter(Boolean),
   };
 }
@@ -290,10 +293,12 @@ function getSeriesTargetSummary(targets = []) {
   if (targets.some((item) => item.target_type === "all")) return "全部员工";
   const departments = targets.filter((item) => item.target_type === "department");
   const positions = targets.filter((item) => item.target_type === "position");
+  const employmentStatuses = targets.filter((item) => item.target_type === "employment_status");
   const users = targets.filter((item) => item.target_type === "user");
   const parts = [];
   if (departments.length) parts.push(`部门 ${departments.length} 个`);
   if (positions.length) parts.push(`岗位 ${positions.length} 个`);
+  if (employmentStatuses.length) parts.push(`在职状态 ${employmentStatuses.length} 个`);
   if (users.length) parts.push(`人员 ${users.length} 人`);
   return parts.join("、") || "未设置";
 }
@@ -329,6 +334,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
           : "home"),
   );
   const [users, setUsers] = useState([]);
+  const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const [videos, setVideos] = useState([]);
   const [adminVideoItems, setAdminVideoItems] = useState([]);
   const [adminVideoTotal, setAdminVideoTotal] = useState(0);
@@ -641,8 +647,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
 
   const reloadAdminUsers = async () => {
     if (!adminMode) return;
-    const userData = await adminListUsers();
+    const [userData, optionData] = await Promise.all([
+      adminListUsers(),
+      fetchOptions(),
+    ]);
     setUsers(Array.isArray(userData) ? userData : []);
+    setEmploymentStatusOptions(Array.isArray(optionData?.employment_status) ? optionData.employment_status : []);
   };
 
   const reloadMyData = async () => {
@@ -1817,6 +1827,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
           target_user_ids: editItem.target_user_ids || [],
           target_department_ids: editItem.target_department_ids || [],
           target_position_ids: editItem.target_position_ids || [],
+          target_employment_status_ids: editItem.target_employment_status_ids || [],
           targets: editItem.targets || [],
           makeup_deadline_at: editItem.makeup_deadline_at || "",
           image: editItem.image || undefined,
@@ -1838,6 +1849,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
           target_user_ids: item.target_user_ids || [],
           target_department_ids: item.target_department_ids || [],
           target_position_ids: item.target_position_ids || [],
+          target_employment_status_ids: item.target_employment_status_ids || [],
           targets: item.targets || [],
           makeup_deadline_at: item.makeup_deadline_at || "",
           image: item.image || null,
@@ -3558,9 +3570,10 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         submitting={readingContentSubmitting}
 	        editing={readingContentEditing}
 	        readingSeriesOptions={activeReadingSeriesOptions}
-	        employeeUsers={employeeUsers}
+        employeeUsers={employeeUsers}
         employeeDepartmentOptions={employeeDepartmentOptions}
         employeePositionOptions={employeePositionOptions}
+        employmentStatusOptions={employmentStatusOptions}
         onCancel={() => {
           if (readingContentSubmitting) return;
           setReadingContentModalOpen(false);
@@ -3609,6 +3622,17 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
 	                    </Form.Item>
 	                    <Form.Item name="target_position_ids" label="岗位" style={{ marginBottom: 0 }}>
 	                      <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={employeePositionOptions} placeholder="选择岗位" />
+	                    </Form.Item>
+	                    <Form.Item name="target_employment_status_ids" label="在职状态" style={{ marginBottom: 0 }}>
+	                      <Select
+	                        mode="multiple"
+	                        allowClear
+	                        showSearch
+	                        optionFilterProp="label"
+	                        options={employmentStatusOptions.map((item) => ({ value: item, label: item }))}
+	                        placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用在职状态"}
+	                        disabled={!employmentStatusOptions.length}
+	                      />
 	                    </Form.Item>
 	                    <Form.Item name="target_user_ids" label="指定人员" style={{ marginBottom: 0 }}>
 	                      <Select

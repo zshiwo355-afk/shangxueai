@@ -6,7 +6,14 @@ score_question() 只接收纯数据，便于在导入预览、提交判分两处
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+from .config import Settings, get_settings
+from .llm import call_llm_json
+from .llm_errors import LLMError
+
+logger = logging.getLogger("app.paper_grading")
 
 QUESTION_TYPES = ("single", "multiple", "judge", "blank", "short_answer")
 SUBJECTIVE_TYPES = {"short_answer"}
@@ -114,3 +121,111 @@ def question_type_label(qtype: str) -> str:
         "blank": "填空",
         "short_answer": "简答",
     }.get((qtype or "").lower(), qtype or "")
+
+
+def parse_keywords(value: Any) -> list[str]:
+    """题库存的 grading_keywords 可能是 JSON 列表 / 逗号分隔字符串 / 换行分隔字符串。
+    统一归一为字符串列表。"""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+    except (TypeError, ValueError):
+        pass
+    if "\n" in text:
+        return [item.strip() for item in text.splitlines() if item.strip()]
+    if "," in text or "，" in text:
+        return [item.strip() for item in text.replace("，", ",").split(",") if item.strip()]
+    return [text]
+
+
+_AI_GRADING_SYSTEM = (
+    "你是一名严格但公正的简答题判分助手。"
+    "根据题干、参考答案和评分要点，对学员作答进行评分，并简明给出反馈。"
+    "评分要点是给你的提示词，可以识别同义、近义、推理类作答；不要拘泥于字面是否完全匹配。"
+    "请严格按要求输出 JSON，不要附带任何额外文本。"
+)
+
+
+def _build_ai_grading_prompt(
+    *,
+    stem: str,
+    reference_answer: list[str],
+    keywords: list[str],
+    user_answer: list[str],
+    full_score: float,
+) -> str:
+    reference_text = "、".join(reference_answer) if reference_answer else "（未提供）"
+    keywords_text = "、".join(keywords) if keywords else "（未提供）"
+    user_text = "\n".join(user_answer) if user_answer else "（学员未作答）"
+    return (
+        f"题目：{stem}\n"
+        f"满分：{full_score} 分\n"
+        f"参考答案：{reference_text}\n"
+        f"评分要点（关键词或要素）：{keywords_text}\n"
+        f"学员作答：\n{user_text}\n\n"
+        "请输出 JSON：\n"
+        '{\n'
+        '  "score": <0 ~ 满分之间的数字，可以是 0.5 的倍数>,\n'
+        '  "matched_keywords": [<命中的关键词字符串>],\n'
+        '  "missing_keywords": [<未命中的关键词字符串>],\n'
+        '  "comment": "<两三句中文反馈，说明扣分原因或亮点>"\n'
+        '}'
+    )
+
+
+async def grade_short_answer_with_ai(
+    *,
+    stem: str,
+    reference_answer: list[str],
+    keywords: list[str],
+    user_answer: list[str],
+    full_score: float,
+    settings: Settings | None = None,
+) -> tuple[float, str]:
+    """对简答题用 LLM 打分。返回 (score, comment_text)。
+
+    失败时抛 LLMError；调用方决定是 fallback 到人工还是其它处理。
+    """
+    full = float(full_score or 0)
+    if full <= 0:
+        return 0.0, ""
+    settings = settings or get_settings()
+    prompt = _build_ai_grading_prompt(
+        stem=stem or "",
+        reference_answer=reference_answer or [],
+        keywords=keywords or [],
+        user_answer=user_answer or [],
+        full_score=full,
+    )
+    raw = await call_llm_json(
+        settings,
+        [{"role": "user", "content": prompt}],
+        system=_AI_GRADING_SYSTEM,
+        temperature=0.1,
+        max_tokens=600,
+    )
+    raw_score = raw.get("score")
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError) as exc:
+        raise LLMError(f"AI 返回的 score 不是数字：{raw_score!r}", status_code=500) from exc
+    score = max(0.0, min(full, score))
+    matched = raw.get("matched_keywords") or []
+    missing = raw.get("missing_keywords") or []
+    base_comment = str(raw.get("comment") or "").strip()
+    parts: list[str] = []
+    if base_comment:
+        parts.append(base_comment)
+    if matched:
+        parts.append(f"命中要点：{ '、'.join(str(x) for x in matched) }")
+    if missing:
+        parts.append(f"未命中要点：{ '、'.join(str(x) for x in missing) }")
+    return score, "\n".join(parts)

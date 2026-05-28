@@ -22,6 +22,7 @@ import {
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { adminListUsers } from "../../../lib/api.admin";
+import { fetchOptions } from "../../../lib/api.options";
 import {
   bulkDeleteAssignments,
   bulkPushAssignmentsWeCom,
@@ -71,17 +72,20 @@ export default function AssignmentsPanel() {
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
 
   const reload = async () => {
     setLoading(true);
     try {
-      const [a, p, u] = await Promise.all([
+      const [a, p, u, opt] = await Promise.all([
         listAssignments({ page, page_size: pageSize }),
         listPapers({ status: "published" }).catch(() => []),
         adminListUsers().catch(() => []),
+        fetchOptions().catch(() => ({})),
       ]);
       setItems(Array.isArray(a?.items) ? a.items : (Array.isArray(a) ? a : []));
       setTotal(Number(a?.total ?? (Array.isArray(a) ? a.length : 0)));
+      setEmploymentStatusOptions(Array.isArray(opt?.employment_status) ? opt.employment_status : []);
       setPapers(Array.isArray(p) ? p : []);
       setUsers(Array.isArray(u) ? u : []);
     } catch (err) {
@@ -134,6 +138,7 @@ export default function AssignmentsPanel() {
   const watchedUserIds = Form.useWatch("user_ids", createForm);
   const watchedDepartments = Form.useWatch("departments", createForm);
   const watchedPositions = Form.useWatch("positions", createForm);
+  const watchedEmploymentStatuses = Form.useWatch("employment_statuses", createForm);
   const watchedNewcomerOnly = Form.useWatch("newcomer_only", createForm);
 
   const resolvedUserIds = useMemo(() => {
@@ -151,13 +156,20 @@ export default function AssignmentsPanel() {
         .filter((u) => set.has((u.position || "").trim()))
         .map((u) => u.id);
     }
+    if (dispatchMode === "employment_status") {
+      const set = new Set(watchedEmploymentStatuses || []);
+      if (!set.size) return [];
+      return userPool
+        .filter((u) => set.has((u.employment_status || "").trim()))
+        .map((u) => u.id);
+    }
     if (dispatchMode === "all") {
       return userPool
         .filter((u) => (watchedNewcomerOnly ? u.is_newcomer : true))
         .map((u) => u.id);
     }
     return Array.isArray(watchedUserIds) ? watchedUserIds : [];
-  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedNewcomerOnly]);
+  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedEmploymentStatuses, watchedNewcomerOnly]);
 
   const submitCreate = async () => {
     const values = await createForm.validateFields();
@@ -362,7 +374,7 @@ export default function AssignmentsPanel() {
         const hasSubs = row.submission_count > 0;
         return (
           <Space wrap>
-            <Button size="small" icon={<EyeOutlined />} onClick={() => openSubmissions(row)}>提交</Button>
+            <Button size="small" icon={<EyeOutlined />} onClick={() => openSubmissions(row)}>复核</Button>
             <Button size="small" icon={<SendOutlined />} onClick={() => push(row)}>推送企微</Button>
             <Popconfirm
               title={hasSubs ? "强制删除会同时清掉提交记录" : "确认删除该派发？"}
@@ -419,7 +431,7 @@ export default function AssignmentsPanel() {
       width: 100,
       render: (_, row) => (
         <Button size="small" type={row.status === "submitted" ? "primary" : "default"} onClick={() => setGradingId(row.id)}>
-          {row.status === "submitted" ? "评分" : "查看"}
+          复核
         </Button>
       ),
     },
@@ -515,6 +527,7 @@ export default function AssignmentsPanel() {
                 { value: "user", label: "指定用户" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员普通用户" },
               ]}
               optionType="button"
@@ -570,6 +583,23 @@ export default function AssignmentsPanel() {
                 options={positionOptions}
                 placeholder={positionOptions.length ? "选择岗位" : "暂无可用岗位（用户的「岗位」字段为空）"}
                 disabled={!positionOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "employment_status" ? (
+            <Form.Item
+              label="选择在职状态（可多选）"
+              name="employment_statuses"
+              rules={[{ required: true, message: "请选择至少 1 个在职状态" }]}
+            >
+              <Select
+                mode="multiple"
+                optionFilterProp="label"
+                options={employmentStatusOptions.map((s) => ({ value: s, label: s }))}
+                placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用状态（请先到「配置管理 → 在职状态」添加）"}
+                disabled={!employmentStatusOptions.length}
                 maxTagCount="responsive"
               />
             </Form.Item>

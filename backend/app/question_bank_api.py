@@ -37,6 +37,8 @@ class QuestionDTO(BaseModel):
     tag: str
     difficulty: str
     explanation: str
+    ai_grading_enabled: bool = False
+    grading_keywords: str = ""
     status: str
     source: str
     created_at: str = ""
@@ -53,6 +55,8 @@ class QuestionCreate(BaseModel):
     tag: str = Field(default="", max_length=255)
     difficulty: str = Field(default="", max_length=32)
     explanation: str = Field(default="")
+    ai_grading_enabled: bool = False
+    grading_keywords: str = Field(default="")
     status: str = Field(default="active", max_length=16)
 
     @field_validator("question_type")
@@ -81,6 +85,8 @@ class QuestionUpdate(BaseModel):
     tag: str | None = None
     difficulty: str | None = None
     explanation: str | None = None
+    ai_grading_enabled: bool | None = None
+    grading_keywords: str | None = None
     status: str | None = None
 
     @field_validator("question_type")
@@ -126,6 +132,8 @@ def _to_dto(q: QuestionBank) -> QuestionDTO:
         tag=q.tag or "",
         difficulty=q.difficulty or "",
         explanation=q.explanation or "",
+        ai_grading_enabled=bool(q.ai_grading_enabled),
+        grading_keywords=q.grading_keywords or "",
         status=q.status or "active",
         source=q.source or "manual",
         created_at=q.created_at.isoformat() if q.created_at else "",
@@ -251,6 +259,8 @@ async def create_question(
         tag=payload.tag.strip(),
         difficulty=payload.difficulty.strip(),
         explanation=payload.explanation.strip(),
+        ai_grading_enabled=bool(payload.ai_grading_enabled),
+        grading_keywords=(payload.grading_keywords or "").strip(),
         status=payload.status or "active",
         source="manual",
         created_by=admin.id,
@@ -304,6 +314,10 @@ async def update_question(
         q.difficulty = payload.difficulty.strip()
     if payload.explanation is not None:
         q.explanation = payload.explanation.strip()
+    if payload.ai_grading_enabled is not None:
+        q.ai_grading_enabled = bool(payload.ai_grading_enabled)
+    if payload.grading_keywords is not None:
+        q.grading_keywords = payload.grading_keywords.strip()
     if payload.status is not None:
         q.status = payload.status
     await db.flush()

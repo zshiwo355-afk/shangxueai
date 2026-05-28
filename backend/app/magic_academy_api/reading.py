@@ -454,6 +454,8 @@ def _reading_target_matches_user(user: User, target: MagicReadingContentTarget) 
         return user.role == "user" and _user_department(user) == target_id
     if ttype == "position":
         return user.role == "user" and _user_position(user) == target_id
+    if ttype == "employment_status":
+        return user.role == "user" and (user.employment_status or "").strip() == target_id
     if ttype == "user":
         return str(user.id) == target_id
     return False
@@ -485,7 +487,9 @@ async def _replace_reading_targets(
     user_ids: list[int],
     department_names: list[str],
     position_names: list[str],
+    employment_status_values: list[str] | None = None,
 ) -> list[MagicReadingContentTarget]:
+    employment_status_values = employment_status_values or []
     await db.execute(sql_delete(MagicReadingContentTarget).where(MagicReadingContentTarget.content_id == content_id))
     rows: list[MagicReadingContentTarget] = []
     if target_type == "all":
@@ -501,6 +505,11 @@ async def _replace_reading_targets(
         rows.extend(
             MagicReadingContentTarget(content_id=content_id, target_type="position", target_id=name)
             for name in position_names
+        )
+    elif target_type == "employment_status":
+        rows.extend(
+            MagicReadingContentTarget(content_id=content_id, target_type="employment_status", target_id=value)
+            for value in employment_status_values
         )
     else:
         rows.extend(
@@ -525,7 +534,9 @@ def _normalize_explicit_reading_targets(raw_targets: Any) -> list[dict[str, str]
         target_id = str(target.get("target_id") or "").strip()
         if target_type == "all":
             target_id = "0"
-        if target_type not in {"all", "department", "position", "user"}:
+        if target_type == "all_newcomers":
+            target_id = "1"
+        if target_type not in {"all", "all_newcomers", "department", "position", "employment_status", "user"}:
             continue
         if target_type != "all" and not target_id:
             continue
@@ -562,7 +573,9 @@ async def _validate_reading_recipients(
     target_user_ids: list[int],
     target_department_names: list[str],
     target_position_names: list[str],
+    target_employment_status_values: list[str] | None = None,
 ) -> tuple[list[int], list[str], list[str], int]:
+    target_employment_status_values = target_employment_status_values or []
     target_type = _normalize_reading_target_type(target_type)
     if target_type == "all":
         result = await db.execute(select(func.count(User.id)).where(User.role == "user", User.disabled.is_(False)))
@@ -598,6 +611,18 @@ async def _validate_reading_recipients(
         if not rows:
             raise HTTPException(status_code=400, detail="所选岗位下没有可推送员工。")
         return [], [], matched_positions, len(rows)
+    if target_type == "employment_status":
+        values = sorted({(v or "").strip() for v in target_employment_status_values if (v or "").strip()})
+        if not values:
+            raise HTTPException(status_code=400, detail="请选择至少一个在职状态。")
+        result = await db.execute(
+            select(User.id, User.employment_status)
+            .where(User.role == "user", User.disabled.is_(False), User.employment_status.in_(values))
+        )
+        rows = result.all()
+        if not rows:
+            raise HTTPException(status_code=400, detail="所选在职状态下没有可推送员工。")
+        return [], [], [], len(rows)
     user_ids = sorted(set(target_user_ids))
     if not user_ids:
         raise HTTPException(status_code=400, detail="请选择至少一个员工。")
@@ -637,6 +662,13 @@ async def _count_reading_targets(
     })
     if positions:
         filters.append(User.position.in_(positions))
+    employment_statuses = sorted({
+        (item.target_id or "").strip()
+        for item in targets
+        if (item.target_type or "").lower() == "employment_status" and (item.target_id or "").strip()
+    })
+    if employment_statuses:
+        filters.append(User.employment_status.in_(employment_statuses))
     user_ids = sorted({
         int(item.target_id)
         for item in targets
@@ -681,6 +713,13 @@ async def _collect_target_user_ids(
     })
     if positions:
         filters.append(User.position.in_(positions))
+    employment_statuses = sorted({
+        (item.target_id or "").strip()
+        for item in targets
+        if (item.target_type or "").lower() == "employment_status" and (item.target_id or "").strip()
+    })
+    if employment_statuses:
+        filters.append(User.employment_status.in_(employment_statuses))
     user_ids = sorted({
         int(item.target_id)
         for item in targets
@@ -746,6 +785,7 @@ def _assert_locked_reading_content_update_allowed(
     user_ids: list[int],
     department_names: list[str],
     position_names: list[str],
+    employment_status_values: list[str],
     image: UploadFile | None,
     makeup_deadline_at: datetime | None,
 ) -> None:
@@ -791,6 +831,8 @@ def _assert_locked_reading_content_update_allowed(
         next_target_pairs = sorted(("department", name) for name in department_names if name)
     elif normalized_target_type == "position":
         next_target_pairs = sorted(("position", name) for name in position_names if name)
+    elif normalized_target_type == "employment_status":
+        next_target_pairs = sorted(("employment_status", value) for value in employment_status_values if value)
     else:
         next_target_pairs = sorted(("user", str(user_id)) for user_id in user_ids)
     if next_target_pairs != current_target_pairs:
@@ -879,6 +921,7 @@ async def _create_reading_content_record(
     target_department_ids: list[str],
     target_position_ids: list[str],
     makeup_deadline_at: datetime | None,
+    target_employment_status_ids: list[str] | None = None,
     targets_payload: Any = None,
     image: UploadFile | None = None,
     image_url_text: str = "",
@@ -888,6 +931,7 @@ async def _create_reading_content_record(
         raise HTTPException(status_code=400, detail="请输入标题。")
     explicit_targets = _normalize_explicit_reading_targets(targets_payload)
     normalized_target_type = _normalize_reading_target_type(target_type) if not explicit_targets else "mixed"
+    employment_status_values = list(target_employment_status_ids or [])
     if explicit_targets:
         valid_user_ids, valid_departments, valid_positions, push_count = [], [], [], 0
     else:
@@ -897,12 +941,13 @@ async def _create_reading_content_record(
             target_user_ids=target_user_ids,
             target_department_names=target_department_ids,
             target_position_names=target_position_ids,
+            target_employment_status_values=employment_status_values,
         )
     push_at = _build_push_at(reading_date, push_time_value)
     resolved_makeup_deadline = _resolve_makeup_deadline(reading_date, push_at, makeup_deadline_at)
     if resolved_makeup_deadline and resolved_makeup_deadline < push_at:
         raise HTTPException(status_code=400, detail="补卡截止时间不能早于推送时间。")
-    resolved_series_id = row.series_id if int(row.series_id or 0) == int(series_id or 0) else await _validate_reading_series_id(db, admin, series_id)
+    resolved_series_id = await _validate_reading_series_id(db, admin, series_id)
     await _assert_reading_date_allowed_by_series(db, resolved_series_id, reading_date)
     image_payload = await _resolve_image_payload(
         db,
@@ -944,6 +989,7 @@ async def _create_reading_content_record(
             user_ids=valid_user_ids,
             department_names=valid_departments,
             position_names=valid_positions,
+            employment_status_values=employment_status_values,
         )
     await enqueue_audio_actions_for_reading_content(db, row, targets, created_by=admin.id)
     await db.refresh(row)
@@ -1643,6 +1689,7 @@ async def create_admin_reading_content(
     target_position_ids: str = Form(default=""),
     targets: str = Form(default=""),
     makeup_deadline_at: str = Form(default=""),
+    target_employment_status_ids: str = Form(default=""),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -1661,6 +1708,7 @@ async def create_admin_reading_content(
         target_user_ids=_parse_form_id_list(target_user_ids),
         target_department_ids=_parse_target_names_field(target_department_ids),
         target_position_ids=_parse_target_names_field(target_position_ids),
+        target_employment_status_ids=_parse_target_names_field(target_employment_status_ids),
         makeup_deadline_at=_parse_datetime_text(makeup_deadline_at, field_name="补卡截止时间"),
         targets_payload=_json_loads(targets, []) if targets else None,
         image=image,
@@ -1685,6 +1733,7 @@ async def update_admin_reading_content(
     target_position_ids: str = Form(default=""),
     targets: str = Form(default=""),
     makeup_deadline_at: str = Form(default=""),
+    target_employment_status_ids: str = Form(default=""),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -1700,6 +1749,7 @@ async def update_admin_reading_content(
         raise HTTPException(status_code=400, detail="请输入标题。")
     explicit_targets = _normalize_explicit_reading_targets(_json_loads(targets, []) if targets else None)
     normalized_target_type = _normalize_reading_target_type(target_type) if not explicit_targets else "mixed"
+    employment_status_values = _parse_target_names_field(target_employment_status_ids)
     if explicit_targets:
         valid_user_ids, valid_departments, valid_positions, push_count = [], [], [], 0
     else:
@@ -1709,6 +1759,7 @@ async def update_admin_reading_content(
             target_user_ids=_parse_form_id_list(target_user_ids),
             target_department_names=_parse_target_names_field(target_department_ids),
             target_position_names=_parse_target_names_field(target_position_ids),
+            target_employment_status_values=employment_status_values,
         )
     push_time_value = _parse_push_time_text(push_time)
     push_at = _build_push_at(reading_date, push_time_value)
@@ -1738,6 +1789,7 @@ async def update_admin_reading_content(
             user_ids=valid_user_ids,
             department_names=valid_departments,
             position_names=valid_positions,
+            employment_status_values=employment_status_values,
             image=image if (image and image.filename) else None,
             makeup_deadline_at=resolved_makeup_deadline,
         )
@@ -1779,6 +1831,7 @@ async def update_admin_reading_content(
                 user_ids=valid_user_ids,
                 department_names=valid_departments,
                 position_names=valid_positions,
+                employment_status_values=employment_status_values,
             )
     await db.flush()
     await db.refresh(row)

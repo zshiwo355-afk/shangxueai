@@ -17,7 +17,7 @@ const { Header, Sider, Content } = Layout;
 
 const MENU_ITEMS = [
   { key: "users", icon: <TeamOutlined />, label: "用户管理" },
-  { key: "options", icon: <AppstoreOutlined />, label: "通关管理" },
+  { key: "options", icon: <AppstoreOutlined />, label: "配置管理" },
   { key: "exams", icon: <FormOutlined />, label: "AI通关" },
   { key: "papers", icon: <SolutionOutlined />, label: "考试管理" },
   { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理", path: "/admin/magic-academy/courses" },

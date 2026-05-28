@@ -74,7 +74,22 @@ export default function TrainingWorkspacePage() {
   const pendingExams = exams.filter((item) =>
     ["pending", "in_progress", "pending_review"].includes(item.exam?.status),
   );
+  const completedExams = exams.filter((item) =>
+    ["passed", "failed"].includes(item.exam?.status),
+  );
   const recentRecords = records.slice(0, 3);
+
+  const openChallengeTarget = (exam) => {
+    if (!exam) {
+      navigate("/training/challenges");
+      return;
+    }
+    navigate(
+      exam.status === "pending_review"
+        ? `/exam/${exam.id}/result`
+        : `/exam/${exam.id}/intro`,
+    );
+  };
 
   const nextActions = [
     activeSession?.session_id
@@ -105,22 +120,24 @@ export default function TrainingWorkspacePage() {
             buildExamStatus(pendingExams[0].exam).label
           }`,
           action: pendingExams[0].exam.status === "pending_review" ? "查看" : "进入",
-          onClick: () =>
-            navigate(
-              pendingExams[0].exam.status === "pending_review"
-                ? `/exam/${pendingExams[0].exam.id}/result`
-                : `/exam/${pendingExams[0].exam.id}/intro`,
-            ),
+          onClick: () => openChallengeTarget(pendingExams[0].exam),
         }
       : {
           key: "records",
           icon: <ReadOutlined />,
-          title: "回看最近复盘",
-          description: "查看最近结果。",
+          title: "通关记录",
+          description: `已完成 ${completedExams.length} 项通关，可直接查看历史结果。`,
           action: "查看",
-          onClick: () => navigate("/training/records"),
+          onClick: () => navigate("/training/challenges"),
         },
   ];
+
+  const openPendingChallenge = () => openChallengeTarget(pendingExams[0]?.exam);
+  const openChallengeRecords = () => navigate("/training/challenges");
+  const openTrainingRecords = () => navigate("/training/records");
+  const openCurrentSession = () => {
+    navigate(activeSession?.session_id ? `/chat/${activeSession.session_id}` : "/train/prepare");
+  };
 
   return (
     <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
@@ -138,7 +155,7 @@ export default function TrainingWorkspacePage() {
               PRACTICE MAKES PERFECT
             </p>
             <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
-              在真实场景里反复打磨话术，结合 AI 通关与复盘形成"练-评-改"的闭环，
+              在真实场景里反复打磨话术，结合 AI 通关与复盘形成“练、评、改”的闭环，
               每一次对话都比上一次更稳。
             </Paragraph>
             <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
@@ -154,10 +171,10 @@ export default function TrainingWorkspacePage() {
               <button
                 type="button"
                 className="cta-arrow-btn cta-arrow-btn--ghost"
-                onClick={() => navigate("/training/records")}
+                onClick={openChallengeRecords}
               >
                 <ReadOutlined />
-                <span>训练记录</span>
+                <span>通关记录</span>
                 <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
               </button>
             </div>
@@ -167,15 +184,15 @@ export default function TrainingWorkspacePage() {
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
                 <span>待办通关</span>
-                <strong>{pendingExams.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openPendingChallenge}>{pendingExams.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>训练记录</span>
-                <strong>{records.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openTrainingRecords}>{records.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>当前会话</span>
-                <strong>{activeSession?.session_id ? "进行中" : "—"}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openCurrentSession}>{activeSession?.session_id ? "进行中" : "—"}</button></strong>
               </li>
             </ul>
           </aside>
@@ -219,14 +236,7 @@ export default function TrainingWorkspacePage() {
             type="button"
             className="entry-card fade-in-up"
             style={{ "--fade-delay": "240ms" }}
-            onClick={() => {
-              const target = pendingExams[0]?.exam;
-              if (target) {
-                navigate(target.status === "pending_review" ? `/exam/${target.id}/result` : `/exam/${target.id}/intro`);
-              } else {
-                navigate("/training/records");
-              }
-            }}
+            onClick={() => openChallengeTarget(pendingExams[0]?.exam)}
           >
             <div className="entry-card__top">
               <span className="entry-card__num">02</span>
@@ -240,7 +250,7 @@ export default function TrainingWorkspacePage() {
             <p className="entry-card__desc">
               {pendingExams.length > 0
                 ? `当前有 ${pendingExams.length} 项待办通关，从最新的一项开始。`
-                : "暂无待办通关，可以回顾最近的通关结果。"}
+                : "当前没有待办通关，可直接查看历史通关结果。"}
             </p>
             <span className="entry-card__cta">
               {pendingExams.length > 0 ? "进入通关" : "查看记录"}
@@ -308,7 +318,7 @@ export default function TrainingWorkspacePage() {
               <ClockCircleOutlined />
               <strong>待办通关</strong>
             </Space>
-            <Button type="link" onClick={() => navigate("/training/records")}>
+            <Button type="link" onClick={openChallengeRecords}>
               全部
             </Button>
           </div>
@@ -333,7 +343,7 @@ export default function TrainingWorkspacePage() {
                         <Tag color={status.color}>{status.label}</Tag>
                       </Space>
                       <span>
-                        已尝试 {exam.attempt_count}/{exam.max_attempts} · 及格分 {exam.pass_score}
+                        已尝试 {exam.attempt_count}/{exam.max_attempts} · 及格线 {exam.pass_score}
                       </span>
                     </div>
                     <Button type="link" onClick={() => navigate(target)}>

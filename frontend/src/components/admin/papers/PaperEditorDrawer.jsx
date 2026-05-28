@@ -186,7 +186,7 @@ export default function PaperEditorDrawer({ paperId, open, onClose, onChanged })
             <Tag>及格 {summary.pass_score} 分</Tag>
             <Tag color="purple">客观 {summary.objective_count}</Tag>
             <Tag color="orange">简答 {summary.subjective_count}</Tag>
-            {summary.needs_manual_review ? <Tag color="gold">含人工复核</Tag> : null}
+            {summary.needs_manual_review ? <Tag color="gold">强制人工复核</Tag> : <Tag color="green">AI 直接出分</Tag>}
           </Space>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>

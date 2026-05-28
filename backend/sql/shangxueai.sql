@@ -751,6 +751,7 @@ CREATE TABLE `users`  (
   `position` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `role` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'user' COMMENT 'super_admin / admin / user',
   `is_newcomer` tinyint(1) NOT NULL DEFAULT 0,
+  `employment_status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active' COMMENT 'active / inactive',
   `disabled` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -781,4 +782,9 @@ INSERT INTO `config_options` (`category`, `value`, `sort_order`, `enabled`) VALU
   ('customer_type', '商务接待客户',     30, 1),
   ('customer_type', '自饮客户',         40, 1),
   ('customer_type', '企业客户',         50, 1),
-  ('customer_type', '价格敏感客户',     60, 1);
+  ('customer_type', '价格敏感客户',     60, 1),
+
+  ('employment_status', '试岗',         10, 1),
+  ('employment_status', '试用',         20, 1),
+  ('employment_status', '转正',         30, 1),
+  ('employment_status', '离职',         40, 1);

@@ -93,6 +93,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: departments,
       target_positions: [],
+      target_employment_statuses: [],
       newcomer_only: false,
     };
   }
@@ -105,6 +106,20 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: positions,
+      target_employment_statuses: [],
+      newcomer_only: false,
+    };
+  }
+  const employmentStatuses = safeTargets
+    .filter((item) => item.target_type === "employment_status" && item.target_value)
+    .map((item) => item.target_value);
+  if (employmentStatuses.length) {
+    return {
+      dispatch_mode: "employment_status",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_positions: [],
+      target_employment_statuses: employmentStatuses,
       newcomer_only: false,
     };
   }
@@ -114,6 +129,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: [],
+      target_employment_statuses: [],
       newcomer_only: true,
     };
   }
@@ -123,6 +139,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: [],
+      target_employment_statuses: [],
       newcomer_only: false,
     };
   }
@@ -133,6 +150,7 @@ export function buildVideoDispatchFormValues(targets) {
       .map((item) => String(item.target_value)),
     target_department_ids: [],
     target_positions: [],
+    target_employment_statuses: [],
     newcomer_only: false,
   };
 }
@@ -147,6 +165,12 @@ export function buildVideoTargetsFromDispatch(values) {
   if (values.dispatch_mode === "position") {
     return (values.target_positions || []).map((item) => ({
       target_type: "position",
+      target_value: item,
+    }));
+  }
+  if (values.dispatch_mode === "employment_status") {
+    return (values.target_employment_statuses || []).map((item) => ({
+      target_type: "employment_status",
       target_value: item,
     }));
   }
@@ -175,6 +199,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: departments,
       target_position_ids: [],
+      target_employment_status_ids: [],
       newcomer_only: false,
     };
   }
@@ -187,6 +212,20 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: positions,
+      target_employment_status_ids: [],
+      newcomer_only: false,
+    };
+  }
+  const employmentStatuses = safeTargets
+    .filter((item) => item.target_type === "employment_status" && item.target_id)
+    .map((item) => item.target_id);
+  if (employmentStatuses.length) {
+    return {
+      dispatch_mode: "employment_status",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_position_ids: [],
+      target_employment_status_ids: employmentStatuses,
       newcomer_only: false,
     };
   }
@@ -196,6 +235,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_employment_status_ids: [],
       newcomer_only: true,
     };
   }
@@ -205,6 +245,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_employment_status_ids: [],
       newcomer_only: false,
     };
   }
@@ -215,6 +256,7 @@ export function buildReadingDispatchFormValues(targets) {
       .map((item) => Number(item.target_id)),
     target_department_ids: [],
     target_position_ids: [],
+    target_employment_status_ids: [],
     newcomer_only: false,
   };
 }
@@ -226,6 +268,7 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: values.target_department_ids || [],
       target_position_ids: [],
+      target_employment_status_ids: [],
     };
   }
   if (values.dispatch_mode === "position") {
@@ -234,6 +277,16 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: values.target_position_ids || [],
+      target_employment_status_ids: [],
+    };
+  }
+  if (values.dispatch_mode === "employment_status") {
+    return {
+      target_type: "employment_status",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_position_ids: [],
+      target_employment_status_ids: values.target_employment_status_ids || [],
     };
   }
   if (values.dispatch_mode === "all") {
@@ -242,6 +295,7 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_employment_status_ids: [],
     };
   }
   return {
@@ -249,6 +303,7 @@ export function buildReadingDispatchPayload(values) {
     target_user_ids: values.target_user_ids || [],
     target_department_ids: [],
     target_position_ids: [],
+    target_employment_status_ids: [],
   };
 }
 

@@ -316,6 +316,7 @@ async function submitReadingContentForm(url, method, payload, errorMessage) {
   formData.append("target_user_ids", JSON.stringify(payload.target_user_ids || []));
   formData.append("target_department_ids", JSON.stringify(payload.target_department_ids || []));
   formData.append("target_position_ids", JSON.stringify(payload.target_position_ids || []));
+  formData.append("target_employment_status_ids", JSON.stringify(payload.target_employment_status_ids || []));
   if (Array.isArray(payload.targets) && payload.targets.length) formData.append("targets", JSON.stringify(payload.targets));
   if (payload.makeup_deadline_at) formData.append("makeup_deadline_at", payload.makeup_deadline_at);
   if (payload.image) formData.append("image", payload.image);

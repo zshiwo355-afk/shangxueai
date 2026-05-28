@@ -291,7 +291,7 @@ function PaperEditModal({ editing, onCancel, onSaved }) {
         pass_score: 60,
         duration_minutes: 0,
         auto_grade_objective: true,
-        manual_review_subjective: true,
+        manual_review_subjective: false,
         shuffle_questions: false,
         show_answer_after: "after_submit",
       };
@@ -372,6 +372,9 @@ function PaperEditModal({ editing, onCancel, onSaved }) {
             <Switch />
           </Form.Item>
         </Space>
+        <div style={{ marginTop: 4, color: "var(--text-secondary, #6b7280)", fontSize: 13, lineHeight: 1.7 }}>
+          说明：关闭主观题人工复核后，学员提交会优先采用 AI 评分直接出成绩；开启后，主观题需要管理员复核后才会生成最终成绩。
+        </div>
       </Form>
     </Modal>
   );

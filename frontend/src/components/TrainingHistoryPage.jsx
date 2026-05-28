@@ -20,6 +20,23 @@ function scoreTone(score) {
   return { color: "#dc2626", label: "待提升" };
 }
 
+function formatTime(value) {
+  if (!value) return "暂无时间";
+  return String(value).slice(0, 16).replace("T", " ");
+}
+
+function recordSummary(row) {
+  const customer = row.customer_type || "随机客户";
+  const difficulty = row.difficulty || "未标记难度";
+  return `${customer} · ${difficulty} 场景复盘`;
+}
+
+function recordHint(row) {
+  return row.is_pass
+    ? "本轮已通过，可优先回看高分表达与亮点。"
+    : "建议先看复盘再练一轮，把短板积累成稳定表达。";
+}
+
 const FILTER_OPTIONS = [
   { key: "all", label: "全部" },
   { key: "passed", label: "已通过" },
@@ -77,7 +94,7 @@ export default function TrainingHistoryPage() {
           <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
           <div>
             <h2 style={{ margin: 0 }}>训练记录</h2>
-            <Text type="secondary">查看最近结果。</Text>
+            <Text type="secondary">查看最近结果与每次复盘留下来的变化。</Text>
           </div>
         </div>
 
@@ -120,25 +137,22 @@ export default function TrainingHistoryPage() {
 
       {loading ? (
         <div className="history-card-list history-card-list--minimal">
-          {[0, 1, 2, 3].map((i) => (
-            <Card
-              key={i}
-              className="history-record-card history-record-card--minimal"
-              bordered={false}
-            >
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="history-record-card history-record-card--minimal" bordered={false}>
               <Skeleton active paragraph={{ rows: 3 }} />
             </Card>
           ))}
         </div>
       ) : filteredRecords.length === 0 ? (
         <Card bordered={false}>
-          <Empty description="当前没有记录。" />
+          <Empty description="当前没有训练记录。" />
         </Card>
       ) : (
         <div className="history-card-list history-card-list--minimal">
           {filteredRecords.map((row) => {
             const tone = scoreTone(row.score);
             const score = Math.round(row.score || 0);
+
             return (
               <Card
                 key={row.id}
@@ -149,7 +163,7 @@ export default function TrainingHistoryPage() {
                   <div className="history-record-card__content">
                     <Space size={[8, 8]} wrap>
                       <Tag bordered={false} color="blue">{row.training_type}</Tag>
-                      <Tag bordered={false}>{row.difficulty}</Tag>
+                      <Tag bordered={false}>{row.difficulty || "未标记难度"}</Tag>
                       <Tag bordered={false} color={resultColor(row.result)}>{row.result || "待定"}</Tag>
                       {row.is_pass != null ? (
                         <Tag bordered={false} color={row.is_pass ? "success" : "default"}>
@@ -157,9 +171,14 @@ export default function TrainingHistoryPage() {
                         </Tag>
                       ) : null}
                     </Space>
+
                     <Title level={5} style={{ margin: "10px 0 0", color: "var(--accent-deep, #426f9f)" }}>
                       {row.customer_type || "未标记客户类型"}
                     </Title>
+
+                    <Text type="secondary" className="history-record-card__summary">
+                      {recordSummary(row)}
+                    </Text>
                   </div>
 
                   <div className="history-record-card__score" style={{ color: tone.color }}>
@@ -170,7 +189,8 @@ export default function TrainingHistoryPage() {
                 </div>
 
                 <div className="history-record-card__meta">
-                  <span>{row.created_at ? row.created_at.slice(0, 16).replace("T", " ") : "暂无时间"}</span>
+                  <span>{formatTime(row.created_at)}</span>
+                  <span>{recordHint(row)}</span>
                 </div>
 
                 <div className="history-record-card__actions">

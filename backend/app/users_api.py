@@ -31,6 +31,7 @@ class UserDTO(BaseModel):
     position: str
     role: str
     is_newcomer: bool
+    employment_status: str = ""
     status: str
     disabled: bool
     created_at: str = ""
@@ -46,10 +47,11 @@ class UserCreateRequest(BaseModel):
     position: str = Field(default="", max_length=128)
     role: str = Field(default="user", max_length=16)
     is_newcomer: bool = False
+    employment_status: str = Field(default="", max_length=32)
     status: str = Field(default="active", max_length=16)
     disabled: bool = False
 
-    @field_validator("username", "display_name", "real_name", "department", "position", mode="before")
+    @field_validator("username", "display_name", "real_name", "department", "position", "employment_status", mode="before")
     @classmethod
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
@@ -76,6 +78,7 @@ class UserUpdateRequest(BaseModel):
     position: str | None = Field(default=None, max_length=128)
     role: str | None = None
     is_newcomer: bool | None = None
+    employment_status: str | None = Field(default=None, max_length=32)
     status: str | None = Field(default=None, max_length=16)
     disabled: bool | None = None
 
@@ -132,6 +135,7 @@ def _to_dto(user: User) -> UserDTO:
         position=user.position or "",
         role=user.role or "user",
         is_newcomer=bool(user.is_newcomer),
+        employment_status=user.employment_status or "",
         status=user.status or "active",
         disabled=bool(user.disabled),
         created_at=user.created_at.isoformat() if user.created_at else "",
@@ -172,6 +176,7 @@ async def search_users(
     keyword: str | None = Query(None, description="按用户名 / 真实姓名 / 显示名模糊搜索"),
     department: str | None = Query(None, description="按部门精确筛选"),
     role: str | None = Query(None, description="可选：admin / user"),
+    employment_status: str | None = Query(None, description="按在职状态精确筛选"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> UserPageResponse:
@@ -192,6 +197,9 @@ async def search_users(
     if role and role.lower() in ("admin", "user"):
         stmt = stmt.where(User.role == role.lower())
         count_stmt = count_stmt.where(User.role == role.lower())
+    if employment_status:
+        stmt = stmt.where(User.employment_status == employment_status.strip())
+        count_stmt = count_stmt.where(User.employment_status == employment_status.strip())
 
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(User.id.desc()).limit(page_size).offset((page - 1) * page_size)
@@ -489,6 +497,7 @@ async def create_user(
         position=payload.position or "",
         role=payload.role,
         is_newcomer=payload.is_newcomer,
+        employment_status=payload.employment_status or "",
         status=payload.status,
         disabled=payload.disabled,
     )
@@ -533,6 +542,8 @@ async def update_user(
         user.role = payload.role
     if payload.is_newcomer is not None:
         user.is_newcomer = payload.is_newcomer
+    if payload.employment_status is not None:
+        user.employment_status = payload.employment_status.strip()
     if payload.status is not None:
         user.status = payload.status
     if payload.disabled is not None:

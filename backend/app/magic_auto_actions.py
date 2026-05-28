@@ -97,6 +97,8 @@ async def _collect_reading_target_users(
             return (user.department or "").strip() == target_id
         if target_type == "position":
             return (user.position or "").strip() == target_id
+        if target_type == "employment_status":
+            return (user.employment_status or "").strip() == target_id
         if target_type == "user":
             return str(user.id) == target_id
         return False
@@ -119,6 +121,8 @@ def _video_target_matches_user(user: User, target: MagicVideoTarget) -> bool:
         return (user.department or "").strip() == target_value
     if target_type == "position":
         return (user.position or "").strip() == target_value
+    if target_type == "employment_status":
+        return (user.employment_status or "").strip() == target_value
     if target_type == "role":
         return (user.role or "").strip() == target_value
     if target_type == "user":

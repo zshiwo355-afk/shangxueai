@@ -63,6 +63,28 @@ export default function MagicWorkspacePage() {
   const openStudyVideo = (videoId) => {
     navigate(`/magic-academy?tab=courses&video=${encodeURIComponent(String(videoId))}`);
   };
+  const openRequiredLearning = () => {
+    if (requiredPending[0]?.id) {
+      openStudyVideo(requiredPending[0].id);
+      return;
+    }
+    navigate("/magic-academy?tab=courses");
+  };
+  const openInProgressLearning = () => {
+    if (continueVideo?.id) {
+      openStudyVideo(continueVideo.id);
+      return;
+    }
+    navigate("/magic-academy?tab=courses");
+  };
+  const openCompletedLearning = () => {
+    if (completed[0]?.id) {
+      openStudyVideo(completed[0].id);
+      return;
+    }
+    navigate("/magic-academy?tab=courses");
+  };
+  const openCheckinCenter = () => navigate("/magic-academy?tab=audio");
 
   return (
     <div className="workspace-shell workspace-shell--editorial workspace-shell--minimal">
@@ -109,19 +131,19 @@ export default function MagicWorkspacePage() {
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
                 <span>待学必修</span>
-                <strong>{requiredPending.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openRequiredLearning}>{requiredPending.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>进行中</span>
-                <strong>{inProgress.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openInProgressLearning}>{inProgress.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>已完成</span>
-                <strong>{completed.length}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openCompletedLearning}>{completed.length}</button></strong>
               </li>
               <li className="showcase-hero__side-item">
                 <span>本月打卡</span>
-                <strong>{monthAudioCount}</strong>
+                <strong><button type="button" className="stat-inline-button" onClick={openCheckinCenter}>{monthAudioCount}</button></strong>
               </li>
             </ul>
           </aside>

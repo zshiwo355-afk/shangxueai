@@ -46,6 +46,8 @@ class ExamCreateRequest(BaseModel):
     fixed_difficulty: str | None = Field(default=None, max_length=32)
     fixed_customer_type: str | None = Field(default=None, max_length=64)
     ai_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    pass_score: int = Field(default=60, ge=0, le=100)
+    max_attempts: int = Field(default=2, ge=1, le=10)
 
     @field_validator("fixed_training_type", "fixed_difficulty", "fixed_customer_type", mode="before")
     @classmethod
@@ -63,6 +65,8 @@ class ExamBatchCreateRequest(BaseModel):
     fixed_difficulty: str | None = Field(default=None, max_length=32)
     fixed_customer_type: str | None = Field(default=None, max_length=64)
     ai_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    pass_score: int = Field(default=60, ge=0, le=100)
+    max_attempts: int = Field(default=2, ge=1, le=10)
 
     @field_validator("fixed_training_type", "fixed_difficulty", "fixed_customer_type", mode="before")
     @classmethod
@@ -241,10 +245,10 @@ async def create_exam(
     exam = Exam(
         user_id=payload.user_id,
         title=(payload.title or "陪练考试").strip() or "陪练考试",
-        pass_score=60,
+        pass_score=int(payload.pass_score),
         status="pending",
         attempt_count=0,
-        max_attempts=2,
+        max_attempts=int(payload.max_attempts),
         fixed_training_type=payload.fixed_training_type,
         fixed_difficulty=payload.fixed_difficulty,
         fixed_customer_type=payload.fixed_customer_type,
@@ -279,10 +283,10 @@ async def batch_create_exams(
         exam = Exam(
             user_id=uid,
             title=title,
-            pass_score=60,
+            pass_score=int(payload.pass_score),
             status="pending",
             attempt_count=0,
-            max_attempts=2,
+            max_attempts=int(payload.max_attempts),
             fixed_training_type=payload.fixed_training_type,
             fixed_difficulty=payload.fixed_difficulty,
             fixed_customer_type=payload.fixed_customer_type,

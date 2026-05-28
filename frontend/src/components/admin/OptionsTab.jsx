@@ -12,6 +12,7 @@ const CATEGORY_TABS = [
   { key: "training_type", label: "训练类型" },
   { key: "difficulty", label: "难度" },
   { key: "customer_type", label: "客户类型" },
+  { key: "employment_status", label: "在职状态" },
 ];
 
 function CategoryTable({ category }) {

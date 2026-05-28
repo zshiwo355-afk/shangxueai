@@ -12,6 +12,7 @@ import {
   Row,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
 } from "antd";
@@ -284,6 +285,8 @@ function QuestionEditModal({ editing, onCancel, onSaved }) {
         options: ["", "", "", ""],
         correct_answer: [],
         status: "active",
+        ai_grading_enabled: false,
+        grading_keywords: "",
       };
     }
     const item = editing.item;
@@ -300,6 +303,8 @@ function QuestionEditModal({ editing, onCancel, onSaved }) {
       difficulty: item.difficulty,
       explanation: item.explanation,
       status: item.status,
+      ai_grading_enabled: !!item.ai_grading_enabled,
+      grading_keywords: item.grading_keywords || "",
     };
   }, [editing]);
 
@@ -511,6 +516,36 @@ function QuestionEditModal({ editing, onCancel, onSaved }) {
         <Form.Item label="解析" name="explanation">
           <Input.TextArea rows={2} maxLength={1000} showCount />
         </Form.Item>
+
+        {watchedType === "short_answer" ? (
+          <>
+            <Form.Item
+              label="启用 AI 预评分"
+              name="ai_grading_enabled"
+              valuePropName="checked"
+              extra="开启后学员提交时自动调用 AI 给本题打分；分数即作为最终分，admin 可在复核时覆盖。"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              label="评分要点（可选）"
+              name="grading_keywords"
+              extra="逗号或换行分隔的关键词 / 评分点，会作为提示词喂给 AI。AI 会识别同义、近义、推理类作答，不必逐字命中。"
+            >
+              <Input.TextArea
+                rows={3}
+                placeholder="例如：&#10;客户拒绝时不直接结束对话&#10;强调价值而非价格&#10;给出具体替代方案"
+                maxLength={1000}
+                showCount
+              />
+            </Form.Item>
+          </>
+        ) : null}
+        {watchedType === "short_answer" ? (
+          <div style={{ marginTop: -4, color: "var(--text-secondary, #6b7280)", fontSize: 13, lineHeight: 1.7 }}>
+            当前系统默认会对主观题尝试 AI 评分；上面的提示词用于帮助 AI 稳定给分，管理员后续仍可人工覆盖最终分数。
+          </div>
+        ) : null}
       </Form>
     </Modal>
   );

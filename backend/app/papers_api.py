@@ -58,7 +58,7 @@ class PaperCreate(BaseModel):
     pass_score: float = 60
     duration_minutes: int = 0
     auto_grade_objective: bool = True
-    manual_review_subjective: bool = True
+    manual_review_subjective: bool = False
     shuffle_questions: bool = False
     show_answer_after: str = Field(default="after_submit", max_length=16)
 
@@ -158,7 +158,7 @@ def _paper_to_dto(paper: Paper, *, objective: int = 0, subjective: int = 0) -> P
         question_count=int(paper.question_count or 0),
         objective_count=objective,
         subjective_count=subjective,
-        needs_manual_review=subjective > 0,
+        needs_manual_review=bool(paper.manual_review_subjective) and subjective > 0,
         created_at=paper.created_at.isoformat() if paper.created_at else "",
         updated_at=paper.updated_at.isoformat() if paper.updated_at else "",
     )

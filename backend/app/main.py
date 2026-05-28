@@ -34,7 +34,7 @@ from .question_imports_api import router as question_imports_router
 from .rule_loader import RuleLoader
 from .rules_api import build_router as build_rules_router
 from .training_api import build_router as build_training_router
-from .training_records_api import router as training_records_router
+from .training_records_api import router as training_records_router, admin_router as training_records_admin_router
 from .users_api import router as users_admin_router
 from .whitelist_api import router as whitelist_router
 
@@ -83,6 +83,7 @@ app.include_router(materials_router)
 # 训练
 app.include_router(build_training_router(settings=settings, rule_loader=rule_loader))
 app.include_router(training_records_router)
+app.include_router(training_records_admin_router)
 # 考试
 app.include_router(exams_admin_router)
 app.include_router(exams_review_router)

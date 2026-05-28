@@ -104,7 +104,7 @@ export default function ExamIntroPage() {
           </div>
         </div>
         <Space wrap>
-          <Button onClick={() => navigate("/training/records")}>训练记录</Button>
+          <Button onClick={() => navigate("/training/challenges")}>通关记录</Button>
           <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>
             结果
           </Button>

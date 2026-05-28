@@ -11,7 +11,7 @@ from .auth import get_current_user, require_admin
 from .db import get_db
 from .models import ConfigOption, User
 
-VALID_CATEGORIES = ("training_type", "difficulty", "customer_type")
+VALID_CATEGORIES = ("training_type", "difficulty", "customer_type", "employment_status")
 
 
 class OptionDTO(BaseModel):

@@ -14,7 +14,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { fetchMySubmissionResult } from "../../../lib/api.userPapers";
 
@@ -42,6 +42,10 @@ function formatTime(value) {
   return String(value).slice(0, 16).replace("T", " ");
 }
 
+function resolvedAnswerScore(answer) {
+  return answer.final_score ?? answer.manual_score ?? answer.ai_score ?? answer.auto_score;
+}
+
 function correctnessIcon(answer) {
   if (answer.is_objective) {
     if (answer.is_correct === true) return <CheckCircleTwoTone twoToneColor="#52c41a" />;
@@ -51,13 +55,15 @@ function correctnessIcon(answer) {
 }
 
 function answerStateText(answer) {
-  if (!answer.is_objective) return "主观题 / 人工评分";
+  if (!answer.is_objective) {
+    return resolvedAnswerScore(answer) != null ? "主观题 / 已评分" : "主观题 / AI评分中";
+  }
   if (answer.is_correct === true) return "本题回答正确";
   if (answer.is_correct === false) return "本题回答错误";
-  return "等待判分";
+  return "评分中";
 }
 
-function statusBadge(submission) {
+function statusBadge(submission, needsManualReview) {
   if (submission.status === "graded") {
     return submission.is_pass ? (
       <Tag bordered={false} color="success">已通过</Tag>
@@ -66,7 +72,11 @@ function statusBadge(submission) {
     );
   }
   if (submission.status === "submitted") {
-    return <Tag bordered={false} color="processing">待复核</Tag>;
+    return needsManualReview ? (
+      <Tag bordered={false} color="gold">待复核</Tag>
+    ) : (
+      <Tag bordered={false} color="processing">评分中</Tag>
+    );
   }
   return <Tag bordered={false}>进行中</Tag>;
 }
@@ -83,6 +93,19 @@ export default function UserPaperResultPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const loadData = useCallback(async (showError = true) => {
+    try {
+      const response = await fetchMySubmissionResult(submissionId);
+      setData(response);
+    } catch (err) {
+      if (showError) {
+        message.error(err?.message || "答卷加载失败。");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [message, submissionId]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -90,7 +113,9 @@ export default function UserPaperResultPage() {
         const response = await fetchMySubmissionResult(submissionId);
         if (alive) setData(response);
       } catch (err) {
-        if (alive) message.error(err?.message || "答卷加载失败。");
+        if (alive) {
+          message.error(err?.message || "答卷加载失败。");
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -99,6 +124,16 @@ export default function UserPaperResultPage() {
       alive = false;
     };
   }, [message, submissionId]);
+
+  useEffect(() => {
+    if (!data) return undefined;
+    if (data.submission?.status !== "submitted") return undefined;
+    if (data.paper?.manual_review_subjective) return undefined;
+    const timer = setTimeout(() => {
+      loadData(false);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [data, loadData]);
 
   const answerSummary = useMemo(() => {
     const answers = data?.answers || [];
@@ -121,7 +156,7 @@ export default function UserPaperResultPage() {
             <Button onClick={() => navigate("/papers")}>我的考试</Button>
             <div>
               <h2 style={{ margin: 0 }}>答卷详情</h2>
-              <Text type="secondary">加载中。</Text>
+              <Text type="secondary">加载中...</Text>
             </div>
           </div>
         </div>
@@ -152,9 +187,12 @@ export default function UserPaperResultPage() {
   }
 
   const { submission, paper, answers, show_answer: showAnswer } = data;
-  const isPending = submission.status === "submitted";
+  const isScoring = submission.status === "submitted";
   const isGraded = submission.status === "graded";
-  const finalScoreText = isGraded ? fmtScore(submission.final_score) : "—";
+  const needsManualReview = Boolean(paper.manual_review_subjective);
+  const finalScoreText = isGraded
+    ? fmtScore(submission.final_score)
+    : (isScoring ? (needsManualReview ? "待复核" : "评分中") : "-");
 
   return (
     <div className="page-shell page-shell--wide page-shell--minimal">
@@ -172,7 +210,7 @@ export default function UserPaperResultPage() {
         <Card className="exam-hero-card exam-hero-card--minimal" bordered={false}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Space size={[8, 8]} wrap>
-              {statusBadge(submission)}
+              {statusBadge(submission, needsManualReview)}
               <Tag bordered={false}>第 {submission.attempt_no} 次提交</Tag>
               <Tag bordered={false}>{formatTime(submission.submitted_at)}</Tag>
             </Space>
@@ -193,29 +231,33 @@ export default function UserPaperResultPage() {
             </div>
 
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              {isPending
-                ? "本次答卷正在等待人工复核，客观题分数已先展示。"
+              {isScoring
+                ? (
+                  needsManualReview
+                    ? "这份答卷已提交，主观题等待人工复核后会更新最终成绩。"
+                    : "主观题正在由 AI 评分，页面会自动刷新，不需要手动反复进入。"
+                )
                 : isGraded
-                  ? "你可以结合分数、老师评语和逐题解析回看本次作答。"
+                  ? "你可以结合分数、评语和逐题解析回看本次作答。"
                   : "答题尚未完成。"}
             </Paragraph>
           </Space>
         </Card>
 
-        {isPending ? (
-          <Alert
-            type="warning"
-            showIcon
-            message="本次答卷正在等待人工复核"
-            description="如果试卷中包含简答题或填空题，老师复核完成后才会出现最终成绩和通过状态。"
-          />
-        ) : null}
-
         {!showAnswer && paper.show_answer_after === "after_graded" && !isGraded ? (
           <Alert
             type="info"
             showIcon
-            message="正确答案会在复核完成后展示"
+            message="正确答案会在评分完成后展示。"
+          />
+        ) : null}
+
+        {isScoring && !needsManualReview ? (
+          <Alert
+            type="info"
+            showIcon
+            message="AI 评分进行中"
+            description="系统会自动重试未完成的主观题评分，并每 3 秒刷新一次结果。"
           />
         ) : null}
 
@@ -250,112 +292,138 @@ export default function UserPaperResultPage() {
 
         <Card className="exam-result-card exam-result-card--minimal" bordered={false} title="逐题明细">
           <Space direction="vertical" size={0} style={{ width: "100%" }}>
-            {(answers || []).map((answer, idx) => (
-              <div
-                key={answer.id}
-                style={{
-                  borderTop: idx > 0 ? "1px solid var(--line-soft)" : "none",
-                  paddingTop: idx > 0 ? 20 : 0,
-                  paddingBottom: 20,
-                }}
-              >
-                <Space size={[8, 8]} wrap style={{ marginBottom: 8 }}>
-                  <Title level={5} style={{ margin: 0 }}>第 {idx + 1} 题</Title>
-                  <Tag bordered={false} color={TYPE_COLOR[answer.question_type] || "default"}>
-                    {answer.question_type_label}
-                  </Tag>
-                  <Tag bordered={false}>
-                    得分 {fmtScore(answer.final_score ?? answer.auto_score)} / {answer.score}
-                  </Tag>
-                  <Space size={6}>
-                    {correctnessIcon(answer)}
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                      {answerStateText(answer)}
-                    </Text>
-                  </Space>
-                </Space>
+            {(answers || []).map((answer, idx) => {
+              const answerScore = resolvedAnswerScore(answer);
+              const pendingAi = !answer.is_objective && answerScore == null && !needsManualReview;
+              const aiCommentType = answerScore != null ? "success" : "warning";
 
-                <Paragraph
+              return (
+                <div
+                  key={answer.id}
                   style={{
-                    margin: "10px 0 12px",
-                    whiteSpace: "pre-wrap",
-                    fontSize: 15,
-                    lineHeight: 1.85,
+                    borderTop: idx > 0 ? "1px solid var(--line-soft)" : "none",
+                    paddingTop: idx > 0 ? 20 : 0,
+                    paddingBottom: 20,
                   }}
                 >
-                  {answer.stem}
-                </Paragraph>
+                  <Space size={[8, 8]} wrap style={{ marginBottom: 8 }}>
+                    <Title level={5} style={{ margin: 0 }}>第 {idx + 1} 题</Title>
+                    <Tag bordered={false} color={TYPE_COLOR[answer.question_type] || "default"}>
+                      {answer.question_type_label}
+                    </Tag>
+                    <Tag bordered={false}>
+                      得分 {fmtScore(answerScore)} / {answer.score}
+                    </Tag>
+                    <Space size={6}>
+                      {correctnessIcon(answer)}
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        {answerStateText(answer)}
+                      </Text>
+                    </Space>
+                  </Space>
 
-                {answer.options && answer.options.length ? (
-                  <div className="paper-answer-card__options">
-                    {answer.options.map((option, optionIndex) => {
-                      const letter = letterFor(optionIndex);
-                      const userPicked = answer.user_answer.includes(letter);
-                      const correctPicked = showAnswer && answer.correct_answer.includes(letter);
-                      const optionClass = [
-                        "paper-answer-card__option",
-                        userPicked ? "is-user" : "",
-                        correctPicked ? "is-correct" : "",
-                        userPicked && showAnswer && !correctPicked ? "is-wrong" : "",
-                      ].filter(Boolean).join(" ");
+                  <Paragraph
+                    style={{
+                      margin: "10px 0 12px",
+                      whiteSpace: "pre-wrap",
+                      fontSize: 15,
+                      lineHeight: 1.85,
+                    }}
+                  >
+                    {answer.stem}
+                  </Paragraph>
 
-                      return (
-                        <div key={letter} className={optionClass}>
-                          <span className="paper-answer-card__option-letter">{letter}</span>
-                          <span className="paper-answer-card__option-text">{option}</span>
-                          <Space size={[6, 6]} wrap>
-                            {userPicked ? <Tag bordered={false} color="blue">你的选择</Tag> : null}
-                            {correctPicked ? <Tag bordered={false} color="success">正确答案</Tag> : null}
-                          </Space>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="paper-answer-card__block">
-                    <span className="paper-answer-card__label">你的答案</span>
-                    {answer.user_answer.length ? (
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
-                        {answer.user_answer.join(" | ")}
-                      </Paragraph>
-                    ) : (
-                      <Text type="secondary">未作答</Text>
-                    )}
-                  </div>
-                )}
+                  {answer.options && answer.options.length ? (
+                    <div className="paper-answer-card__options">
+                      {answer.options.map((option, optionIndex) => {
+                        const letter = letterFor(optionIndex);
+                        const userPicked = answer.user_answer.includes(letter);
+                        const correctPicked = showAnswer && answer.correct_answer.includes(letter);
+                        const optionClass = [
+                          "paper-answer-card__option",
+                          userPicked ? "is-user" : "",
+                          correctPicked ? "is-correct" : "",
+                          userPicked && showAnswer && !correctPicked ? "is-wrong" : "",
+                        ].filter(Boolean).join(" ");
 
-                {showAnswer
-                  && answer.correct_answer.length
-                  && (!answer.options || !answer.options.length) ? (
-                    <div className="paper-answer-card__block paper-answer-card__block--success" style={{ marginTop: 10 }}>
-                      <span className="paper-answer-card__label">参考答案</span>
-                      <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
-                        {answer.correct_answer.join(" | ")}
-                      </Paragraph>
+                        return (
+                          <div key={letter} className={optionClass}>
+                            <span className="paper-answer-card__option-letter">{letter}</span>
+                            <span className="paper-answer-card__option-text">{option}</span>
+                            <Space size={[6, 6]} wrap>
+                              {userPicked ? <Tag bordered={false} color="blue">你的选择</Tag> : null}
+                              {correctPicked ? <Tag bordered={false} color="success">正确答案</Tag> : null}
+                            </Space>
+                          </div>
+                        );
+                      })}
                     </div>
+                  ) : (
+                    <div className="paper-answer-card__block">
+                      <span className="paper-answer-card__label">你的答案</span>
+                      {answer.user_answer.length ? (
+                        <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                          {answer.user_answer.join(" | ")}
+                        </Paragraph>
+                      ) : (
+                        <Text type="secondary">未作答</Text>
+                      )}
+                    </div>
+                  )}
+
+                  {showAnswer
+                    && answer.correct_answer.length
+                    && (!answer.options || !answer.options.length) ? (
+                      <div className="paper-answer-card__block paper-answer-card__block--success" style={{ marginTop: 10 }}>
+                        <span className="paper-answer-card__label">参考答案</span>
+                        <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
+                          {answer.correct_answer.join(" | ")}
+                        </Paragraph>
+                      </div>
+                    ) : null}
+
+                  {showAnswer && answer.explanation ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="解析"
+                      description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.explanation}</span>}
+                      style={{ marginTop: 10 }}
+                    />
                   ) : null}
 
-                {showAnswer && answer.explanation ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="解析"
-                    description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.explanation}</span>}
-                    style={{ marginTop: 10 }}
-                  />
-                ) : null}
+                  {!answer.is_objective && answer.ai_comment ? (
+                    <Alert
+                      type={aiCommentType}
+                      showIcon
+                      message={answerScore != null ? "AI 评分说明" : "AI 评分状态"}
+                      description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.ai_comment}</span>}
+                      style={{ marginTop: 10 }}
+                    />
+                  ) : null}
 
-                {answer.comment ? (
-                  <Alert
-                    type="success"
-                    showIcon
-                    message="老师批注"
-                    description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.comment}</span>}
-                    style={{ marginTop: 10 }}
-                  />
-                ) : null}
-              </div>
-            ))}
+                  {pendingAi && !answer.ai_comment ? (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="AI 评分状态"
+                      description="这道主观题还在评分中，页面会自动刷新。"
+                      style={{ marginTop: 10 }}
+                    />
+                  ) : null}
+
+                  {answer.comment ? (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message="批注"
+                      description={<span style={{ whiteSpace: "pre-wrap" }}>{answer.comment}</span>}
+                      style={{ marginTop: 10 }}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
           </Space>
         </Card>
       </div>

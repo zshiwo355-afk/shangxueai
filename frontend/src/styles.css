@@ -2796,7 +2796,8 @@ body {
 .history-summary--minimal {
   gap: 18px;
   width: 100%;
-  max-width: 360px;
+  max-width: 560px;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
 }
 
 .history-summary--minimal .history-summary__card,
@@ -2805,15 +2806,163 @@ body {
 .exam-rule-card--minimal,
 .exam-state-card--minimal,
 .exam-result-card--minimal {
-  border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+.history-summary--minimal .history-summary__card {
+  border-radius: 24px !important;
+  border: 1px solid rgba(88, 139, 200, 0.16) !important;
+  background:
+    radial-gradient(140% 110% at 100% 0%, rgba(88, 139, 200, 0.12), transparent 58%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(247, 242, 234, 0.88)) !important;
+  box-shadow: 0 16px 34px rgba(29, 41, 57, 0.06) !important;
+  overflow: hidden;
+}
+
+.history-summary--minimal .history-summary__card .ant-card-body {
+  min-height: 126px;
+  padding: 20px 22px !important;
+  justify-content: space-between;
+}
+
+.history-summary--minimal .history-summary__card span {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(66, 111, 159, 0.72);
+}
+
+.history-summary--minimal .history-summary__card strong {
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.history-filter-card--minimal {
+  border-radius: 24px !important;
+  border: 1px solid rgba(88, 139, 200, 0.14) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 247, 241, 0.92)) !important;
+  box-shadow: 0 10px 28px rgba(29, 41, 57, 0.04) !important;
+}
+
+.history-filter-card--minimal .ant-card-body {
+  padding: 18px 22px !important;
+}
+
+.history-card-list--minimal {
+  grid-template-columns: 1fr;
+  gap: 22px;
+}
+
+.history-record-card--minimal {
+  position: relative;
+  border-radius: 28px !important;
+  border: 1px solid rgba(88, 139, 200, 0.14) !important;
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(88, 139, 200, 0.1), transparent 50%),
+    linear-gradient(155deg, rgba(255, 255, 255, 0.98), rgba(248, 244, 237, 0.94)) !important;
+  box-shadow: 0 18px 40px rgba(29, 41, 57, 0.06) !important;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.history-record-card--minimal:hover {
+  transform: translateY(-2px);
+  border-color: rgba(88, 139, 200, 0.26) !important;
+  box-shadow: 0 24px 48px rgba(29, 41, 57, 0.08) !important;
 }
 
 .history-record-card--minimal .ant-card-body,
 .exam-rule-card--minimal .ant-card-body,
 .exam-state-card--minimal .ant-card-body,
 .exam-result-card--minimal .ant-card-body {
-  padding: 22px 24px !important;
+  padding: 28px 30px !important;
+}
+
+.history-record-card--minimal .ant-tag {
+  border-radius: 999px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+
+.history-record-card--minimal .ant-typography {
+  margin-bottom: 0 !important;
+}
+
+.history-record-card--minimal .history-record-card__content {
+  gap: 12px;
+}
+
+.history-record-card--minimal .history-record-card__summary {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text-mute) !important;
+}
+
+.history-record-card--minimal .history-record-card__content strong,
+.history-record-card--minimal .history-record-card__content .ant-typography {
+  letter-spacing: -0.01em;
+}
+
+.history-record-card--minimal .history-record-card__score {
+  min-width: 124px;
+  padding: 20px 18px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(240, 245, 252, 0.96), rgba(232, 238, 248, 0.88));
+  border: 1px solid rgba(88, 139, 200, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  gap: 8px;
+}
+
+.history-record-card--minimal .history-record-card__score strong {
+  font-size: 34px;
+}
+
+.history-record-card--minimal .history-record-card__score span {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.history-record-card--minimal .history-record-card__meta,
+.history-record-card--minimal .history-record-card__actions {
+  border-top-color: rgba(88, 139, 200, 0.12);
+}
+
+.history-record-card--minimal .history-record-card__meta {
+  margin-top: 22px;
+  padding-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--text-mute);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.history-record-card--minimal .history-record-card__meta span:last-child {
+  max-width: min(100%, 540px);
+}
+
+.history-record-card--minimal .history-record-card__actions {
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.history-record-card--minimal .history-record-card__actions .ant-btn {
+  border-radius: 999px;
+  height: 40px;
+  padding-inline: 18px;
+}
+
+.history-record-card--minimal .history-record-card__actions .ant-btn-text {
+  height: auto;
+  padding-inline: 0;
+}
+
+.history-record-card--minimal .history-record-card__actions .ant-btn-primary {
+  box-shadow: 0 10px 20px rgba(88, 139, 200, 0.18);
 }
 
 .history-record-card__meta,
@@ -3640,6 +3789,26 @@ body {
   font-weight: 700;
   color: var(--accent-deep);
   letter-spacing: -0.02em;
+}
+
+.stat-inline-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.stat-inline-button:hover,
+.stat-inline-button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.stat-inline-button:focus-visible {
+  outline: none;
 }
 
 @media (max-width: 1080px) {

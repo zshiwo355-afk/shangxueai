@@ -113,3 +113,10 @@ export async function adminListPendingReview() {
 export async function adminSubmitReview(attemptId, payload) {
   return postJson(`/api/admin/exam-attempts/${attemptId}/review`, payload, "复核提交失败。");
 }
+
+export async function adminListTrainingRecords(params = {}) {
+  return getJson(`/api/admin/training-records${toQs(params)}`, "训练记录加载失败。");
+}
+export async function adminGetTrainingRecord(id) {
+  return getJson(`/api/admin/training-records/${id}`, "训练记录详情加载失败。");
+}

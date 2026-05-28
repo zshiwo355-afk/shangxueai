@@ -17,6 +17,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { listAllMaterialAssets } from "../../lib/api.materials";
+import { fetchOptions } from "../../lib/api.options";
 import MaterialAssetPickerModal from "../common/MaterialAssetPickerModal";
 import {
   buildVideoDispatchFormValues,
@@ -34,6 +35,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const [materialAssets, setMaterialAssets] = useState([]);
   const [materialKeyword, setMaterialKeyword] = useState("");
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
   const employeeUsers = useMemo(() => users.filter((item) => item.role === "user"), [users]);
@@ -58,6 +60,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const targetUserIds = Form.useWatch("target_user_ids", form);
   const targetDepartmentIds = Form.useWatch("target_department_ids", form);
   const targetPositions = Form.useWatch("target_positions", form);
+  const targetEmploymentStatuses = Form.useWatch("target_employment_statuses", form);
   const newcomerOnly = Form.useWatch("newcomer_only", form);
   const selectedMaterialAsset = useMemo(
     () => materialAssets.find((item) => item.id === materialAssetId) || null,
@@ -72,11 +75,15 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       const values = new Set(targetPositions || []);
       return employeeUsers.filter((item) => values.has(item.position)).length;
     }
+    if (dispatchMode === "employment_status") {
+      const values = new Set(targetEmploymentStatuses || []);
+      return employeeUsers.filter((item) => values.has(item.employment_status)).length;
+    }
     if (dispatchMode === "all") {
       return employeeUsers.filter((item) => (newcomerOnly ? item.is_newcomer : true)).length;
     }
     return Array.isArray(targetUserIds) ? targetUserIds.length : 0;
-  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetUserIds]);
+  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetEmploymentStatuses, targetUserIds]);
 
   const fillVideoForm = () => {
     const dispatchValues = buildVideoDispatchFormValues(editing?.targets);
@@ -131,6 +138,13 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
     }, 250);
     return () => window.clearTimeout(timer);
   }, [editing, materialKeyword, message, open, videoSource]);
+
+  useEffect(() => {
+    if (!open) return;
+    fetchOptions()
+      .then((opts) => setEmploymentStatusOptions(Array.isArray(opts?.employment_status) ? opts.employment_status : []))
+      .catch(() => setEmploymentStatusOptions([]));
+  }, [open]);
 
   useEffect(() => {
     if (!open || editing) return;
@@ -319,6 +333,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                 { value: "user", label: "指定员工" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员" },
               ]}
               optionType="button"
@@ -359,6 +374,18 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                 options={positionOptions}
                 placeholder={positionOptions.length ? "选择岗位" : "当前暂无可选岗位"}
                 disabled={!positionOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+          {dispatchMode === "employment_status" ? (
+            <Form.Item label="在职状态" name="target_employment_statuses" rules={[{ required: true, message: "请选择至少一个在职状态" }]}>
+              <Select
+                mode="multiple"
+                optionFilterProp="label"
+                options={employmentStatusOptions.map((s) => ({ value: s, label: s }))}
+                placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用状态（请先到「配置管理 → 在职状态」添加）"}
+                disabled={!employmentStatusOptions.length}
                 maxTagCount="responsive"
               />
             </Form.Item>

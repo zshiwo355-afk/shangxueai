@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -28,9 +30,11 @@ from .models import (
     User,
 )
 from .paper_grading import (
+    grade_short_answer_with_ai,
     is_objective,
     is_subjective,
     parse_answer,
+    parse_keywords,
     parse_options,
     question_type_label,
     score_question,
@@ -38,6 +42,7 @@ from .paper_grading import (
 from .wecom_push import push_assignment
 
 router = APIRouter(prefix="/api/admin/paper-assignments", tags=["admin-paper-assignments"])
+paper_grading_logger = logging.getLogger("app.paper_grading")
 
 
 # ---------------- DTO ----------------
@@ -91,6 +96,8 @@ class AnswerDTO(BaseModel):
     user_answer: list[str]
     auto_score: float | None
     manual_score: float | None
+    ai_score: float | None = None
+    ai_comment: str = ""
     final_score: float | None
     is_correct: bool | None
     comment: str = ""
@@ -268,8 +275,111 @@ def _submission_to_dto(s: PaperSubmission) -> SubmissionDTO:
     )
 
 
+def _build_ai_grading_job(
+    row: PaperAnswer,
+    qb: QuestionBank,
+    *,
+    user_answer: list[str],
+    full_score: float,
+) -> tuple[PaperAnswer, dict[str, Any]]:
+    return (
+        row,
+        {
+            "stem": qb.stem or "",
+            "reference_answer": parse_answer(qb.correct_answer_json),
+            "keywords": parse_keywords(getattr(qb, "grading_keywords", None)),
+            "user_answer": parse_answer(user_answer),
+            "full_score": full_score,
+        },
+    )
+
+
+async def _run_ai_grading_jobs(
+    jobs: list[tuple[PaperAnswer, dict[str, Any]]],
+) -> bool:
+    if not jobs:
+        return False
+
+    changed = False
+
+    async def _grade_one(row: PaperAnswer, kwargs: dict[str, Any]) -> None:
+        nonlocal changed
+        try:
+            ai_score, ai_comment = await grade_short_answer_with_ai(**kwargs)
+            row.ai_score = float(ai_score)
+            row.ai_comment = ai_comment or "AI 评分已完成。"
+            changed = True
+        except Exception:  # noqa: BLE001
+            row.ai_score = None
+            row.ai_comment = "AI 评分暂未完成，系统会在结果页自动重试。"
+            paper_grading_logger.exception(
+                "AI grading failed for answer paper_question_id=%s",
+                row.paper_question_id,
+            )
+
+    await asyncio.gather(*[_grade_one(row, kwargs) for row, kwargs in jobs])
+    return changed
+
+
+async def _retry_pending_ai_grading(
+    submission: PaperSubmission,
+    paper: Paper | None,
+    db: AsyncSession,
+) -> bool:
+    if not paper or submission.status != "submitted" or bool(paper.manual_review_subjective):
+        return False
+
+    pending_rows = (
+        await db.execute(
+            select(PaperAnswer, PaperQuestion, QuestionBank)
+            .join(PaperQuestion, PaperQuestion.id == PaperAnswer.paper_question_id)
+            .join(QuestionBank, QuestionBank.id == PaperAnswer.question_id)
+            .where(PaperAnswer.submission_id == submission.id)
+            .order_by(PaperQuestion.sort_order, PaperQuestion.id)
+        )
+    ).all()
+
+    jobs: list[tuple[PaperAnswer, dict[str, Any]]] = []
+    for answer, pq, qb in pending_rows:
+        if not is_subjective(answer.question_type):
+            continue
+        if answer.manual_score is not None or answer.ai_score is not None:
+            continue
+        if not bool(getattr(qb, "ai_grading_enabled", True)):
+            continue
+        score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
+        jobs.append(
+            _build_ai_grading_job(
+                answer,
+                qb,
+                user_answer=parse_answer(answer.answer_json),
+                full_score=score,
+            )
+        )
+
+    if not jobs:
+        return False
+
+    changed = await _run_ai_grading_jobs(jobs)
+    await db.flush()
+    await _recalc_submission(submission, db)
+
+    assignment = (
+        await db.execute(select(PaperAssignment).where(PaperAssignment.id == submission.assignment_id))
+    ).scalar_one_or_none()
+    if assignment:
+        await _ensure_assignment_status(assignment, db)
+
+    await db.flush()
+    return changed
+
+
 async def _recalc_submission(submission: PaperSubmission, db: AsyncSession) -> None:
-    """根据 paper_answers 重算 auto/manual/final/is_pass 并更新状态。"""
+    """根据 paper_answers 重算 auto/manual/final/is_pass 并更新状态。
+
+    主观题取分优先级：manual_score > ai_score > 挂起。
+    任一题挂起 → status=submitted，否则 graded（AI 分默认即终评）。
+    """
     answers = (
         await db.execute(
             select(PaperAnswer).where(PaperAnswer.submission_id == submission.id)
@@ -282,17 +392,27 @@ async def _recalc_submission(submission: PaperSubmission, db: AsyncSession) -> N
     # 取试卷的及格分
     paper_res = await db.execute(select(Paper).where(Paper.id == submission.paper_id))
     paper = paper_res.scalar_one_or_none()
+    force_manual_review = bool(paper.manual_review_subjective) if paper else False
 
     for a in answers:
         if is_objective(a.question_type):
             auto_total += float(a.auto_score or 0)
             a.final_score = float(a.auto_score or 0)
         elif is_subjective(a.question_type):
-            if a.manual_score is None:
+            if force_manual_review and a.manual_score is None:
+                a.final_score = None
                 has_pending_subjective = True
-            else:
+            elif a.manual_score is not None:
+                # 人工分覆盖一切
                 manual_total += float(a.manual_score or 0)
                 a.final_score = float(a.manual_score or 0)
+            elif a.ai_score is not None:
+                # AI 分作为默认终评，计入 manual_total（汇总展示用）
+                manual_total += float(a.ai_score or 0)
+                a.final_score = float(a.ai_score or 0)
+            else:
+                # 无任何评分 → 挂起，必须人工复核
+                has_pending_subjective = True
         else:
             a.final_score = float(a.auto_score or 0)
             auto_total += float(a.auto_score or 0)
@@ -746,8 +866,8 @@ async def get_submission_detail(
     answer_rows = (
         await db.execute(
             select(PaperAnswer, PaperQuestion, QuestionBank)
-            .join(PaperQuestion, PaperQuestion.id == PaperAnswer.paper_question_id)
-            .join(QuestionBank, QuestionBank.id == PaperAnswer.question_id)
+            .join(PaperQuestion, PaperQuestion.id == PaperAnswer.paper_question_id, isouter=True)
+            .join(QuestionBank, QuestionBank.id == PaperAnswer.question_id, isouter=True)
             .where(PaperAnswer.submission_id == submission_id)
             .order_by(PaperQuestion.sort_order, PaperQuestion.id)
         )
@@ -755,25 +875,33 @@ async def get_submission_detail(
 
     answers: list[AnswerDTO] = []
     for ans, pq, qb in answer_rows:
-        score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
+        # 历史 submission 可能引用了之后被删除的 QuestionBank / PaperQuestion，
+        # 用题型/分值兜底，避免 admin 复核 drawer 整张白屏。
+        question_type = (qb.question_type if qb else ans.question_type) or ans.question_type
+        score = (
+            float(pq.score_override) if pq and pq.score_override is not None
+            else float((qb.default_score if qb else 0) or 0)
+        )
         answers.append(
             AnswerDTO(
                 id=ans.id,
-                paper_question_id=pq.id,
-                question_id=qb.id,
-                question_type=qb.question_type,
-                question_type_label=question_type_label(qb.question_type),
-                stem=qb.stem,
-                options=parse_options(qb.options_json),
-                correct_answer=parse_answer(qb.correct_answer_json),
+                paper_question_id=int(pq.id) if pq else int(ans.paper_question_id),
+                question_id=int(qb.id) if qb else int(ans.question_id),
+                question_type=question_type,
+                question_type_label=question_type_label(question_type),
+                stem=qb.stem if qb else "（题目数据已不可用）",
+                options=parse_options(qb.options_json) if qb else [],
+                correct_answer=parse_answer(qb.correct_answer_json) if qb else [],
                 score=score,
                 user_answer=parse_answer(ans.answer_json),
                 auto_score=float(ans.auto_score) if ans.auto_score is not None else None,
                 manual_score=float(ans.manual_score) if ans.manual_score is not None else None,
+                ai_score=float(ans.ai_score) if ans.ai_score is not None else None,
+                ai_comment=ans.ai_comment or "",
                 final_score=float(ans.final_score) if ans.final_score is not None else None,
                 is_correct=bool(ans.is_correct) if ans.is_correct is not None else None,
                 comment=ans.comment or "",
-                is_objective=is_objective(qb.question_type),
+                is_objective=is_objective(question_type),
             )
         )
 
@@ -807,35 +935,68 @@ async def grade_submission(
         raise HTTPException(status_code=400, detail="尚未提交，无法评分。")
 
     patch_map = {int(patch.answer_id): patch for patch in payload.answers}
-    answer_rows = []
     if patch_map:
+        # 直接按 ID 取 PaperAnswer，**不要** JOIN paper_questions / question_bank。
+        # 历史 submission 的 PaperAnswer.question_id 可能已经指向被删除 / 重新导入
+        # 后失效的 QuestionBank 行，INNER JOIN 会把这些行整个丢掉，导致
+        # ans.manual_score 永远不会被写回，复核保存后 submission 卡在
+        # status='submitted'，最终分也算不出来。
         answer_rows = (
             await db.execute(
-                select(PaperAnswer, PaperQuestion, QuestionBank)
-                .join(PaperQuestion, PaperQuestion.id == PaperAnswer.paper_question_id)
-                .join(QuestionBank, QuestionBank.id == PaperAnswer.question_id)
-                .where(
+                select(PaperAnswer).where(
                     PaperAnswer.submission_id == submission_id,
                     PaperAnswer.id.in_(patch_map.keys()),
                 )
             )
-        ).all()
+        ).scalars().all()
 
-    for ans, pq, qb in answer_rows:
-        patch = patch_map.get(int(ans.id))
-        if not patch:
-            continue
-        if not pq or not qb:
-            continue
-        max_score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
-        if patch.manual_score < 0 or patch.manual_score > max_score:
-            raise HTTPException(
-                status_code=400,
-                detail=f"题目 {ans.paper_question_id} 评分需在 0 ~ {max_score} 之间。",
-            )
-        ans.manual_score = float(patch.manual_score)
-        if patch.comment is not None:
-            ans.comment = patch.comment.strip()
+        # 单独查每题的分值上限，用于校验。LEFT OUTER JOIN 保证 QuestionBank
+        # 缺失时仍能拿到 PaperQuestion.score_override；都拿不到时按 0 处理
+        # 并跳过上限校验（管理员输入照样保存）。
+        pq_ids = sorted({int(ans.paper_question_id) for ans in answer_rows})
+        max_score_by_pq: dict[int, float] = {}
+        if pq_ids:
+            cap_rows = (
+                await db.execute(
+                    select(
+                        PaperQuestion.id,
+                        PaperQuestion.score_override,
+                        QuestionBank.default_score,
+                    )
+                    .join(
+                        QuestionBank,
+                        QuestionBank.id == PaperQuestion.question_id,
+                        isouter=True,
+                    )
+                    .where(PaperQuestion.id.in_(pq_ids))
+                )
+            ).all()
+            for pq_id, score_override, default_score in cap_rows:
+                cap = (
+                    float(score_override)
+                    if score_override is not None
+                    else float(default_score or 0)
+                )
+                max_score_by_pq[int(pq_id)] = cap
+
+        for ans in answer_rows:
+            patch = patch_map.get(int(ans.id))
+            if not patch:
+                continue
+            max_score = max_score_by_pq.get(int(ans.paper_question_id), 0.0)
+            if patch.manual_score < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"题目 {ans.paper_question_id} 评分不能为负。",
+                )
+            if max_score > 0 and patch.manual_score > max_score:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"题目 {ans.paper_question_id} 评分需在 0 ~ {max_score} 之间。",
+                )
+            ans.manual_score = float(patch.manual_score)
+            if patch.comment is not None:
+                ans.comment = patch.comment.strip()
 
     if payload.overall_comment is not None:
         sub.comment = payload.overall_comment.strip()
@@ -880,6 +1041,7 @@ class UserAssignmentDTO(BaseModel):
     pass_score: float = 0
     duration_minutes: int = 0
     question_count: int = 0
+    manual_review_subjective: bool = False
     max_attempts: int = 1
     attempt_count: int = 0
     deadline_at: str | None = None
@@ -928,6 +1090,8 @@ class UserAnswerDTO(BaseModel):
     is_correct: bool | None
     auto_score: float | None
     manual_score: float | None
+    ai_score: float | None = None
+    ai_comment: str = ""
     final_score: float | None
     comment: str = ""
     is_objective: bool
@@ -976,6 +1140,7 @@ def _user_assignment_to_dto(
         pass_score=float(paper.pass_score or 0) if paper else 0,
         duration_minutes=int(paper.duration_minutes or 0) if paper else 0,
         question_count=int(paper.question_count or 0) if paper else 0,
+        manual_review_subjective=bool(paper.manual_review_subjective) if paper else False,
         max_attempts=int(assignment.max_attempts or 1),
         attempt_count=int(assignment.attempt_count or 0),
         deadline_at=assignment.deadline_at.isoformat() if assignment.deadline_at else None,
@@ -1218,6 +1383,8 @@ async def get_my_submission(
     paper = (
         await db.execute(select(Paper).where(Paper.id == sub.paper_id))
     ).scalar_one_or_none()
+    await _retry_pending_ai_grading(sub, paper, db)
+    await db.refresh(sub)
     show_answer = _should_show_answer(paper, sub)
 
     answer_rows = (
@@ -1247,6 +1414,8 @@ async def get_my_submission(
                 is_correct=bool(ans.is_correct) if ans.is_correct is not None else None,
                 auto_score=float(ans.auto_score) if ans.auto_score is not None else None,
                 manual_score=float(ans.manual_score) if ans.manual_score is not None else None,
+                ai_score=float(ans.ai_score) if ans.ai_score is not None else None,
+                ai_comment=ans.ai_comment or "",
                 final_score=float(ans.final_score) if ans.final_score is not None else None,
                 comment=ans.comment or "",
                 is_objective=is_objective(qb.question_type),
@@ -1261,6 +1430,7 @@ async def get_my_submission(
         "total_score": float(paper.total_score or 0),
         "pass_score": float(paper.pass_score or 0),
         "question_count": int(paper.question_count or 0),
+        "manual_review_subjective": bool(paper.manual_review_subjective),
         "show_answer_after": paper.show_answer_after or "after_submit",
     } if paper else {}
 
@@ -1357,6 +1527,8 @@ async def submit_paper_for_user(
     pq_by_id = {pq.id: (pq, qb) for (pq, qb) in pq_rows}
 
     answer_map = {a.paper_question_id: a.answer for a in payload.answers}
+    answer_rows: list[PaperAnswer] = []
+    ai_grading_jobs: list[tuple[PaperAnswer, dict[str, Any]]] = []
     for pq_id, (pq, qb) in pq_by_id.items():
         user_ans = answer_map.get(pq_id, [])
         score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
@@ -1366,20 +1538,36 @@ async def submit_paper_for_user(
             user_ans,
             score,
         )
-        db.add(
-            PaperAnswer(
-                submission_id=submission.id,
-                paper_question_id=pq.id,
-                question_id=qb.id,
-                question_type=qb.question_type,
-                answer_json=json.dumps(user_ans, ensure_ascii=False),
-                auto_score=auto_score,
-                is_correct=is_correct,
-                final_score=auto_score if is_correct is not None else None,
-            )
+        new_row = PaperAnswer(
+            submission_id=submission.id,
+            paper_question_id=pq.id,
+            question_id=qb.id,
+            question_type=qb.question_type,
+            answer_json=json.dumps(user_ans, ensure_ascii=False),
+            auto_score=auto_score,
+            is_correct=is_correct,
+            final_score=auto_score if is_correct is not None else None,
         )
+        db.add(new_row)
+        answer_rows.append(new_row)
+        # 主观题默认走 AI 判分；管理员后续仍可人工覆盖分数与评语。
+        if is_subjective(qb.question_type) and bool(getattr(qb, "ai_grading_enabled", True)):
+            ai_grading_jobs.append(
+                _build_ai_grading_job(
+                    new_row,
+                    qb,
+                    user_answer=parse_answer(user_ans),
+                    full_score=score,
+                )
+            )
 
     await db.flush()
+
+    # 并发跑 AI 判分。单个失败不影响其它，也不影响整张卷的提交。
+    if ai_grading_jobs:
+        await _run_ai_grading_jobs(ai_grading_jobs)
+        await db.flush()
+
     await _recalc_submission(submission, db)
     assign.attempt_count = int(submission.attempt_no or 1)
     await _ensure_assignment_status(assign, db)

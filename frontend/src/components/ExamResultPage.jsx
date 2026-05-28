@@ -67,7 +67,7 @@ export default function ExamResultPage() {
         const item = (examsList || []).find((entry) => String(entry.exam?.id) === String(examId));
         if (!item) {
           message.error("没有找到这场通关。");
-          navigate("/workspace/training", { replace: true });
+          navigate("/training/challenges", { replace: true });
           return;
         }
 
@@ -110,11 +110,12 @@ export default function ExamResultPage() {
           <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
           <div>
             <h2 style={{ margin: 0 }}>{exam.title || "AI 通关"} / 结果</h2>
-            <Text type="secondary">先看结果，再看每次详情。</Text>
+            <Text type="secondary">先看结果，再看每次作答详情。</Text>
           </div>
         </div>
 
         <div className="page-toolbar__actions">
+          <Button onClick={() => navigate("/training/challenges")}>通关记录</Button>
           <Button onClick={() => navigate(`/exam/${examId}/intro`)}>通关说明</Button>
           <Button onClick={() => navigate("/workspace/training")}>工作台</Button>
           {canRetry ? (
@@ -141,7 +142,7 @@ export default function ExamResultPage() {
                 <strong style={{ color: "var(--accent-deep, #426f9f)" }}>{exam.attempt_count}/{exam.max_attempts}</strong>
               </div>
               <div className="exam-metric-card">
-                <span>及格分</span>
+                <span>及格线</span>
                 <strong style={{ color: "#16a34a" }}>{exam.pass_score}</strong>
               </div>
               <div className="exam-metric-card">
@@ -228,9 +229,10 @@ export default function ExamResultPage() {
       </div>
 
       <div className="journey-actions journey-actions--spread journey-actions--minimal">
-        <Button onClick={() => navigate("/workspace/training")}>销售对练</Button>
+        <Button onClick={() => navigate("/training/challenges")}>通关记录</Button>
         <Space size={10} wrap>
           <Button onClick={() => navigate(`/exam/${examId}/intro`)}>通关说明</Button>
+          <Button onClick={() => navigate("/workspace/training")}>返回工作台</Button>
           {canRetry ? (
             <Button type="primary" onClick={() => navigate(`/exam/${examId}/intro`)}>
               继续通关
