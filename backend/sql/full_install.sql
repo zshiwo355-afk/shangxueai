@@ -564,6 +564,7 @@ CREATE TABLE `magic_videos` (
   `play_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `hls_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `cover_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cover_asset_id` bigint DEFAULT NULL,
   `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'video/mp4',
   `file_size` bigint NOT NULL DEFAULT '0',
   `duration_seconds` int NOT NULL DEFAULT '0',
@@ -590,6 +591,7 @@ CREATE TABLE `magic_videos` (
   `deleted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_magic_videos_status` (`status`,`created_at`) USING BTREE,
+  KEY `idx_magic_videos_cover_asset` (`cover_asset_id`) USING BTREE,
   KEY `idx_magic_videos_material_asset` (`material_asset_id`) USING BTREE,
   KEY `idx_magic_videos_deleted_created` (`deleted_at`,`created_at`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院视频';

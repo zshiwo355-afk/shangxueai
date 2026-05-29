@@ -76,6 +76,8 @@ class MagicVideoPayload(BaseModel):
     status: str = "draft"
     video_source: str = "upload"
     material_asset_id: int | None = Field(default=None, ge=1)
+    cover_asset_id: int | None = Field(default=None, ge=1)
+    cover_url: str = Field(default="", max_length=2048)
     targets: list[VideoTargetInput] = Field(default_factory=list)
 
     @field_validator("status")
@@ -101,6 +103,8 @@ class MagicVideoUploadInitPayload(BaseModel):
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
     status: str = "draft"
+    cover_asset_id: int | None = Field(default=None, ge=1)
+    cover_url: str = Field(default="", max_length=2048)
     targets: list[VideoTargetInput] = Field(default_factory=list)
 
     @field_validator("status")
@@ -149,6 +153,8 @@ class MagicVideoReplaceCompletePayload(BaseModel):
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
     status: str = "draft"
+    cover_asset_id: int | None = Field(default=None, ge=1)
+    cover_url: str = Field(default="", max_length=2048)
     targets: list[VideoTargetInput] = Field(default_factory=list)
 
     @field_validator("status")

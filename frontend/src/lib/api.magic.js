@@ -52,6 +52,18 @@ export async function uploadMagicVideoFile(file, durationSeconds = 0) {
   return parseJsonResponse(response, "视频上传失败。");
 }
 
+export async function uploadMagicVideoCover(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/upload/video-cover"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "视频封面上传失败。");
+  if (!response.ok) await throwRequestError(response, "视频封面上传失败。");
+  return parseJsonResponse(response, "视频封面上传失败。");
+}
+
 export async function listMagicVideos(params = {}) {
   const search = new URLSearchParams();
   if (params.page) search.set("page", String(params.page));

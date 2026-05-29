@@ -161,6 +161,18 @@ export async function uploadMaterialAsset(projectId, payload, options = {}) {
   );
 }
 
+export async function uploadMaterialVideoCover(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await safeFetch(buildApiUrl("/api/materials/upload/video-cover"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "视频封面上传失败。");
+  if (!response.ok) await throwRequestError(response, "视频封面上传失败。");
+  return parseJsonResponse(response, "视频封面上传失败。");
+}
+
 export async function getMaterialAsset(id) {
   return getJson(`/api/materials/assets/${id}`, "素材详情加载失败。");
 }

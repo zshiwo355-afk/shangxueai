@@ -187,6 +187,7 @@ export default function MaterialAssetPreview({ asset, url }) {
       <video
         className="material-preview__video"
         src={url}
+        poster={asset.cover_url || undefined}
         controls
         style={{ width: "100%", maxHeight: "82vh", borderRadius: 12, background: "#000" }}
       />
@@ -240,4 +241,3 @@ export default function MaterialAssetPreview({ asset, url }) {
     </div>
   );
 }
-

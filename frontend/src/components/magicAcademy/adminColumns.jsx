@@ -1,5 +1,5 @@
 import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
-import { Button, Popconfirm, Space, Tag } from "antd";
+import { Button, Image, Popconfirm, Space, Tag } from "antd";
 import { formatTime, getVideoStatusMeta } from "./magicAcademyShared";
 
 export function buildStatsColumns(showWhitelist = false) {
@@ -50,6 +50,20 @@ export function buildAdminVideoColumns({
   disablingVideoId,
 }) {
   return [
+    {
+      title: "封面",
+      dataIndex: "cover_url",
+      width: 92,
+      render: (value) => value ? (
+        <Image
+          src={value}
+          width={56}
+          height={56}
+          style={{ objectFit: "cover", borderRadius: 8 }}
+          preview={false}
+        />
+      ) : "—",
+    },
     { title: "标题", dataIndex: "title" },
     { title: "分类", dataIndex: "category", render: (v) => v || "—" },
     {

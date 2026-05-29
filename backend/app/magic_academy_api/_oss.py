@@ -195,6 +195,37 @@ def _build_signed_stream_url(object_key: str) -> str:
     return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
 
 
+def _format_content_disposition(filename: str | None, *, attachment: bool) -> str:
+    kind = "attachment" if attachment else "inline"
+    name = (filename or "").strip()
+    if not name:
+        return kind
+    try:
+        ascii_name = name.encode("ascii").decode("ascii")
+        return f'{kind}; filename="{ascii_name}"'
+    except UnicodeEncodeError:
+        return f"{kind}; filename*=UTF-8''{quote(name)}"
+
+
+def _build_signed_inline_url(
+    object_key: str,
+    *,
+    mime_type: str | None = None,
+    filename: str | None = None,
+) -> str:
+    del mime_type
+    bucket = _build_oss_bucket()
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    disposition = _format_content_disposition(filename, attachment=False)
+    return bucket.sign_url(
+        "GET",
+        object_key,
+        expire_seconds,
+        params={"response-content-disposition": disposition},
+        slash_safe=True,
+    )
+
+
 def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> None:
     bucket = _build_oss_bucket()
     bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
@@ -235,6 +266,7 @@ __all__ = [
     "_list_uploaded_parts",
     "_complete_multipart_upload",
     "_build_signed_stream_url",
+    "_build_signed_inline_url",
     "_upload_binary_to_oss",
     "_abort_multipart_upload",
     "_delete_oss_object",

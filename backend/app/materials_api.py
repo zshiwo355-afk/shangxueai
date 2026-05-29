@@ -24,7 +24,12 @@ from .magic_academy_api._oss import (
     MULTIPART_URL_EXPIRE_SECONDS,
     _abort_multipart_upload,
     _complete_multipart_upload,
+    _build_object_key_and_name,
+    _build_oss_object_url,
+    _ensure_oss_settings,
     _start_multipart_upload,
+    _upload_binary_to_oss,
+    _validate_reading_image_payload,
 )
 from .models import MagicReadingContent, MagicVideo, MaterialAsset, MaterialProject, User
 
@@ -409,6 +414,7 @@ def _asset_to_dict(asset: MaterialAsset, *, project: MaterialProject | None = No
         "asset_type": asset.asset_type or "other",
         "file_name": asset.file_name,
         "object_key": asset.object_key,
+        "cover_url": asset.cover_url or "",
         "mime_type": asset.mime_type or "",
         "file_size": int(asset.file_size or 0),
         "duration_seconds": int(asset.duration_seconds or 0),
@@ -442,6 +448,7 @@ class MaterialAssetUpdatePayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     remark: str = Field(default="", max_length=5000)
     tags: str = Field(default="", max_length=5000)
+    cover_url: str = Field(default="", max_length=2048)
 
 
 class MaterialAssetUploadInitPayload(BaseModel):
@@ -465,6 +472,7 @@ class MaterialAssetUploadCompletePayload(BaseModel):
     mime_type: str = Field(default="", max_length=255)
     remark: str = Field(default="", max_length=5000)
     tags: str = Field(default="", max_length=5000)
+    cover_url: str = Field(default="", max_length=2048)
 
 
 class MaterialAssetUploadAbortPayload(BaseModel):
@@ -838,6 +846,7 @@ async def create_material_asset(
         asset_type=_detect_asset_type(mime_type, safe_name),
         file_name=safe_name,
         object_key=object_key,
+        cover_url="",
         mime_type=mime_type,
         file_size=file_size,
         duration_seconds=0,
@@ -925,6 +934,7 @@ async def complete_material_asset_upload(
         asset_type=_detect_asset_type(mime_type, safe_name),
         file_name=safe_name,
         object_key=object_key,
+        cover_url=(payload.cover_url or "").strip(),
         mime_type=mime_type,
         file_size=int(object_size),
         duration_seconds=0,
@@ -959,6 +969,29 @@ async def abort_material_asset_upload(
     return {"aborted": True}
 
 
+@router.post("/upload/video-cover")
+async def upload_material_video_cover(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del db, admin
+    file_name = (file.filename or "cover").strip() or "cover"
+    raw = await file.read()
+    extension = _validate_reading_image_payload(file_name, len(raw), file.content_type or "")
+    object_key, _stored_name = _build_object_key_and_name(file_name, extension)
+    mime_type = (file.content_type or "").strip() or mimetypes.guess_type(file_name)[0] or "image/jpeg"
+    await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
+    oss_settings = _ensure_oss_settings()
+    return {
+        "object_key": object_key,
+        "url": _build_oss_object_url(oss_settings["public_base_url"], object_key),
+        "mime_type": mime_type,
+        "file_name": file_name,
+        "file_size": len(raw),
+    }
+
+
 @router.get("/assets/{asset_id}")
 async def get_material_asset(
     asset_id: int,
@@ -981,6 +1014,7 @@ async def update_material_asset(
     asset.name = payload.name.strip()
     asset.remark = payload.remark.strip()
     asset.tags = payload.tags.strip()
+    asset.cover_url = (payload.cover_url or "").strip()
     await db.flush()
     await db.refresh(asset)
     creator = await db.get(User, asset.created_by)

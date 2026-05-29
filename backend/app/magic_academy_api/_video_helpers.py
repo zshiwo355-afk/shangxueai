@@ -469,6 +469,7 @@ def _video_to_dict(
         "play_url": video.play_url or "",
         "hls_url": video.hls_url,
         "cover_url": video.cover_url,
+        "cover_asset_id": int(video.cover_asset_id) if video.cover_asset_id else None,
         "mime_type": video.mime_type,
         "file_size": int(video.file_size or 0),
         "duration_seconds": int(video.duration_seconds or 0),

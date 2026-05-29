@@ -43,6 +43,8 @@ from ._oss import (
     _delete_oss_object,
     _ensure_oss_settings,
     _start_multipart_upload,
+    _upload_binary_to_oss,
+    _validate_reading_image_payload,
     _validate_video_payload,
     logger,
     settings,
@@ -75,6 +77,32 @@ async def _commit_refresh_and_serialize_video(
     await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+async def _resolve_cover_url(
+    db: AsyncSession,
+    admin: User,
+    *,
+    cover_asset_id: int | None,
+    cover_url: str,
+) -> tuple[int | None, str]:
+    resolved_cover_url = (cover_url or "").strip()
+    resolved_cover_asset_id = int(cover_asset_id) if cover_asset_id else None
+    if not resolved_cover_asset_id:
+        return None, resolved_cover_url
+    cover_asset = await _get_material_asset_or_403(
+        db,
+        resolved_cover_asset_id,
+        admin,
+        expected_type="image",
+    )
+    oss_settings = _ensure_oss_settings()
+    public_base_url = _build_public_base_url(
+        oss_settings["bucket"],
+        oss_settings["endpoint"],
+        settings.oss_public_base_url,
+    )
+    return resolved_cover_asset_id, _build_oss_object_url(public_base_url, cover_asset.object_key)
 
 
 async def _enqueue_video_auto_actions_if_published(
@@ -112,6 +140,29 @@ async def _write_upload_to_disk(file: UploadFile, stored_path: Path, max_size: i
     return total_size
 
 
+@router.post("/upload/video-cover")
+async def upload_magic_video_cover(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del db, admin
+    file_name = (file.filename or "cover").strip() or "cover"
+    raw = await file.read()
+    extension = _validate_reading_image_payload(file_name, len(raw), file.content_type or "")
+    object_key, _stored_name = _build_object_key_and_name(file_name, extension)
+    mime_type = (file.content_type or "").strip() or mimetypes.guess_type(file_name)[0] or "image/jpeg"
+    await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
+    oss_settings = _ensure_oss_settings()
+    return {
+        "object_key": object_key,
+        "url": _build_oss_object_url(oss_settings["public_base_url"], object_key),
+        "mime_type": mime_type,
+        "file_name": file_name,
+        "file_size": len(raw),
+    }
+
+
 @magic_video_router.post("/videos/upload/init")
 async def init_magic_video_upload(
     payload: MagicVideoUploadInitPayload,
@@ -126,6 +177,12 @@ async def init_magic_video_upload(
         object_key,
         payload.mime_type.strip() or "video/mp4",
         int(payload.file_size or 0),
+    )
+    _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
+        db,
+        admin,
+        cover_asset_id=payload.cover_asset_id,
+        cover_url=payload.cover_url,
     )
     video = MagicVideo(
         title=payload.title.strip(),
@@ -143,6 +200,8 @@ async def init_magic_video_upload(
         file_size=int(payload.file_size or 0),
         duration_seconds=int(payload.duration_seconds or 0),
         duration=int(payload.duration_seconds or 0),
+        cover_url=resolved_cover_url or None,
+        cover_asset_id=_cover_asset_id,
         is_required=payload.is_required,
         is_newcomer_required=payload.is_newcomer_required,
         deadline_at=payload.deadline_at,
@@ -292,7 +351,6 @@ async def complete_magic_video_replace_upload(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     video = await _get_video_or_404(db, video_id)
     if (video.replacement_object_key or "").strip() != payload.oss_object_key.strip():
         raise HTTPException(status_code=400, detail="替换任务 object_key 不匹配。")
@@ -315,6 +373,12 @@ async def complete_magic_video_replace_upload(
         settings.oss_public_base_url,
     )
     object_url = _build_oss_object_url(public_base_url, payload.oss_object_key.strip())
+    _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
+        db,
+        admin,
+        cover_asset_id=payload.cover_asset_id,
+        cover_url=payload.cover_url,
+    )
     video.quiz_version = int(video.quiz_version or 1) + 1
 
     video.title = payload.title.strip()
@@ -333,6 +397,8 @@ async def complete_magic_video_replace_upload(
     video.is_newcomer_required = payload.is_newcomer_required
     video.deadline_at = payload.deadline_at
     video.status = payload.status
+    video.cover_url = resolved_cover_url or None
+    video.cover_asset_id = _cover_asset_id
     video.oss_url = object_url
     video.cdn_url = object_url
     video.play_url = object_url
@@ -557,6 +623,14 @@ async def create_video(
         cdn_url = object_url
         play_url = object_url
         material_asset_id = int(material_asset.id)
+    _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
+        db,
+        admin,
+        cover_asset_id=payload.cover_asset_id,
+        cover_url=payload.cover_url,
+    )
+    if payload.video_source == "material" and material_asset and not resolved_cover_url:
+        resolved_cover_url = (material_asset.cover_url or "").strip()
     else:
         if not file_name or not file_path:
             raise HTTPException(status_code=400, detail="请先上传视频文件。")
@@ -575,6 +649,8 @@ async def create_video(
         oss_url=oss_url,
         cdn_url=cdn_url,
         play_url=play_url,
+        cover_url=resolved_cover_url or None,
+        cover_asset_id=_cover_asset_id,
         mime_type=mime_type,
         file_size=file_size,
         duration_seconds=duration_seconds,
@@ -680,6 +756,14 @@ async def update_video(
         next_cdn_url = object_url
         next_play_url = object_url
         next_material_asset_id = int(material_asset.id)
+    _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
+        db,
+        admin,
+        cover_asset_id=payload.cover_asset_id,
+        cover_url=payload.cover_url,
+    )
+    if payload.video_source == "material" and 'material_asset' in locals() and material_asset and not resolved_cover_url:
+        resolved_cover_url = (material_asset.cover_url or "").strip()
 
     video.title = payload.title.strip()
     video.description = payload.description.strip()
@@ -699,6 +783,8 @@ async def update_video(
     video.oss_url = next_oss_url
     video.cdn_url = next_cdn_url
     video.play_url = next_play_url
+    video.cover_url = resolved_cover_url or None
+    video.cover_asset_id = _cover_asset_id
     video.material_asset_id = next_material_asset_id
     video.is_required = payload.is_required
     video.is_newcomer_required = payload.is_newcomer_required

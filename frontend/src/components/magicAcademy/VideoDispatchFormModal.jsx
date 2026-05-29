@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Form,
+  Image,
   Input,
   Modal,
   Progress,
@@ -16,7 +17,8 @@ import {
   Upload,
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { listAllMaterialAssets } from "../../lib/api.materials";
+import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../../lib/api.materials";
+import { uploadMagicVideoCover } from "../../lib/api.magic";
 import { fetchOptions } from "../../lib/api.options";
 import MaterialAssetPickerModal from "../common/MaterialAssetPickerModal";
 import {
@@ -35,6 +37,10 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const [materialAssets, setMaterialAssets] = useState([]);
   const [materialKeyword, setMaterialKeyword] = useState("");
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [coverAssets, setCoverAssets] = useState([]);
+  const [coverKeyword, setCoverKeyword] = useState("");
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
@@ -56,6 +62,9 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   );
   const videoSource = Form.useWatch("video_source", form) || "upload";
   const materialAssetId = Form.useWatch("material_asset_id", form);
+  const coverSource = Form.useWatch("cover_source", form) || "none";
+  const coverAssetId = Form.useWatch("cover_asset_id", form);
+  const coverUrl = Form.useWatch("cover_url", form) || "";
   const dispatchMode = Form.useWatch("dispatch_mode", form) || "user";
   const targetUserIds = Form.useWatch("target_user_ids", form);
   const targetDepartmentIds = Form.useWatch("target_department_ids", form);
@@ -65,6 +74,10 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const selectedMaterialAsset = useMemo(
     () => materialAssets.find((item) => item.id === materialAssetId) || null,
     [materialAssets, materialAssetId],
+  );
+  const selectedCoverAsset = useMemo(
+    () => coverAssets.find((item) => item.id === coverAssetId) || null,
+    [coverAssets, coverAssetId],
   );
   const resolvedTargetCount = useMemo(() => {
     if (dispatchMode === "department") {
@@ -99,6 +112,9 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
         status: "draft",
         video_source: "upload",
         material_asset_id: undefined,
+        cover_source: "none",
+        cover_asset_id: undefined,
+        cover_url: "",
         ...dispatchValues,
       });
       setUploadMeta(null);
@@ -116,6 +132,9 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       status: editing?.status || "draft",
       video_source: "upload",
       material_asset_id: editing?.material_asset_id || undefined,
+      cover_source: editing?.cover_asset_id ? "material" : editing?.cover_url ? "upload" : "none",
+      cover_asset_id: editing?.cover_asset_id || undefined,
+      cover_url: editing?.cover_url || "",
       ...dispatchValues,
     });
     setUploadMeta({
@@ -138,6 +157,16 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
     }, 250);
     return () => window.clearTimeout(timer);
   }, [editing, materialKeyword, message, open, videoSource]);
+
+  useEffect(() => {
+    if (!open || coverSource !== "material") return;
+    const timer = window.setTimeout(() => {
+      listAllMaterialAssets({ asset_type: "image", keyword: coverKeyword })
+        .then((data) => setCoverAssets(Array.isArray(data) ? data : []))
+        .catch((error) => message.error(error?.message || "素材库图片加载失败。"));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [coverKeyword, coverSource, message, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -179,6 +208,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       category: values.category || "",
       video_source: values.video_source || "upload",
       material_asset_id: values.material_asset_id || null,
+      cover_asset_id: values.cover_source === "material" ? (values.cover_asset_id || null) : null,
       file_name: uploadMeta?.file_name,
       file_path: uploadMeta?.file_path,
       mime_type: selectedFile?.type || uploadMeta?.mime_type,
@@ -187,6 +217,9 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       is_required: !!values.is_required,
       is_newcomer_required: !!values.is_newcomer_required,
       status: values.status,
+      cover_url: values.cover_source === "upload"
+          ? (values.cover_url || "")
+          : "",
       targets: buildVideoTargetsFromDispatch(values),
       original_filename: selectedFile?.name || uploadMeta?.original_filename || uploadMeta?.file_name,
       selected_file: selectedFile,
@@ -318,6 +351,88 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
             </Space>
           </Card>
         )}
+        <Card size="small" title="视频封面（可选）" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: "100%" }} size={12}>
+            <Form.Item label="封面来源" name="cover_source" style={{ marginBottom: 0 }}>
+              <Radio.Group
+                options={[
+                  { value: "none", label: "不设置封面" },
+                  { value: "upload", label: "上传封面图片" },
+                  { value: "material", label: "从素材库选择图片" },
+                ]}
+              />
+            </Form.Item>
+            {coverSource === "upload" ? (
+              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Upload
+                  maxCount={1}
+                  showUploadList={false}
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  beforeUpload={async (file) => {
+                    try {
+                      setCoverUploading(true);
+                      const result = await uploadMagicVideoCover(file);
+                      form.setFieldsValue({
+                        cover_url: result?.url || "",
+                        cover_asset_id: undefined,
+                      });
+                      message.success("视频封面上传成功。");
+                    } catch (error) {
+                      message.error(error?.message || "视频封面上传失败。");
+                    } finally {
+                      setCoverUploading(false);
+                    }
+                    return false;
+                  }}
+                  disabled={submitting || coverUploading}
+                >
+                  <Button icon={<UploadOutlined />} loading={coverUploading}>
+                    {coverUrl ? "重新上传封面图片" : "上传封面图片"}
+                  </Button>
+                </Upload>
+                <Text type="secondary">支持 JPG、PNG、WEBP，大小不超过 10MB。</Text>
+              </Space>
+            ) : null}
+            <Form.Item name="cover_url" hidden>
+              <Input />
+            </Form.Item>
+            {coverSource === "material" ? (
+              <Space direction="vertical" style={{ width: "100%" }} size={12}>
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    icon={<FolderOpenOutlined />}
+                    onClick={() => setCoverPickerOpen(true)}
+                  >
+                    打开素材库搜索
+                  </Button>
+                  <Input.Search
+                    style={{ minWidth: 220 }}
+                    placeholder="或在下拉里直接搜索"
+                    value={coverKeyword}
+                    onChange={(e) => setCoverKeyword(e.target.value)}
+                    onSearch={setCoverKeyword}
+                  />
+                </Space>
+                <Form.Item label="选择图片素材" name="cover_asset_id" style={{ marginBottom: 0 }}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="选择素材库中的图片素材"
+                    options={coverAssets.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} / ${item.project_name || "未分组"}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Space>
+            ) : null}
+            {coverSource === "upload" && coverUrl ? <Image src={coverUrl} width={160} /> : null}
+            {coverSource === "material" && selectedCoverAsset ? (
+              <Image src={buildMaterialAssetPreviewUrl(selectedCoverAsset.id)} width={160} />
+            ) : null}
+          </Space>
+        </Card>
         <Space size={24}>
           <Form.Item label="是否必修" name="is_required" valuePropName="checked">
             <Switch />
@@ -435,6 +550,22 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
         assetType="video"
         hint="仅展示素材库中的视频文件，可按名称 / 文件名搜索。"
         pickButtonText="使用此视频"
+      />
+      <MaterialAssetPickerModal
+        open={coverPickerOpen}
+        onCancel={() => setCoverPickerOpen(false)}
+        onPick={(asset) => {
+          setCoverAssets((prev) => {
+            const exists = prev.some((item) => Number(item.id) === Number(asset.id));
+            return exists ? prev : [asset, ...prev];
+          });
+          form.setFieldValue("cover_asset_id", asset.id);
+          setCoverPickerOpen(false);
+        }}
+        title="从素材库选择封面图片"
+        assetType="image"
+        hint="仅展示素材库中的图片文件，可按名称 / 文件名搜索。"
+        pickButtonText="使用此图片"
       />
     </Modal>
   );

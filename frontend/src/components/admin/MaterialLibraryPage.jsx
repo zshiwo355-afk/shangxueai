@@ -52,6 +52,7 @@ import {
   updateMaterialAsset,
   updateMaterialProject,
   uploadMaterialAsset,
+  uploadMaterialVideoCover,
 } from "../../lib/api.materials";
 import MaterialAssetPreview from "./MaterialAssetPreview";
 
@@ -177,10 +178,12 @@ export default function MaterialLibraryPage() {
   const [assetEditing, setAssetEditing] = useState(null);
   const [moveAssetState, setMoveAssetState] = useState({ open: false, asset: null });
   const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [assetCoverUploading, setAssetCoverUploading] = useState(false);
   const [projectForm] = Form.useForm();
   const [assetForm] = Form.useForm();
   const [moveAssetForm] = Form.useForm();
   const [selectedUploadFile, setSelectedUploadFile] = useState(null);
+  const [selectedCoverFileName, setSelectedCoverFileName] = useState("");
   const [uploadTargetFolderId, setUploadTargetFolderId] = useState(null);
   const [previewState, setPreviewState] = useState({ open: false, asset: null });
   const selectedProjectIdRef = useRef(ALL_ASSETS_KEY);
@@ -489,8 +492,9 @@ export default function MaterialLibraryPage() {
     setUploadTargetFolderId(targetId);
     setAssetEditing(null);
     setSelectedUploadFile(null);
+    setSelectedCoverFileName("");
     assetForm.resetFields();
-    assetForm.setFieldsValue({ name: "", remark: "", tags: "" });
+    assetForm.setFieldsValue({ name: "", remark: "", tags: "", cover_url: "" });
     setAssetModalOpen(true);
   };
 
@@ -503,8 +507,10 @@ export default function MaterialLibraryPage() {
         name: detail.name,
         remark: detail.remark,
         tags: detail.tags,
+        cover_url: detail.cover_url || "",
       });
       setSelectedUploadFile(null);
+      setSelectedCoverFileName(detail.cover_url ? "已上传封面" : "");
       setAssetModalOpen(true);
     } catch (error) {
       message.error(error?.message || "素材详情加载失败。");
@@ -659,6 +665,18 @@ export default function MaterialLibraryPage() {
           </Space>
         );
       },
+    },
+    {
+      title: "封面",
+      dataIndex: "cover_url",
+      width: 96,
+      render: (value, row) => row.asset_type === "video" && value ? (
+        <img
+          src={value}
+          alt={row.name || "视频封面"}
+          style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: "1px solid #f0f0f0" }}
+        />
+      ) : "—",
     },
     {
       title: "类型",
@@ -1008,6 +1026,7 @@ export default function MaterialLibraryPage() {
           setAssetModalOpen(false);
           setAssetEditing(null);
           setSelectedUploadFile(null);
+          setSelectedCoverFileName("");
           setUploadTargetFolderId(null);
         }}
         onOk={submitAsset}
@@ -1054,6 +1073,43 @@ export default function MaterialLibraryPage() {
               </Text>
             </Form.Item>
           ) : null}
+          <Form.Item label="视频封面（可选）" name="cover_url">
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Upload
+                maxCount={1}
+                showUploadList={false}
+                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                beforeUpload={async (file) => {
+                  try {
+                    setAssetCoverUploading(true);
+                    const result = await uploadMaterialVideoCover(file);
+                    assetForm.setFieldValue("cover_url", result?.url || "");
+                    setSelectedCoverFileName(file.name || "已上传封面");
+                    message.success("视频封面上传成功。");
+                  } catch (error) {
+                    message.error(error?.message || "视频封面上传失败。");
+                  } finally {
+                    setAssetCoverUploading(false);
+                  }
+                  return false;
+                }}
+                disabled={uploadingAsset || assetCoverUploading}
+              >
+                <Button icon={<UploadOutlined />} loading={assetCoverUploading}>
+                  {assetForm.getFieldValue("cover_url") ? "重新上传封面图片" : "上传封面图片"}
+                </Button>
+              </Upload>
+              <Text type="secondary">仅视频素材会使用该封面，封面非必填。</Text>
+              {selectedCoverFileName ? <Text type="secondary">当前封面：{selectedCoverFileName}</Text> : null}
+              {assetForm.getFieldValue("cover_url") ? (
+                <img
+                  src={assetForm.getFieldValue("cover_url")}
+                  alt="视频封面预览"
+                  style={{ width: 160, height: 90, objectFit: "cover", borderRadius: 10, border: "1px solid #f0f0f0" }}
+                />
+              ) : null}
+            </Space>
+          </Form.Item>
           <Form.Item label="标签" name="tags">
             <Input placeholder="多个标签可用逗号分隔" />
           </Form.Item>

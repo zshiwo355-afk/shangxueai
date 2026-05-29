@@ -1113,6 +1113,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
             is_required: !!payload.is_required,
             is_newcomer_required: !!payload.is_newcomer_required,
             status: payload.status,
+            cover_url: payload.cover_url || "",
             targets: payload.targets || [],
           });
           uploadCompleted = true;
@@ -1148,6 +1149,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
             is_required: !!payload.is_required,
             is_newcomer_required: !!payload.is_newcomer_required,
             status: payload.status,
+            cover_url: payload.cover_url || "",
             targets: payload.targets || [],
           });
         } catch (error) {
@@ -1319,6 +1321,18 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       setSearchParams(employeeSelectedSeriesId ? { tab: "courses", series: String(employeeSelectedSeriesId) } : { tab: "courses" });
     }
   };
+
+  const renderVideoCoverThumb = (item) => (
+    item.cover_url ? (
+      <div className="workspace-line-item__cover-shell">
+        <img
+          src={item.cover_url}
+          alt={item.title}
+          className="workspace-line-item__cover"
+        />
+      </div>
+    ) : null
+  );
 
   const openAdminVideoDetail = (videoId) => {
     setSelectedAdminVideoId(videoId);
@@ -2039,6 +2053,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               <ResponsiveVideoPlayer
                 videoRef={videoRef}
                 src={buildMagicVideoStreamUrl(videoDetail.id)}
+                poster={videoDetail.cover_url || ""}
                 onLoadedMetadata={handleVideoLoaded}
                 onTimeUpdate={handleTimeUpdate}
                 onSeeking={handleSeeking}
@@ -2163,6 +2178,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               className="workspace-line-item workspace-line-item--stack fade-in-up"
               style={{ "--fade-delay": `${idx * 60}ms` }}
             >
+              {renderVideoCoverThumb(item)}
               <div className="workspace-line-item__content">
                 <Space size={[8, 8]} wrap>
                   <strong>{`第 ${item.series_order} 节 · ${item.title}`}</strong>
@@ -2249,6 +2265,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                     className="workspace-line-item workspace-line-item--stack fade-in-up"
                     style={{ "--fade-delay": `${idx * 60}ms` }}
                   >
+                    {renderVideoCoverThumb(item)}
                     <div className="workspace-line-item__content">
                       <Space size={[8, 8]} wrap>
                         <strong>{item.title}</strong>
@@ -2482,7 +2499,17 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                     </Space>
                   </Space>
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>{selectedAdminVideo.description || "暂无简介"}</Paragraph>
-                  <ResponsiveVideoPlayer src={buildMagicVideoStreamUrl(selectedAdminVideo.id)} />
+                  <ResponsiveVideoPlayer src={buildMagicVideoStreamUrl(selectedAdminVideo.id)} poster={selectedAdminVideo.cover_url || ""} />
+                  {selectedAdminVideo.cover_url ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <Text type="secondary">视频封面</Text>
+                      <img
+                        src={selectedAdminVideo.cover_url}
+                        alt={`${selectedAdminVideo.title} 封面`}
+                        style={{ width: 220, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 12, border: "1px solid #f0f0f0" }}
+                      />
+                    </div>
+                  ) : null}
                   <Space wrap>
                     <Text>分类：{selectedAdminVideo.category || "未分类"}</Text>
                     <Text>时长：{formatTime(selectedAdminVideo.duration_seconds || 0)}</Text>
