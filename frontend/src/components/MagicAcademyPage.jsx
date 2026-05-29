@@ -117,6 +117,7 @@ import {
 import { adminListUsers } from "../lib/api.admin";
 import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
+import MaterialAssetPickerModal, { fetchMaterialAssetAsFile } from "./common/MaterialAssetPickerModal";
 import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
 import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
 import MagicAcademyPageModals from "./magicAcademy/MagicAcademyPageModals";
@@ -263,6 +264,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [readingImportSubmitting, setReadingImportSubmitting] = useState(false);
   const [readingImportRows, setReadingImportRows] = useState([]);
   const [readingImportSummary, setReadingImportSummary] = useState({ total: 0, valid: 0, invalid: 0 });
+  const [readingImportMaterialPickerOpen, setReadingImportMaterialPickerOpen] = useState(false);
   const [myReadingContents, setMyReadingContents] = useState([]);
   const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
   const [audioMonth, setAudioMonth] = useState(getCurrentMonthText());
@@ -1917,6 +1919,17 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     return false;
   };
 
+  const openReadingImportMaterialPicker = () => {
+    if (readingImportSubmitting) return;
+    setReadingImportMaterialPickerOpen(true);
+  };
+
+  const handlePickReadingImportMaterial = async (asset) => {
+    const file = await fetchMaterialAssetAsFile(asset);
+    setReadingImportMaterialPickerOpen(false);
+    await handlePreviewReadingImport(file);
+  };
+
   const handleConfirmReadingImport = async () => {
     try {
       const validRows = readingImportRows.filter((item) => item.can_import).map((item) => item.parsed);
@@ -2883,6 +2896,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       readingSeriesRows,
       downloadMagicFile,
       handlePreviewReadingImport,
+      openReadingImportMaterialPicker,
       readingImportSubmitting,
       openCreateReadingContentModal,
       readingContents,
@@ -3329,6 +3343,19 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         quizAnswerState={quizAnswerState}
         setQuizAnswerState={setQuizAnswerState}
         handleQuizSubmit={handleQuizSubmit}
+      />
+      <MaterialAssetPickerModal
+        open={readingImportMaterialPickerOpen}
+        onCancel={() => {
+          if (readingImportSubmitting) return;
+          setReadingImportMaterialPickerOpen(false);
+        }}
+        onPick={handlePickReadingImportMaterial}
+        title="从素材库选择读书导入文件"
+        assetType="document"
+        acceptExtensions={["xlsx"]}
+        hint="仅展示素材库中的 .xlsx 文件，选择后会直接进入读书内容导入预览。"
+        pickButtonText="导入此文件"
       />
     </div>
   );

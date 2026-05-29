@@ -15,6 +15,7 @@ import {
 import {
   DownOutlined,
   DownloadOutlined,
+  FolderOpenOutlined,
   PlusOutlined,
   RightOutlined,
   UploadOutlined,
@@ -39,6 +40,7 @@ export function buildReadingAdminTabItems({
   readingSeriesRows = [],
   downloadMagicFile,
   handlePreviewReadingImport,
+  openReadingImportMaterialPicker,
   readingImportSubmitting,
   openCreateReadingContentModal,
   readingContents = [],
@@ -179,6 +181,13 @@ export function buildReadingAdminTabItems({
                 <Upload showUploadList={false} beforeUpload={handlePreviewReadingImport}>
                   <Button loading={readingImportSubmitting} icon={<UploadOutlined />}>Excel 导入</Button>
                 </Upload>
+                <Button
+                  loading={readingImportSubmitting}
+                  icon={<FolderOpenOutlined />}
+                  onClick={openReadingImportMaterialPicker}
+                >
+                  从素材库导入
+                </Button>
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreateReadingContentModal}>
                   新增读书内容
                 </Button>
