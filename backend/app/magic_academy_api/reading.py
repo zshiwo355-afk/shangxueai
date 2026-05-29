@@ -4,10 +4,14 @@ import asyncio
 import base64
 import json
 import mimetypes
+import posixpath
+import re
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from typing import Any
+from zipfile import ZipFile
+import xml.etree.ElementTree as ET
 
 from fastapi import Body, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
@@ -1175,6 +1179,100 @@ def _extract_import_embedded_images(sheet: Any) -> dict[int, dict[str, Any]]:
     return result
 
 
+def _extract_dispimg_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.search(r'DISPIMG\("([^"]+)"', text, flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_import_dispimg_images(
+    workbook_bytes: bytes,
+    *,
+    active_sheet_title: str,
+) -> dict[int, dict[str, Any]]:
+    ns_main = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    ns_rel_doc = {"rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    ns_rel_pkg = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    ns_cellimg = {
+        "etc": "http://www.wps.cn/officeDocument/2017/etCustomData",
+        "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+    try:
+        with ZipFile(BytesIO(workbook_bytes)) as archive:
+            workbook_xml = ET.fromstring(archive.read("xl/workbook.xml"))
+            workbook_rels_xml = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            workbook_rel_map = {
+                rel.attrib.get("Id", ""): rel.attrib.get("Target", "")
+                for rel in workbook_rels_xml.findall("rel:Relationship", ns_rel_pkg)
+            }
+            sheet_target = ""
+            for sheet in workbook_xml.findall("main:sheets/main:sheet", ns_main):
+                if sheet.attrib.get("name") == active_sheet_title:
+                    rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id", "")
+                    sheet_target = workbook_rel_map.get(rel_id, "")
+                    break
+            if not sheet_target:
+                return {}
+            sheet_path = posixpath.normpath(posixpath.join("xl", sheet_target))
+            sheet_xml = ET.fromstring(archive.read(sheet_path))
+
+            image_name_to_row: dict[str, int] = {}
+            for cell in sheet_xml.findall(".//main:c", ns_main):
+                cell_ref = cell.attrib.get("r", "")
+                if not cell_ref:
+                    continue
+                row_digits = "".join(ch for ch in cell_ref if ch.isdigit())
+                if not row_digits:
+                    continue
+                formula_node = cell.find("main:f", ns_main)
+                value_node = cell.find("main:v", ns_main)
+                dispimg_id = _extract_dispimg_id(
+                    formula_node.text if formula_node is not None and formula_node.text else value_node.text if value_node is not None else ""
+                )
+                if dispimg_id:
+                    image_name_to_row[dispimg_id] = int(row_digits)
+
+            if not image_name_to_row:
+                return {}
+
+            cellimages_xml = ET.fromstring(archive.read("xl/cellimages.xml"))
+            cellimages_rels_xml = ET.fromstring(archive.read("xl/_rels/cellimages.xml.rels"))
+            rel_target_map = {
+                rel.attrib.get("Id", ""): rel.attrib.get("Target", "")
+                for rel in cellimages_rels_xml.findall("rel:Relationship", ns_rel_pkg)
+            }
+
+            result: dict[int, dict[str, Any]] = {}
+            for cell_image in cellimages_xml.findall("etc:cellImage", ns_cellimg):
+                pic = cell_image.find("xdr:pic", ns_cellimg)
+                if pic is None:
+                    continue
+                c_nv_pr = pic.find("xdr:nvPicPr/xdr:cNvPr", ns_cellimg)
+                blip = pic.find("xdr:blipFill/a:blip", ns_cellimg)
+                image_name = (c_nv_pr.attrib.get("name", "") if c_nv_pr is not None else "").strip()
+                rel_id = (blip.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed", "") if blip is not None else "").strip()
+                excel_row = image_name_to_row.get(image_name)
+                media_target = rel_target_map.get(rel_id, "")
+                if not excel_row or not media_target:
+                    continue
+                media_path = posixpath.normpath(posixpath.join("xl", media_target))
+                raw = archive.read(media_path)
+                mime_type = mimetypes.guess_type(media_path)[0] or "image/png"
+                extension = posixpath.splitext(media_path)[1] or (mimetypes.guess_extension(mime_type) or ".png")
+                result[excel_row] = {
+                    "bytes": raw,
+                    "mime_type": mime_type,
+                    "file_name": f"reading-import-row-{excel_row}{extension}",
+                }
+            return result
+    except Exception:
+        return {}
+
+
 def _normalize_series_lookup_key(value: Any) -> str:
     return str(value or "").strip().lower()
 
@@ -1305,6 +1403,11 @@ async def _parse_import_workbook(
     workbook = load_workbook(filename=BytesIO(workbook_bytes), data_only=True)
     sheet = workbook.active
     embedded_images_by_row = _extract_import_embedded_images(sheet)
+    if not embedded_images_by_row:
+        embedded_images_by_row = _extract_import_dispimg_images(
+            workbook_bytes,
+            active_sheet_title=getattr(sheet, "title", "") or "",
+        )
     rows = list(sheet.iter_rows(values_only=True))
     if not rows:
         raise HTTPException(status_code=400, detail="Excel 内容为空。")
@@ -1895,6 +1998,14 @@ async def confirm_reading_contents_import(
         raise HTTPException(status_code=400, detail="没有可导入的数据。")
     created_items: list[dict[str, Any]] = []
     for row in payload.rows:
+        import_image_source = row.image_source
+        if (
+            import_image_source == "url"
+            and not (row.image_url or "").strip()
+            and not row.embedded_image_base64
+            and not row.material_asset_id
+        ):
+            import_image_source = "upload"
         created_items.append(
             await _create_reading_content_record(
                 db,
@@ -1903,7 +2014,7 @@ async def confirm_reading_contents_import(
                 push_time_value=row.push_time,
                 title=row.title,
                 description=row.description,
-                image_source=row.image_source,
+                image_source=import_image_source,
                 material_asset_id=row.material_asset_id,
                 series_id=row.series_id,
                 target_type=row.target_type,
