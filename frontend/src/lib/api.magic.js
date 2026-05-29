@@ -193,6 +193,44 @@ export async function updateMagicQuestion(questionId, payload) {
 export async function deleteMagicQuestion(questionId) {
   return deleteJson(`/api/magic-academy/questions/${questionId}`, "删除题目失败。");
 }
+export async function uploadMagicQuizImportFile(pointId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await safeFetch(
+    buildApiUrl(`/api/magic-academy/quiz-points/${pointId}/import/upload`),
+    { method: "POST", headers: authHeaders(), body: formData },
+    "上传导入文件失败。",
+  );
+  if (!response.ok) await throwRequestError(response, "上传导入文件失败。");
+  return parseJsonResponse(response, "上传导入文件失败。");
+}
+export async function getMagicQuizImportJob(jobId) {
+  return getJson(`/api/magic-academy/quiz-imports/${jobId}`, "导入任务加载失败。");
+}
+export async function updateMagicQuizImportRow(jobId, rowIdx, data) {
+  return putJson(
+    `/api/magic-academy/quiz-imports/${jobId}/rows/${rowIdx}`,
+    { data },
+    "更新导入行失败。",
+  );
+}
+export async function commitMagicQuizImportJob(pointId, jobId) {
+  return postJson(
+    `/api/magic-academy/quiz-points/${pointId}/import-jobs/${jobId}/commit`,
+    {},
+    "导入题目失败。",
+  );
+}
+export function buildMagicQuizImportTemplateUrl(fmt = "xlsx") {
+  const safe = fmt === "docx" ? "docx" : "xlsx";
+  const url = new URL(
+    buildApiUrl(`/api/magic-academy/quiz-imports/template?fmt=${safe}`),
+    window.location.origin,
+  );
+  const token = getToken();
+  if (token) url.searchParams.set("access_token", token);
+  return url.toString();
+}
 
 export async function fetchMyMagicVideos() {
   return getJson("/api/magic-academy/my/videos", "学习视频加载失败。");

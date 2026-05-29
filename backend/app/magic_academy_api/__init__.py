@@ -9,6 +9,7 @@ from . import (  # noqa: E402,F401  -- triggers route registration
     videos,
     series,
     quiz,
+    question_imports,
     learning,
     stats,
     whitelist,

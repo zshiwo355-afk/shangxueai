@@ -46,6 +46,7 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
+  buildMagicQuizImportTemplateUrl,
   buildMagicVideoStreamUrl,
   completeMagicVideoUpload,
   completeMagicVideoReplaceUpload,
@@ -118,6 +119,7 @@ import { adminListUsers } from "../lib/api.admin";
 import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
 import MaterialAssetPickerModal, { fetchMaterialAssetAsFile } from "./common/MaterialAssetPickerModal";
+import QuizImportModal from "./magicAcademy/QuizImportModal";
 import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
 import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
 import MagicAcademyPageModals from "./magicAcademy/MagicAcademyPageModals";
@@ -233,6 +235,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [appliedStatsUserId, setAppliedStatsUserId] = useState([]);
   const [whitelistForm] = Form.useForm();
   const [pointForm] = Form.useForm();
+  const [quizImportState, setQuizImportState] = useState({ open: false, pointId: null, source: "upload" });
   const [quizAnswerState, setQuizAnswerState] = useState({ open: false, point: null, values: {} });
   const [watchConfirmState, setWatchConfirmState] = useState({ open: false, round: 0 });
   const [audioRemark, setAudioRemark] = useState("");
@@ -1269,6 +1272,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     } catch (error) {
       message.error(error?.message || "保存题目失败。");
     }
+  };
+
+  const handleQuizImportCommitted = async () => {
+    setQuizImportState({ open: false, pointId: null, source: "upload" });
+    setQuizPoints(await listMagicQuizPoints(quizVideoId));
   };
 
   const openEmployeeSeriesDetail = (seriesId) => {
@@ -2562,7 +2570,15 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               <List.Item>
                 <Card
                   title={`节点 ${formatTime(point.trigger_second)}`}
-                  extra={<Space><Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button><Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button></Space>}
+                  extra={(
+                    <Space>
+                      <Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button>
+                      <Button size="small" onClick={() => window.open(buildMagicQuizImportTemplateUrl("xlsx"), "_blank", "noopener,noreferrer")}>下载模板</Button>
+                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "upload" })}>Excel导入</Button>
+                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "material" })}>从素材库导入</Button>
+                      <Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button>
+                    </Space>
+                  )}
                 >
                   <Space wrap style={{ marginBottom: 12 }}>
                     <Tag>题目数 {point.question_count}</Tag>
@@ -2627,14 +2643,28 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       label: "视频答题配置",
       children: (
         <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card>
-            <Space>
-              <Text>选择视频：</Text>
-              <Select style={{ minWidth: 260 }} value={quizVideoId} onChange={setQuizVideoId} options={videos.map((item) => ({ value: item.id, label: item.title }))} />
+          <Card className="magic-quiz-header-card">
+            <div className="magic-quiz-header">
+              <div className="magic-quiz-header__left">
+                <Text>选择视频：</Text>
+                <Select
+                  style={{ minWidth: 320 }}
+                  value={quizVideoId}
+                  onChange={setQuizVideoId}
+                  options={videos.map((item) => ({ value: item.id, label: item.title }))}
+                />
+              </div>
               <Button type="primary" onClick={() => { pointForm.resetFields(); setPointModal({}); }}>新增节点</Button>
-            </Space>
+            </div>
           </Card>
-          <Card title="观看确认弹窗">
+          <Card className="magic-quiz-watch-card">
+            <div className="magic-quiz-watch-card__head">
+              <div>
+                <div className="magic-quiz-watch-card__title">观看确认弹窗</div>
+                <div className="magic-quiz-watch-card__desc">该配置按视频生效，对当前选中的整条视频统一应用。</div>
+              </div>
+              <Button type="primary" size="small" onClick={handleSaveWatchConfirmSetting}>保存配置</Button>
+            </div>
             <Form
               form={watchConfirmForm}
               layout="vertical"
@@ -2646,36 +2676,47 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                 button_text: "继续学习",
               }}
             >
-              <Form.Item label="启用确认弹窗" name="enabled" valuePropName="checked">
-                <Switch />
-              </Form.Item>
-              <Form.Item label="弹窗间隔（秒）" name="interval_seconds" rules={[{ required: true, message: "请输入间隔秒数" }]}>
-                <InputNumber min={30} max={86400} style={{ width: "100%" }} />
-              </Form.Item>
-              <Form.Item label="弹窗文案" name="message" rules={[{ required: true, message: "请输入弹窗文案" }]}>
-                <Input placeholder="请确认你正在观看视频" />
-              </Form.Item>
-              <Form.Item label="按钮文案" name="button_text" rules={[{ required: true, message: "请输入按钮文案" }]}>
-                <Input placeholder="继续学习" />
-              </Form.Item>
-              <Button type="primary" onClick={handleSaveWatchConfirmSetting}>保存配置</Button>
+              <div className="magic-quiz-watch-card__grid">
+                <Form.Item label="启用确认弹窗" name="enabled" valuePropName="checked">
+                  <Switch />
+                </Form.Item>
+                <Form.Item label="弹窗间隔（秒）" name="interval_seconds" rules={[{ required: true, message: "请输入间隔秒数" }]}>
+                  <InputNumber min={30} max={86400} style={{ width: "100%" }} />
+                </Form.Item>
+                <Form.Item label="弹窗文案" name="message" rules={[{ required: true, message: "请输入弹窗文案" }]}>
+                  <Input placeholder="请确认你正在观看视频" />
+                </Form.Item>
+                <Form.Item label="按钮文案" name="button_text" rules={[{ required: true, message: "请输入按钮文案" }]}>
+                  <Input placeholder="继续学习" />
+                </Form.Item>
+              </div>
             </Form>
           </Card>
           <List
-            grid={{ gutter: 16, xs: 1, md: 2 }}
+            grid={{ gutter: 16, xs: 1, md: 1, xl: 2 }}
             dataSource={quizPoints}
             renderItem={(point) => (
               <List.Item>
                 <Card
+                  className="magic-quiz-point-card"
                   title={`节点 ${formatTime(point.trigger_second)}`}
-                  extra={<Space><Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button><Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button></Space>}
+                  extra={(
+                    <Space wrap>
+                      <Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button>
+                      <Button size="small" onClick={() => window.open(buildMagicQuizImportTemplateUrl("xlsx"), "_blank", "noopener,noreferrer")}>下载模板</Button>
+                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "upload" })}>Excel导入</Button>
+                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "material" })}>从素材库导入</Button>
+                      <Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button>
+                    </Space>
+                  )}
                 >
-                  <Space wrap style={{ marginBottom: 12 }}>
+                  <div className="magic-quiz-point-card__meta">
                     <Tag>题目数 {point.question_count}</Tag>
                     <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
                     <Tag color="blue">需全部答对</Tag>
-                  </Space>
+                  </div>
                   <List
+                    className="magic-quiz-question-list"
                     dataSource={point.questions || []}
                     renderItem={(question) => (
                       <List.Item
@@ -3343,6 +3384,13 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         quizAnswerState={quizAnswerState}
         setQuizAnswerState={setQuizAnswerState}
         handleQuizSubmit={handleQuizSubmit}
+      />
+      <QuizImportModal
+        open={quizImportState.open}
+        pointId={quizImportState.pointId}
+        source={quizImportState.source}
+        onClose={() => setQuizImportState({ open: false, pointId: null, source: "upload" })}
+        onCommitted={handleQuizImportCommitted}
       />
       <MaterialAssetPickerModal
         open={readingImportMaterialPickerOpen}
