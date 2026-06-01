@@ -100,10 +100,14 @@ export default function MaterialAssetPickerModal({
     if (!open) return;
     let alive = true;
     setLoading(true);
-    listAllMaterialAssets({ keyword: debouncedKeyword, asset_type: assetType || undefined })
+    listAllMaterialAssets({ keyword: debouncedKeyword, asset_type: assetType || undefined, page: 1, page_size: 24 }) // CODEX_MODIFIED
       .then((data) => {
         if (!alive) return;
-        const list = Array.isArray(data) ? data : [];
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.items)
+            ? data.items
+            : [];
         const filtered = acceptSet
           ? list.filter((item) => acceptSet.has(getExtension(item.file_name) || getExtension(item.name)))
           : list;

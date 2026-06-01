@@ -64,6 +64,25 @@ export async function uploadMagicVideoCover(file) {
   return parseJsonResponse(response, "视频封面上传失败。");
 }
 
+export async function generateMagicVideoCover(payload = {}) {
+  const formData = new FormData();
+  formData.append("title", payload.title || "");
+  formData.append("description", payload.description || "");
+  formData.append("category", payload.category || "");
+  formData.append("style_preset", payload.style_preset || "");
+  formData.append("prompt", payload.prompt || "");
+  if (payload.reference_image) {
+    formData.append("reference_image", payload.reference_image);
+  }
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/admin/video-cover/generate"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "AI 生成视频封面失败。");
+  if (!response.ok) await throwRequestError(response, "AI 生成视频封面失败。");
+  return parseJsonResponse(response, "AI 生成视频封面失败。");
+}
+
 export async function listMagicVideos(params = {}) {
   const search = new URLSearchParams();
   if (params.page) search.set("page", String(params.page));
@@ -111,6 +130,15 @@ export async function publishMagicVideo(id) {
 export async function disableMagicVideo(id) {
   return postJson(`/api/magic-academy/videos/${id}/disable`, {}, "停用视频失败。");
 }
+export async function batchPublishMagicVideos(ids) {
+  return postJson("/api/magic-academy/videos/batch-publish", { ids }, "批量发布视频失败。");
+}
+export async function batchDisableMagicVideos(ids) {
+  return postJson("/api/magic-academy/videos/batch-disable", { ids }, "批量下架视频失败。");
+}
+export async function batchDeleteMagicVideos(ids) {
+  return postJson("/api/magic-academy/videos/batch-delete", { ids }, "批量删除视频失败。");
+}
 
 export async function initMagicVideoUpload(payload) {
   const response = await safeFetch(buildApiUrl("/api/magic/videos/upload/init"), {
@@ -142,6 +170,16 @@ export async function failMagicVideoUpload(payload) {
   return parseJsonResponse(response, "回写上传失败状态失败。");
 }
 
+export async function getMagicVideoUploadStatus(payload) {
+  const response = await safeFetch(buildApiUrl("/api/magic/videos/upload/status"), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, "查询视频上传状态失败。");
+  if (!response.ok) await throwRequestError(response, "查询视频上传状态失败。");
+  return parseJsonResponse(response, "查询视频上传状态失败。");
+}
+
 export async function initMagicVideoReplaceUpload(videoId, payload) {
   const response = await safeFetch(buildApiUrl(`/api/magic/videos/${videoId}/replace/init`), {
     method: "POST",
@@ -170,6 +208,16 @@ export async function failMagicVideoReplaceUpload(videoId, payload) {
   }, "回写替换上传失败状态失败。");
   if (!response.ok) await throwRequestError(response, "回写替换上传失败状态失败。");
   return parseJsonResponse(response, "回写替换上传失败状态失败。");
+}
+
+export async function getMagicVideoReplaceUploadStatus(videoId, payload) {
+  const response = await safeFetch(buildApiUrl(`/api/magic/videos/${videoId}/replace/status`), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload || {}),
+  }, "查询替换上传状态失败。");
+  if (!response.ok) await throwRequestError(response, "查询替换上传状态失败。");
+  return parseJsonResponse(response, "查询替换上传状态失败。");
 }
 
 export async function listMagicQuizPoints(videoId) {
@@ -413,6 +461,12 @@ export async function deleteAdminReadingContent(id) {
 export async function updateAdminReadingContentStatus(id, status) {
   return postJson(`/api/magic-academy/admin/reading-contents/${id}/status`, { status }, "更新读书内容状态失败。");
 }
+export async function batchDeleteAdminReadingContents(ids) {
+  return postJson("/api/magic-academy/admin/reading-contents/batch-delete", { ids }, "批量删除读书内容失败。");
+}
+export async function batchUpdateAdminReadingContentsStatus(ids, status) {
+  return postJson("/api/magic-academy/admin/reading-contents/batch-status", { ids, status }, "批量更新读书内容状态失败。");
+}
 
 export async function fetchAdminReadingSeries(params = {}) {
   const search = new URLSearchParams();
@@ -447,8 +501,22 @@ export async function previewAdminReadingContentsImport(file) {
   if (!response.ok) await throwRequestError(response, "读书内容导入预览失败。");
   return parseJsonResponse(response, "读书内容导入预览失败。");
 }
-export async function confirmAdminReadingContentsImport(rows) {
-  return postJson("/api/magic-academy/admin/reading-contents/import-confirm", { rows }, "读书内容导入失败。");
+export async function previewAdminReadingContentsImportFromMaterial(assetId) { // CODEX_MODIFIED
+  const formData = new FormData(); // CODEX_MODIFIED
+  formData.append("material_asset_id", String(assetId)); // CODEX_MODIFIED
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/admin/reading-contents/import-preview"), { // CODEX_MODIFIED
+    method: "POST", // CODEX_MODIFIED
+    headers: authHeaders(), // CODEX_MODIFIED
+    body: formData, // CODEX_MODIFIED
+  }, "读书内容导入预览失败。"); // CODEX_MODIFIED
+  if (!response.ok) await throwRequestError(response, "读书内容导入预览失败。"); // CODEX_MODIFIED
+  return parseJsonResponse(response, "读书内容导入预览失败。"); // CODEX_MODIFIED
+} // CODEX_MODIFIED
+export async function confirmAdminReadingContentsImport(importToken) {
+  return postJson("/api/magic-academy/admin/reading-contents/import-confirm", { import_token: importToken }, "读书内容导入失败。");
+}
+export async function getAdminReadingContentsImportJob(jobId) {
+  return getJson(`/api/magic-academy/admin/reading-contents/import-jobs/${jobId}`, "导入任务加载失败。");
 }
 
 export async function fetchMagicAudioStats(params = {}) {

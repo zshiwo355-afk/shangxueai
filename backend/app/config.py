@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     llm_model: str = Field("openai/gpt-4o", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(120, alias="LLM_TIMEOUT_SECONDS")
     llm_max_output_tokens: int = Field(4000, alias="LLM_MAX_OUTPUT_TOKENS")
+    image_gen_model: str = Field("openai/gpt-image-2", alias="IMAGE_GEN_MODEL")
+    image_gen_size: str = Field("1536x1024", alias="IMAGE_GEN_SIZE")
+    image_gen_quality: str = Field("low", alias="IMAGE_GEN_QUALITY")
+    image_gen_timeout_seconds: int = Field(180, alias="IMAGE_GEN_TIMEOUT_SECONDS")
 
     # ---- CORS ----
     allowed_origins: str = Field(

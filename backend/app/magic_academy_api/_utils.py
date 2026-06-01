@@ -177,8 +177,6 @@ def _parse_month(month_text: str | None) -> tuple[date, date]:
         month_start = date(today.year, today.month, 1)
     last_day = monthrange(month_start.year, month_start.month)[1]
     month_end = date(month_start.year, month_start.month, last_day)
-    if month_start.year == today.year and month_start.month == today.month:
-        month_end = min(month_end, today)
     return month_start, month_end
 
 

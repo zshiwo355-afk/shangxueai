@@ -1,5 +1,5 @@
 import { PlayCircleFilled } from "@ant-design/icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function ResponsiveVideoPlayer({
   videoRef,
@@ -12,7 +12,9 @@ export default function ResponsiveVideoPlayer({
   onEnded,
   onPlay,
 }) {
+  const innerVideoRef = useRef(null);
   const [showPosterOverlay, setShowPosterOverlay] = useState(Boolean(poster));
+  const resolvedVideoRef = videoRef || innerVideoRef;
 
   useEffect(() => {
     setShowPosterOverlay(Boolean(poster));
@@ -24,9 +26,9 @@ export default function ResponsiveVideoPlayer({
   };
 
   const handleOverlayClick = async () => {
-    if (!videoRef?.current) return;
+    if (!resolvedVideoRef?.current) return;
     try {
-      await videoRef.current.play();
+      await resolvedVideoRef.current.play();
     } catch {
       // Ignore autoplay/play promise rejections and keep native controls available.
     }
@@ -48,7 +50,7 @@ export default function ResponsiveVideoPlayer({
         </button>
       ) : null}
       <video
-        ref={videoRef}
+        ref={resolvedVideoRef}
         src={src}
         poster={poster || undefined}
         controls

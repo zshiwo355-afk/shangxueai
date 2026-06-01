@@ -60,6 +60,11 @@ import {
   createAdminReadingContentsBatch,
   createAdminReadingSeries,
   archiveAdminReadingSeries,
+  batchDeleteAdminReadingContents,
+  batchDeleteMagicVideos,
+  batchDisableMagicVideos,
+  batchPublishMagicVideos,
+  batchUpdateAdminReadingContentsStatus,
   deleteMagicQuestion,
   deleteMagicQuizPoint,
   deleteAdminReadingContent,
@@ -77,6 +82,7 @@ import {
   fetchAdminReadingAudioStatisticUsers,
   fetchAdminReadingContentDetail,
   fetchAdminReadingContents,
+  getAdminReadingContentsImportJob,
   fetchAdminReadingSeries,
   fetchAdminReadingSeriesDetail,
   fetchMagicAudioMakeupSetting,
@@ -90,6 +96,8 @@ import {
   fetchMyAudios,
   fetchMyMagicVideoDetail,
   fetchMyMagicVideos,
+  getMagicVideoReplaceUploadStatus,
+  getMagicVideoUploadStatus,
   initMagicVideoUpload,
   initMagicVideoReplaceUpload,
   listMagicVideoSeries,
@@ -98,6 +106,7 @@ import {
   listMagicWhitelist,
   publishMagicVideo,
   previewAdminReadingContentsImport,
+  previewAdminReadingContentsImportFromMaterial, // CODEX_MODIFIED
   reorderMagicVideoSeriesItems,
   removeMagicVideoSeriesItem,
   saveMyMagicVideoProgress,
@@ -115,10 +124,16 @@ import {
   uploadMyAudio,
   addMagicVideoSeriesItem,
 } from "../lib/api.magic";
+import {
+  buildOssUploadCheckpointKey,
+  clearOssUploadCheckpoint,
+  loadOssUploadCheckpoint,
+  saveOssUploadCheckpoint,
+} from "../lib/ossUploadCheckpoint";
 import { adminListUsers } from "../lib/api.admin";
 import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
-import MaterialAssetPickerModal, { fetchMaterialAssetAsFile } from "./common/MaterialAssetPickerModal";
+import MaterialAssetPickerModal from "./common/MaterialAssetPickerModal"; // CODEX_MODIFIED
 import QuizImportModal from "./magicAcademy/QuizImportModal";
 import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
 import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
@@ -210,6 +225,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [myVideosLoadError, setMyVideosLoadError] = useState("");
   const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [selectedAdminVideoId, setSelectedAdminVideoId] = useState(null);
+  const [selectedAdminVideoRowKeys, setSelectedAdminVideoRowKeys] = useState([]);
   const [videoDetail, setVideoDetail] = useState(null);
   const [videoDetailError, setVideoDetailError] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -250,7 +266,9 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [readingContentKeyword, setReadingContentKeyword] = useState("");
   const [readingContentMonth, setReadingContentMonth] = useState(getCurrentMonthText());
   const [readingContentPage, setReadingContentPage] = useState(1);
+  const [readingContentPageSize, setReadingContentPageSize] = useState(10);
   const [readingContentSeriesId, setReadingContentSeriesId] = useState(null);
+  const [selectedReadingContentRowKeys, setSelectedReadingContentRowKeys] = useState([]);
   const [readingSeriesRows, setReadingSeriesRows] = useState([]);
   const [readingSeriesSelectRows, setReadingSeriesSelectRows] = useState([]);
   const [readingSeriesTotal, setReadingSeriesTotal] = useState(0);
@@ -267,6 +285,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [readingImportSubmitting, setReadingImportSubmitting] = useState(false);
   const [readingImportRows, setReadingImportRows] = useState([]);
   const [readingImportSummary, setReadingImportSummary] = useState({ total: 0, valid: 0, invalid: 0 });
+  const [readingImportToken, setReadingImportToken] = useState("");
   const [readingImportMaterialPickerOpen, setReadingImportMaterialPickerOpen] = useState(false);
   const [myReadingContents, setMyReadingContents] = useState([]);
   const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
@@ -501,6 +520,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     setVideos(Array.isArray(videoData) ? videoData : []);
     setAdminVideoItems(Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []));
     setAdminVideoTotal(Number(pagedVideoData?.total ?? (Array.isArray(pagedVideoData) ? pagedVideoData.length : 0)));
+    setSelectedAdminVideoRowKeys([]);
     setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
     setVideoSeries(Array.isArray(seriesData) ? seriesData : []);
     if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
@@ -572,10 +592,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       keyword: params.keyword ?? readingContentKeyword,
       series_id: params.series_id ?? readingContentSeriesId ?? undefined,
       page: params.page ?? readingContentPage,
-      page_size: 20,
+      page_size: params.page_size ?? readingContentPageSize,
     });
     setReadingContents(Array.isArray(result?.items) ? result.items : []);
     setReadingContentsTotal(Number(result?.total || 0));
+    setSelectedReadingContentRowKeys([]);
   };
 
   const reloadReadingSeries = async (params = {}) => {
@@ -843,7 +864,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     reloadAdminReadingContents().catch((error) => {
       showLoadError("magic-reading-contents", error, "读书内容列表加载失败。");
     });
-  }, [readingContentKeyword, readingContentMonth, readingContentPage, readingContentSeriesId, shouldLoadReadingContents]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [readingContentKeyword, readingContentMonth, readingContentPage, readingContentPageSize, readingContentSeriesId, shouldLoadReadingContents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!shouldLoadReadingSeries) return;
@@ -1053,9 +1074,113 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     return () => clearInterval(progressTimerRef.current);
   }, [videoDetail?.id, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const buildVideoUploadCheckpointKey = (mode, file, targetVideoId = 0) => buildOssUploadCheckpointKey({
+    mode,
+    videoId: targetVideoId,
+    fileName: file?.name || "",
+    fileSize: file?.size || 0,
+    lastModified: file?.lastModified || 0,
+  });
+
+  const mergeUploadedParts = (existingParts = [], nextPart) => (
+    Array.from(new Map([...existingParts, nextPart].map((item) => [Number(item.part_number), item])).values())
+      .sort((a, b) => Number(a.part_number) - Number(b.part_number))
+  );
+
+  const isSameUploadInitPayload = (left, right) => JSON.stringify(left || null) === JSON.stringify(right || null);
+
+  const resolveVideoUploadSession = async ({
+    checkpointKey,
+    file,
+    initPayload,
+    initUpload,
+    fetchUploadStatus,
+    discardUploadSession,
+  }) => {
+    const checkpoint = loadOssUploadCheckpoint(checkpointKey);
+    if (!checkpoint?.upload_id || !checkpoint?.oss_object_key || !checkpoint?.video_id || !Array.isArray(checkpoint?.part_urls) || !checkpoint.part_urls.length) {
+      const initResult = await initUpload();
+      saveOssUploadCheckpoint(checkpointKey, {
+        file_name: file?.name || "",
+        file_size: file?.size || 0,
+        file_last_modified: file?.lastModified || 0,
+        video_id: initResult.video_id,
+        upload_id: initResult.upload_id,
+        oss_object_key: initResult.oss_object_key,
+        part_size: initResult.part_size,
+        part_count: initResult.part_count,
+        part_urls: initResult.part_urls || [],
+        init_payload: initPayload,
+        uploaded_parts: [],
+      });
+      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
+    }
+    if (!isSameUploadInitPayload(checkpoint?.init_payload, initPayload)) {
+      try {
+        await discardUploadSession?.(checkpoint);
+      } catch (error) {
+        logMagicUploadStageError("discard stale upload session", error);
+      }
+      clearOssUploadCheckpoint(checkpointKey);
+      const initResult = await initUpload();
+      saveOssUploadCheckpoint(checkpointKey, {
+        file_name: file?.name || "",
+        file_size: file?.size || 0,
+        file_last_modified: file?.lastModified || 0,
+        video_id: initResult.video_id,
+        upload_id: initResult.upload_id,
+        oss_object_key: initResult.oss_object_key,
+        part_size: initResult.part_size,
+        part_count: initResult.part_count,
+        part_urls: initResult.part_urls || [],
+        init_payload: initPayload,
+        uploaded_parts: [],
+      });
+      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
+    }
+    try {
+      const statusResult = await fetchUploadStatus(checkpoint);
+      const uploadedParts = Array.isArray(statusResult?.uploaded_parts) ? statusResult.uploaded_parts : [];
+      const resumedInitResult = {
+        video_id: checkpoint.video_id,
+        upload_id: checkpoint.upload_id,
+        oss_object_key: checkpoint.oss_object_key,
+        part_size: checkpoint.part_size,
+        part_count: checkpoint.part_count,
+        part_urls: checkpoint.part_urls || [],
+      };
+      saveOssUploadCheckpoint(checkpointKey, { uploaded_parts: uploadedParts });
+      return { uploadInitResult: resumedInitResult, uploadedParts, resumed: uploadedParts.length > 0 };
+    } catch (error) {
+      try {
+        await discardUploadSession?.(checkpoint);
+      } catch (discardError) {
+        logMagicUploadStageError("discard broken upload session", discardError);
+      }
+      clearOssUploadCheckpoint(checkpointKey);
+      const initResult = await initUpload();
+      saveOssUploadCheckpoint(checkpointKey, {
+        file_name: file?.name || "",
+        file_size: file?.size || 0,
+        file_last_modified: file?.lastModified || 0,
+        video_id: initResult.video_id,
+        upload_id: initResult.upload_id,
+        oss_object_key: initResult.oss_object_key,
+        part_size: initResult.part_size,
+        part_count: initResult.part_count,
+        part_urls: initResult.part_urls || [],
+        init_payload: initPayload,
+        uploaded_parts: [],
+      });
+      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
+    }
+  };
+
   const submitVideo = async (payload) => {
     let uploadInitResult = null;
     let uploadCompleted = false;
+    let uploadCheckpointKey = "";
+    let uploadMode = "";
     try {
       setVideoSubmitting(true);
       setVideoUploadProgress(0);
@@ -1072,12 +1197,41 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       } else if (videoModal?.id && payload.selected_file) {
         const file = payload.selected_file;
         try {
-          uploadInitResult = await initMagicVideoReplaceUpload(videoModal.id, {
-            original_filename: payload.original_filename,
-            file_size: file.size,
-            mime_type: file.type || payload.mime_type || "video/mp4",
-            duration_seconds: Number(payload.duration_seconds || 0),
+          uploadMode = "replace";
+          uploadCheckpointKey = buildVideoUploadCheckpointKey("replace", file, videoModal.id);
+          const session = await resolveVideoUploadSession({
+            checkpointKey: uploadCheckpointKey,
+            file,
+            initPayload: {
+              original_filename: payload.original_filename,
+              file_size: file.size,
+              mime_type: file.type || payload.mime_type || "video/mp4",
+              duration_seconds: Number(payload.duration_seconds || 0),
+            },
+            initUpload: () => initMagicVideoReplaceUpload(videoModal.id, {
+              original_filename: payload.original_filename,
+              file_size: file.size,
+              mime_type: file.type || payload.mime_type || "video/mp4",
+              duration_seconds: Number(payload.duration_seconds || 0),
+            }),
+            fetchUploadStatus: (checkpoint) => getMagicVideoReplaceUploadStatus(videoModal.id, {
+              video_id: checkpoint.video_id,
+              oss_object_key: checkpoint.oss_object_key,
+              upload_id: checkpoint.upload_id,
+            }),
+            discardUploadSession: async (checkpoint) => {
+              if (!checkpoint?.video_id || !checkpoint?.oss_object_key || !checkpoint?.upload_id) return;
+              await failMagicVideoReplaceUpload(videoModal.id, {
+                oss_object_key: checkpoint.oss_object_key,
+                upload_id: checkpoint.upload_id,
+                reason: "断点续传会话失效，已重新初始化上传。",
+              });
+            },
           });
+          uploadInitResult = session.uploadInitResult;
+          if (session.resumed) {
+            message.info("已恢复上次未完成的视频替换上传。");
+          }
         } catch (error) {
           logMagicUploadStageError("replace init", error);
           message.error(error?.message || "新视频替换初始化失败。");
@@ -1086,7 +1240,16 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
 
         let parts;
         try {
-          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress);
+          const checkpoint = loadOssUploadCheckpoint(uploadCheckpointKey);
+          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress, {
+            existingParts: checkpoint?.uploaded_parts || [],
+            onPartUploaded: (part) => {
+              const current = loadOssUploadCheckpoint(uploadCheckpointKey);
+              saveOssUploadCheckpoint(uploadCheckpointKey, {
+                uploaded_parts: mergeUploadedParts(current?.uploaded_parts || [], part),
+              });
+            },
+          });
         } catch (error) {
           logMagicUploadStageError("replace oss upload", error);
           logOssUploadError(error);
@@ -1101,6 +1264,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               logMagicUploadStageError("replace upload fail callback", failError);
             }
           }
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           message.error(error?.message || "新视频上传失败，原视频未被替换。");
           return;
         }
@@ -1121,6 +1285,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
             cover_url: payload.cover_url || "",
             targets: payload.targets || [],
           });
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           uploadCompleted = true;
           setVideoUploadProgress(100);
           message.success("视频已重新上传并覆盖。");
@@ -1137,26 +1302,65 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               logMagicUploadStageError("replace upload fail callback", failError);
             }
           }
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           message.error(error?.message || "新视频上传失败，原视频未被替换。");
           return;
         }
       } else {
         const file = payload.selected_file;
         try {
-          uploadInitResult = await initMagicVideoUpload({
-            title: payload.title,
-            description: payload.description || "",
-            category: payload.category || "",
-            original_filename: payload.original_filename,
-            file_size: file.size,
-            mime_type: file.type || payload.mime_type || "video/mp4",
-            duration_seconds: Number(payload.duration_seconds || 0),
-            is_required: !!payload.is_required,
-            is_newcomer_required: !!payload.is_newcomer_required,
-            status: payload.status,
-            cover_url: payload.cover_url || "",
-            targets: payload.targets || [],
+          uploadMode = "create";
+          uploadCheckpointKey = buildVideoUploadCheckpointKey("create", file, 0);
+          const session = await resolveVideoUploadSession({
+            checkpointKey: uploadCheckpointKey,
+            file,
+            initPayload: {
+              title: payload.title,
+              description: payload.description || "",
+              category: payload.category || "",
+              original_filename: payload.original_filename,
+              file_size: file.size,
+              mime_type: file.type || payload.mime_type || "video/mp4",
+              duration_seconds: Number(payload.duration_seconds || 0),
+              is_required: !!payload.is_required,
+              is_newcomer_required: !!payload.is_newcomer_required,
+              status: payload.status,
+              cover_url: payload.cover_url || "",
+              targets: payload.targets || [],
+            },
+            initUpload: () => initMagicVideoUpload({
+              title: payload.title,
+              description: payload.description || "",
+              category: payload.category || "",
+              original_filename: payload.original_filename,
+              file_size: file.size,
+              mime_type: file.type || payload.mime_type || "video/mp4",
+              duration_seconds: Number(payload.duration_seconds || 0),
+              is_required: !!payload.is_required,
+              is_newcomer_required: !!payload.is_newcomer_required,
+              status: payload.status,
+              cover_url: payload.cover_url || "",
+              targets: payload.targets || [],
+            }),
+            fetchUploadStatus: (checkpoint) => getMagicVideoUploadStatus({
+              video_id: checkpoint.video_id,
+              oss_object_key: checkpoint.oss_object_key,
+              upload_id: checkpoint.upload_id,
+            }),
+            discardUploadSession: async (checkpoint) => {
+              if (!checkpoint?.video_id || !checkpoint?.oss_object_key || !checkpoint?.upload_id) return;
+              await failMagicVideoUpload({
+                video_id: checkpoint.video_id,
+                oss_object_key: checkpoint.oss_object_key,
+                upload_id: checkpoint.upload_id,
+                reason: "断点续传会话失效，已重新初始化上传。",
+              });
+            },
           });
+          uploadInitResult = session.uploadInitResult;
+          if (session.resumed) {
+            message.info("已恢复上次未完成的视频上传。");
+          }
         } catch (error) {
           logMagicUploadStageError("init", error);
           message.error(error?.message || "上传初始化失败。");
@@ -1165,7 +1369,16 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
 
         let parts;
         try {
-          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress);
+          const checkpoint = loadOssUploadCheckpoint(uploadCheckpointKey);
+          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress, {
+            existingParts: checkpoint?.uploaded_parts || [],
+            onPartUploaded: (part) => {
+              const current = loadOssUploadCheckpoint(uploadCheckpointKey);
+              saveOssUploadCheckpoint(uploadCheckpointKey, {
+                uploaded_parts: mergeUploadedParts(current?.uploaded_parts || [], part),
+              });
+            },
+          });
         } catch (error) {
           logMagicUploadStageError("oss upload", error);
           logOssUploadError(error);
@@ -1181,6 +1394,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               logMagicUploadStageError("upload fail callback", failError);
             }
           }
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           message.error(error?.message || "视频文件上传 OSS 失败。");
           return;
         }
@@ -1193,6 +1407,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
             upload_id: uploadInitResult.upload_id,
             parts,
           });
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           uploadCompleted = true;
           setVideoUploadProgress(100);
           message.success("视频已上传并入库。");
@@ -1210,6 +1425,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               logMagicUploadStageError("upload fail callback", failError);
             }
           }
+          clearOssUploadCheckpoint(uploadCheckpointKey);
           message.error(error?.message || "视频上传完成确认失败。");
           return;
         }
@@ -1227,14 +1443,23 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       }
     } catch (error) {
       logMagicUploadStageError("submit video", error);
+      clearOssUploadCheckpoint(uploadCheckpointKey);
       if (!uploadCompleted && uploadInitResult?.video_id && uploadInitResult?.oss_object_key) {
         try {
-          await failMagicVideoUpload({
-            video_id: uploadInitResult.video_id,
-            oss_object_key: uploadInitResult.oss_object_key,
-            upload_id: uploadInitResult.upload_id,
-            reason: error?.message || "上传失败",
-          });
+          if (uploadMode === "replace") {
+            await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
+              oss_object_key: uploadInitResult.oss_object_key,
+              upload_id: uploadInitResult.upload_id,
+              reason: error?.message || "上传失败",
+            });
+          } else if (uploadMode === "create") {
+            await failMagicVideoUpload({
+              video_id: uploadInitResult.video_id,
+              oss_object_key: uploadInitResult.oss_object_key,
+              upload_id: uploadInitResult.upload_id,
+              reason: error?.message || "上传失败",
+            });
+          }
         } catch (failError) {
           logMagicUploadStageError("upload fail callback", failError);
         }
@@ -1378,6 +1603,69 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       message.error(error?.message || "下架视频失败。");
     } finally {
       setDisablingVideoId(null);
+    }
+  };
+
+  const handleBatchPublishVideos = async () => {
+    if (!selectedAdminVideoRowKeys.length) {
+      message.warning("请先选择要发布的视频。");
+      return;
+    }
+    try {
+      const result = await batchPublishMagicVideos(selectedAdminVideoRowKeys);
+      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (updatedCount) {
+        message.success(skippedCount ? `已发布 ${updatedCount} 个，跳过 ${skippedCount} 个。` : `已发布 ${updatedCount} 个视频。`);
+      } else {
+        message.warning(skippedCount ? `没有可发布视频，已跳过 ${skippedCount} 个。` : "没有可发布视频。");
+      }
+      setSelectedAdminVideoRowKeys([]);
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "批量发布视频失败。");
+    }
+  };
+
+  const handleBatchDisableVideos = async () => {
+    if (!selectedAdminVideoRowKeys.length) {
+      message.warning("请先选择要下架的视频。");
+      return;
+    }
+    try {
+      const result = await batchDisableMagicVideos(selectedAdminVideoRowKeys);
+      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (updatedCount) {
+        message.success(skippedCount ? `已下架 ${updatedCount} 个，跳过 ${skippedCount} 个。` : `已下架 ${updatedCount} 个视频。`);
+      } else {
+        message.warning(skippedCount ? `没有可下架视频，已跳过 ${skippedCount} 个。` : "没有可下架视频。");
+      }
+      setSelectedAdminVideoRowKeys([]);
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "批量下架视频失败。");
+    }
+  };
+
+  const handleBatchDeleteVideos = async () => {
+    if (!selectedAdminVideoRowKeys.length) {
+      message.warning("请先选择要删除的视频。");
+      return;
+    }
+    try {
+      const result = await batchDeleteMagicVideos(selectedAdminVideoRowKeys);
+      const deletedCount = Array.isArray(result?.deleted_ids) ? result.deleted_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (deletedCount) {
+        message.success(skippedCount ? `已删除 ${deletedCount} 个，跳过 ${skippedCount} 个。` : `已删除 ${deletedCount} 个视频。`);
+      } else {
+        message.warning(skippedCount ? `没有可删除视频，已跳过 ${skippedCount} 个。` : "没有可删除视频。");
+      }
+      setSelectedAdminVideoRowKeys([]);
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "批量删除视频失败。");
     }
   };
 
@@ -1791,6 +2079,46 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     }
   };
 
+  const handleBatchDeleteReadingContents = async () => {
+    if (!selectedReadingContentRowKeys.length) {
+      message.warning("请先选择要删除的读书内容。");
+      return;
+    }
+    try {
+      const result = await batchDeleteAdminReadingContents(selectedReadingContentRowKeys);
+      const deletedCount = Array.isArray(result?.deleted_ids) ? result.deleted_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (deletedCount) {
+        message.success(skippedCount ? `已删除 ${deletedCount} 条，跳过 ${skippedCount} 条。` : `已删除 ${deletedCount} 条读书内容。`);
+      } else {
+        message.warning(skippedCount ? `没有可删除内容，已跳过 ${skippedCount} 条。` : "没有可删除内容。");
+      }
+      await reloadAdminReadingContents();
+    } catch (error) {
+      message.error(error?.message || "批量删除读书内容失败。");
+    }
+  };
+
+  const handleBatchDisableReadingContents = async () => {
+    if (!selectedReadingContentRowKeys.length) {
+      message.warning("请先选择要停用的读书内容。");
+      return;
+    }
+    try {
+      const result = await batchUpdateAdminReadingContentsStatus(selectedReadingContentRowKeys, "disabled");
+      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (updatedCount) {
+        message.success(skippedCount ? `已停用 ${updatedCount} 条，跳过 ${skippedCount} 条。` : `已停用 ${updatedCount} 条读书内容。`);
+      } else {
+        message.warning(skippedCount ? `没有可停用内容，已跳过 ${skippedCount} 条。` : "没有可停用内容。");
+      }
+      await reloadAdminReadingContents();
+    } catch (error) {
+      message.error(error?.message || "批量停用读书内容失败。");
+    }
+  };
+
   const openReadingSeriesModal = (row = null) => {
     readingSeriesForm.resetFields();
     readingSeriesForm.setFieldsValue({
@@ -1916,6 +2244,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     try {
       setReadingImportSubmitting(true);
       const result = await previewAdminReadingContentsImport(file);
+      setReadingImportToken(result?.import_token || "");
       setReadingImportRows(Array.isArray(result?.rows) ? result.rows : []);
       setReadingImportSummary(result?.summary || { total: 0, valid: 0, invalid: 0 });
       setReadingImportPreviewOpen(true);
@@ -1932,23 +2261,76 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     setReadingImportMaterialPickerOpen(true);
   };
 
+  const handlePreviewReadingImportFromMaterialAsset = async (assetId) => { // CODEX_MODIFIED
+    try { // CODEX_MODIFIED
+      setReadingImportSubmitting(true); // CODEX_MODIFIED
+      const result = await previewAdminReadingContentsImportFromMaterial(assetId); // CODEX_MODIFIED
+      setReadingImportToken(result?.import_token || ""); // CODEX_MODIFIED
+      setReadingImportRows(Array.isArray(result?.rows) ? result.rows : []); // CODEX_MODIFIED
+      setReadingImportSummary(result?.summary || { total: 0, valid: 0, invalid: 0 }); // CODEX_MODIFIED
+      setReadingImportPreviewOpen(true); // CODEX_MODIFIED
+    } catch (error) { // CODEX_MODIFIED
+      message.error(error?.message || "读书内容导入预览失败。"); // CODEX_MODIFIED
+    } finally { // CODEX_MODIFIED
+      setReadingImportSubmitting(false); // CODEX_MODIFIED
+    } // CODEX_MODIFIED
+  }; // CODEX_MODIFIED
+
   const handlePickReadingImportMaterial = async (asset) => {
-    const file = await fetchMaterialAssetAsFile(asset);
     setReadingImportMaterialPickerOpen(false);
-    await handlePreviewReadingImport(file);
+    await handlePreviewReadingImportFromMaterialAsset(asset.id); // CODEX_MODIFIED
   };
 
   const handleConfirmReadingImport = async () => {
     try {
-      const validRows = readingImportRows.filter((item) => item.can_import).map((item) => item.parsed);
-      if (!validRows.length) {
+      const validCount = readingImportRows.filter((item) => item.can_import).length;
+      if (!validCount) {
         message.warning("没有可导入的有效数据。");
         return;
       }
+      if (!readingImportToken) {
+        message.warning("导入预览已失效，请重新上传 Excel。");
+        return;
+      }
       setReadingImportSubmitting(true);
-      await confirmAdminReadingContentsImport(validRows);
-      message.success(`已导入 ${validRows.length} 条读书内容。`);
+      const job = await confirmAdminReadingContentsImport(readingImportToken);
+      const messageKey = `reading-import-${job?.job_id || "pending"}`;
+      let current = job;
+      message.open({
+        key: messageKey,
+        type: "loading",
+        duration: 0,
+        content: `正在导入读书内容 0/${job?.total || validCount}`,
+      });
+      while (current?.status === "pending" || current?.status === "running") {
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+        current = await getAdminReadingContentsImportJob(job.job_id);
+        message.open({
+          key: messageKey,
+          type: "loading",
+          duration: 0,
+          content: `正在导入读书内容 ${current?.processed || 0}/${current?.total || validCount}`,
+        });
+      }
+      if (current?.status === "completed" || current?.status === "completed_with_errors") {
+        if (current?.failure_count) {
+          message.open({
+            key: messageKey,
+            type: "warning",
+            content: `导入完成，成功 ${current?.success_count || 0} 条，失败 ${current?.failure_count || 0} 条。`,
+          });
+        } else {
+          message.open({
+            key: messageKey,
+            type: "success",
+            content: `已导入 ${current?.success_count || 0} 条读书内容。`,
+          });
+        }
+      } else {
+        throw new Error(current?.error || "读书内容导入失败。");
+      }
       setReadingImportPreviewOpen(false);
+      setReadingImportToken("");
       setReadingImportRows([]);
       setReadingImportSummary({ total: 0, valid: 0, invalid: 0 });
       await reloadAdminReadingContents({ page: 1 });
@@ -2616,13 +2998,30 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       ) : (
         <>
           <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
+            <Space wrap>
+              <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
+              <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchPublishVideos}>批量发布</Button>
+              <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchDisableVideos}>批量下架</Button>
+              <Popconfirm
+                title="确认批量删除选中的视频？"
+                onConfirm={handleBatchDeleteVideos}
+                okText="确认删除"
+                cancelText="取消"
+                disabled={!selectedAdminVideoRowKeys.length}
+              >
+                <Button danger disabled={!selectedAdminVideoRowKeys.length}>批量删除</Button>
+              </Popconfirm>
+            </Space>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>
           </div>
           <Table
             rowKey="id"
             dataSource={adminVideoItems}
             columns={adminVideoColumns}
+            rowSelection={{
+              selectedRowKeys: selectedAdminVideoRowKeys,
+              onChange: setSelectedAdminVideoRowKeys,
+            }}
             pagination={{
               current: adminVideoPage,
               pageSize: adminVideoPageSize,
@@ -2932,6 +3331,8 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       readingContentKeyword,
       setReadingContentKeyword,
       setReadingContentPage,
+      readingContentPageSize,
+      setReadingContentPageSize,
       readingContentSeriesId,
       setReadingContentSeriesId,
       readingSeriesRows,
@@ -2943,9 +3344,13 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       readingContents,
       readingContentPage,
       readingContentsTotal,
+      selectedReadingContentRowKeys,
+      setSelectedReadingContentRowKeys,
       openEditReadingContentModal,
       handleToggleReadingContentStatus,
       handleDeleteReadingContent,
+      handleBatchDeleteReadingContents,
+      handleBatchDisableReadingContents,
       readingSeriesKeyword,
       setReadingSeriesKeyword,
       readingSeriesPage,

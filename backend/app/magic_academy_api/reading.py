@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import mimetypes
 import posixpath
 import re
@@ -10,6 +11,7 @@ from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from typing import Any
+from uuid import uuid4
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 
@@ -20,18 +22,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..access import is_super_admin
 from ..auth import get_current_user, require_admin
-from ..db import get_db
-from ..magic_academy_schemas import ReadingContentImportConfirmPayload, ReadingSeriesPayload
+from ..db import get_db, session_scope
+from ..magic_academy_schemas import (
+    ReadingContentImportConfirmPayload,
+    ReadingContentImportJobResponse,
+    ReadingContentImportStartResponse,
+    ReadingSeriesPayload,
+)
 from ..magic_auto_actions import enqueue_audio_actions_for_reading_content
-from ..models import ConfigOption, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, MagicReadingSeriesTarget, MaterialAsset, User
+from ..models import ConfigOption, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, MagicReadingSeriesTarget, MaterialAsset, User, UserWhitelist
 from . import router
 from ._oss import (
+    _build_oss_bucket,  # CODEX_MODIFIED
     _build_oss_object_url,
     _build_signed_stream_url,
     _ensure_oss_settings,
     _upload_binary_to_oss,
     _validate_reading_image_payload,
 )
+from ._resource_cleanup import schedule_oss_object_cleanup
 from ._utils import (
     READING_CONTENT_ACTIVE,
     SOURCE_AUDIO_MAKEUP,
@@ -51,6 +60,8 @@ from ._utils import (
     _xlsx_response,
 )
 from ._video_helpers import _get_material_asset_or_403
+
+logger = logging.getLogger("app.magic_academy_api.reading")
 
 READING_STATUS_DISABLED = "disabled"
 READING_SERIES_STATUSES = {"draft", "active", "paused", "archived"}
@@ -72,6 +83,12 @@ READING_IMPORT_TARGET_TYPE_ALIASES = {
     "在职状态": "employment_status",
     "employment_status": "employment_status",
 }
+READING_IMPORT_PREVIEW_TTL_SECONDS = 1800
+READING_IMPORT_JOB_TTL_SECONDS = 3600
+_reading_import_preview_cache: dict[str, dict[str, Any]] = {}
+_reading_import_job_cache: dict[str, dict[str, Any]] = {}
+_reading_import_job_tasks: dict[str, asyncio.Task] = {}
+_reading_import_state_lock = asyncio.Lock()
 
 
 def _reading_target_to_dict(item: MagicReadingContentTarget) -> dict[str, Any]:
@@ -315,6 +332,135 @@ def _parse_datetime_text(value: Any, *, field_name: str) -> datetime | None:
         except ValueError:
             continue
     raise HTTPException(status_code=400, detail=f"{field_name}格式应为 YYYY-MM-DD HH:MM。")
+
+
+def _cleanup_reading_import_state() -> None:
+    now = _now()
+    preview_expired = [
+        key for key, item in _reading_import_preview_cache.items()
+        if (now - item["created_at"]).total_seconds() > READING_IMPORT_PREVIEW_TTL_SECONDS
+    ]
+    for key in preview_expired:
+        _reading_import_preview_cache.pop(key, None)
+    job_expired = [
+        key for key, item in _reading_import_job_cache.items()
+        if (now - item["created_at"]).total_seconds() > READING_IMPORT_JOB_TTL_SECONDS
+    ]
+    for key in job_expired:
+        _reading_import_job_cache.pop(key, None)
+        task = _reading_import_job_tasks.pop(key, None)
+        if task and task.done():
+            _ = task.exception() if not task.cancelled() else None
+
+
+def _serialize_preview_row_for_response(row: dict[str, Any]) -> dict[str, Any]:
+    parsed = dict(row.get("parsed") or {})
+    parsed.pop("embedded_image_base64", None)
+    return {
+        "row_number": row.get("row_number"),
+        "raw": row.get("raw") or {},
+        "parsed": parsed,
+        "errors": list(row.get("errors") or []),
+        "warnings": list(row.get("warnings") or []),
+        "can_import": bool(row.get("can_import")),
+    }
+
+
+async def _get_auto_checkin_whitelist_user_ids(db: AsyncSession) -> set[int]:
+    result = await db.execute(
+        select(UserWhitelist.user_id)
+        .join(User, User.id == UserWhitelist.user_id)
+        .where(
+            User.role == "user",
+            User.disabled.is_(False),
+            UserWhitelist.enabled.is_(True),
+            UserWhitelist.auto_checkin_enabled.is_(True),
+        )
+    )
+    return {int(item[0]) for item in result.all()}
+
+
+async def _update_reading_import_job(job_id: str, **updates: Any) -> None:
+    async with _reading_import_state_lock:
+        job = _reading_import_job_cache.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = _now()
+
+
+async def _run_reading_import_job(job_id: str, rows: list[dict[str, Any]], admin_id: int) -> None:
+    await _update_reading_import_job(job_id, status="running")
+    try:
+        async with session_scope() as db:
+            admin = await db.get(User, admin_id)
+            if not admin:
+                raise RuntimeError("创建导入任务的管理员不存在。")
+            whitelist_user_ids = await _get_auto_checkin_whitelist_user_ids(db)
+            for index, raw_row in enumerate(rows, start=1):
+                try:
+                    import_image_source = str(raw_row.get("image_source") or "upload")
+                    if (
+                        import_image_source == "url"
+                        and not str(raw_row.get("image_url") or "").strip()
+                        and not raw_row.get("embedded_image_base64")
+                        and not raw_row.get("material_asset_id")
+                    ):
+                        import_image_source = "upload"
+                    await _create_reading_content_record(
+                        db,
+                        admin=admin,
+                        reading_date=_parse_date_value(raw_row.get("reading_date")),
+                        push_time_value=_parse_push_time_text(raw_row.get("push_time")),
+                        title=str(raw_row.get("title") or ""),
+                        description=str(raw_row.get("description") or ""),
+                        image_source=import_image_source,
+                        material_asset_id=int(raw_row["material_asset_id"]) if raw_row.get("material_asset_id") else None,
+                        series_id=int(raw_row["series_id"]) if raw_row.get("series_id") else None,
+                        target_type=str(raw_row.get("target_type") or "user"),
+                        target_user_ids=[int(v) for v in (raw_row.get("target_user_ids") or [])],
+                        target_department_ids=[str(v).strip() for v in (raw_row.get("target_department_ids") or []) if str(v).strip()],
+                        target_position_ids=[str(v).strip() for v in (raw_row.get("target_position_ids") or []) if str(v).strip()],
+                        target_employment_status_ids=[str(v).strip() for v in (raw_row.get("target_employment_status_ids") or []) if str(v).strip()],
+                        makeup_deadline_at=_parse_datetime_text(raw_row.get("makeup_deadline_at"), field_name="补卡截止时间"),
+                        image=None,
+                        image_url_text=str(raw_row.get("image_url") or ""),
+                        embedded_image_bytes=base64.b64decode(raw_row["embedded_image_base64"]) if raw_row.get("embedded_image_base64") else None,
+                        embedded_image_name=str(raw_row.get("embedded_image_name") or ""),
+                        embedded_image_mime_type=str(raw_row.get("embedded_image_mime_type") or ""),
+                        auto_checkin_whitelist_user_ids=whitelist_user_ids,
+                    )
+                    await db.commit()
+                    async with _reading_import_state_lock:
+                        job = _reading_import_job_cache.get(job_id)
+                        if not job:
+                            return
+                        job["processed"] = index
+                        job["success_count"] += 1
+                        job["updated_at"] = _now()
+                except Exception as exc:  # noqa: BLE001
+                    await db.rollback()
+                    async with _reading_import_state_lock:
+                        job = _reading_import_job_cache.get(job_id)
+                        if not job:
+                            return
+                        job["processed"] = index
+                        job["failure_count"] += 1
+                        job["failures"].append({
+                            "row_number": raw_row.get("row_number"),
+                            "title": str(raw_row.get("title") or ""),
+                            "reason": str(getattr(exc, "detail", "") or exc),
+                        })
+                        job["updated_at"] = _now()
+        final_status = "completed"
+        if _reading_import_job_cache.get(job_id, {}).get("failure_count"):
+            final_status = "completed_with_errors"
+        await _update_reading_import_job(job_id, status=final_status)
+    except Exception as exc:  # noqa: BLE001
+        await _update_reading_import_job(job_id, status="failed", error=str(exc))
+    finally:
+        async with _reading_import_state_lock:
+            _reading_import_job_tasks.pop(job_id, None)
 
 
 def _split_multi_text(value: Any) -> list[str]:
@@ -786,6 +932,60 @@ async def _has_reading_checkins(
     return await _count_reading_completed_users(db, row, targets) > 0
 
 
+def _build_target_user_ids_from_active_users(
+    active_users: list[User],
+    targets: list[MagicReadingContentTarget],
+) -> list[int]:
+    if not targets:
+        return []
+    matched_ids: set[int] = set()
+    for user in active_users:
+        if any(_reading_target_matches_user(user, target) for target in targets):
+            matched_ids.add(int(user.id))
+    return sorted(matched_ids)
+
+
+async def _build_reading_counts_for_rows(
+    db: AsyncSession,
+    rows: list[MagicReadingContent],
+    targets_map: dict[int, list[MagicReadingContentTarget]],
+) -> tuple[dict[int, int], dict[int, int], dict[int, bool]]:
+    if not rows:
+        return {}, {}, {}
+    active_users = (
+        await db.execute(select(User).where(User.role == "user", User.disabled.is_(False)))
+    ).scalars().all()
+    target_user_map: dict[int, list[int]] = {}
+    push_count_map: dict[int, int] = {}
+    for row in rows:
+        content_id = int(row.id)
+        target_user_ids = _build_target_user_ids_from_active_users(active_users, targets_map.get(content_id, []))
+        target_user_map[content_id] = target_user_ids
+        push_count_map[content_id] = len(target_user_ids)
+    completed_pairs_result = await db.execute(
+        select(MagicAudioUpload.reading_content_id, MagicAudioUpload.user_id)
+        .where(
+            MagicAudioUpload.reading_content_id.in_([int(item.id) for item in rows]),
+            MagicAudioUpload.is_deleted.is_(False),
+        )
+    )
+    completed_user_map: dict[int, set[int]] = {}
+    for content_id, user_id in completed_pairs_result.all():
+        if user_id is None or content_id is None:
+            continue
+        completed_user_map.setdefault(int(content_id), set()).add(int(user_id))
+    completed_count_map: dict[int, int] = {}
+    lock_map: dict[int, bool] = {}
+    for row in rows:
+        content_id = int(row.id)
+        target_user_ids = set(target_user_map.get(content_id, []))
+        completed_ids = completed_user_map.get(content_id, set())
+        completed_count = len(target_user_ids & completed_ids)
+        completed_count_map[content_id] = completed_count
+        lock_map[content_id] = completed_count > 0
+    return push_count_map, completed_count_map, lock_map
+
+
 def _assert_not_locked(is_locked: bool) -> None:
     if is_locked:
         raise HTTPException(
@@ -953,6 +1153,14 @@ def _parse_target_names_field(raw: str) -> list[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
+def _owned_reading_image_cleanup_key(row: MagicReadingContent) -> str:
+    if _normalize_image_source(row.source_type or "upload") != "upload":
+        return ""
+    if row.material_asset_id:
+        return ""
+    return (row.image_object_key or "").strip()
+
+
 async def _create_reading_content_record(
     db: AsyncSession,
     *,
@@ -976,6 +1184,7 @@ async def _create_reading_content_record(
     embedded_image_bytes: bytes | None = None,
     embedded_image_name: str = "",
     embedded_image_mime_type: str = "",
+    auto_checkin_whitelist_user_ids: set[int] | None = None,
 ) -> dict[str, Any]:
     normalized_title = (title or "").strip()
     if not normalized_title:
@@ -1045,7 +1254,13 @@ async def _create_reading_content_record(
             position_names=valid_positions,
             employment_status_values=employment_status_values,
         )
-    await enqueue_audio_actions_for_reading_content(db, row, targets, created_by=admin.id)
+    await enqueue_audio_actions_for_reading_content(
+        db,
+        row,
+        targets,
+        created_by=admin.id,
+        auto_checkin_whitelist_user_ids=auto_checkin_whitelist_user_ids,
+    )
     await db.refresh(row)
     series = await db.get(MagicReadingSeries, resolved_series_id) if resolved_series_id else None
     return _reading_content_to_dict(
@@ -1866,14 +2081,10 @@ async def list_admin_reading_contents(
     if creator_ids:
         creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
         creator_map = {int(item.id): item for item in creator_result.scalars().all()}
-    lock_map = {
-        int(row.id): await _has_reading_checkins(db, row, targets_map.get(int(row.id), []))
-        for row in rows
-    }
+    push_count_map, completed_count_map, lock_map = await _build_reading_counts_for_rows(db, rows, targets_map)
     items = []
     for row in rows:
         targets = targets_map.get(int(row.id), [])
-        completed_count = await _count_reading_completed_users(db, row, targets)
         items.append(
             _reading_content_to_dict(
                 row,
@@ -1881,9 +2092,9 @@ async def list_admin_reading_contents(
                 image_url=await asyncio.to_thread(_safe_reading_image_url, row.image_object_key or "", row.image_url or ""),
                 creator=creator_map.get(int(row.created_by)) if row.created_by else None,
                 series=series_map.get(int(row.series_id)) if row.series_id else None,
-                push_count=await _count_reading_targets(db, targets),
+                push_count=push_count_map.get(int(row.id), 0),
                 is_locked=lock_map.get(int(row.id), False),
-                completed_count=completed_count,
+                completed_count=completed_count_map.get(int(row.id), 0),
             )
     )
     return {"items": items, "page": page, "page_size": page_size, "total": total}
@@ -1970,16 +2181,41 @@ async def get_admin_reading_content_detail(
 
 @router.post("/admin/reading-contents/import-preview")
 async def preview_reading_contents_import(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),  # CODEX_MODIFIED
+    material_asset_id: int | None = Form(default=None),  # CODEX_MODIFIED
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    if not (file.filename or "").lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="仅支持导入 .xlsx 文件。")
-    workbook_bytes = await file.read()
+    _cleanup_reading_import_state()
+    if material_asset_id is not None:  # CODEX_MODIFIED
+        material_asset = await _get_material_asset_or_403(db, material_asset_id, admin, expected_type="document")  # CODEX_MODIFIED
+        if not (material_asset.file_name or "").lower().endswith(".xlsx"):  # CODEX_MODIFIED
+            raise HTTPException(status_code=400, detail="仅支持导入 .xlsx 文件。")  # CODEX_MODIFIED
+        bucket = _build_oss_bucket()  # CODEX_MODIFIED
+        workbook_bytes = await asyncio.to_thread(lambda: bucket.get_object(material_asset.object_key).read())  # CODEX_MODIFIED
+    else:  # CODEX_MODIFIED
+        if file is None:  # CODEX_MODIFIED
+            raise HTTPException(status_code=400, detail="请选择要导入的 .xlsx 文件。")  # CODEX_MODIFIED
+        if not (file.filename or "").lower().endswith(".xlsx"):  # CODEX_MODIFIED
+            raise HTTPException(status_code=400, detail="仅支持导入 .xlsx 文件。")  # CODEX_MODIFIED
+        workbook_bytes = await file.read()  # CODEX_MODIFIED
     rows = await _parse_import_workbook(db, workbook_bytes, admin=admin)
+    import_token = uuid4().hex
+    valid_rows = []
+    for item in rows:
+        if not item["can_import"]:
+            continue
+        parsed = dict(item["parsed"])
+        parsed["row_number"] = item["row_number"]
+        valid_rows.append(parsed)
+    _reading_import_preview_cache[import_token] = {
+        "created_by": int(admin.id),
+        "created_at": _now(),
+        "valid_rows": valid_rows,
+    }
     return {
-        "rows": rows,
+        "import_token": import_token,
+        "rows": [_serialize_preview_row_for_response(item) for item in rows],
         "summary": {
             "total": len(rows),
             "valid": sum(1 for item in rows if item["can_import"]),
@@ -1993,44 +2229,56 @@ async def confirm_reading_contents_import(
     payload: ReadingContentImportConfirmPayload,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> dict[str, Any]:
-    if not payload.rows:
+) -> ReadingContentImportStartResponse:
+    del db
+    _cleanup_reading_import_state()
+    preview = _reading_import_preview_cache.pop(payload.import_token, None)
+    if not preview or int(preview.get("created_by") or 0) != int(admin.id):
+        raise HTTPException(status_code=404, detail="导入预览已失效，请重新上传 Excel。")
+    valid_rows = list(preview.get("valid_rows") or [])
+    if not valid_rows:
         raise HTTPException(status_code=400, detail="没有可导入的数据。")
-    created_items: list[dict[str, Any]] = []
-    for row in payload.rows:
-        import_image_source = row.image_source
-        if (
-            import_image_source == "url"
-            and not (row.image_url or "").strip()
-            and not row.embedded_image_base64
-            and not row.material_asset_id
-        ):
-            import_image_source = "upload"
-        created_items.append(
-            await _create_reading_content_record(
-                db,
-                admin=admin,
-                reading_date=row.reading_date,
-                push_time_value=row.push_time,
-                title=row.title,
-                description=row.description,
-                image_source=import_image_source,
-                material_asset_id=row.material_asset_id,
-                series_id=row.series_id,
-                target_type=row.target_type,
-                target_user_ids=row.target_user_ids,
-                target_department_ids=row.target_department_ids,
-                target_position_ids=row.target_position_ids,
-                target_employment_status_ids=row.target_employment_status_ids,
-                makeup_deadline_at=row.makeup_deadline_at,
-                image=None,
-                image_url_text=row.image_url,
-                embedded_image_bytes=base64.b64decode(row.embedded_image_base64) if row.embedded_image_base64 else None,
-                embedded_image_name=row.embedded_image_name,
-                embedded_image_mime_type=row.embedded_image_mime_type,
-            )
-        )
-    return {"count": len(created_items), "items": created_items}
+    job_id = uuid4().hex
+    job_data = {
+        "job_id": job_id,
+        "created_by": int(admin.id),
+        "created_at": _now(),
+        "updated_at": _now(),
+        "status": "pending",
+        "total": len(valid_rows),
+        "processed": 0,
+        "success_count": 0,
+        "failure_count": 0,
+        "error": "",
+        "failures": [],
+    }
+    async with _reading_import_state_lock:
+        _reading_import_job_cache[job_id] = job_data
+    task = asyncio.create_task(_run_reading_import_job(job_id, valid_rows, int(admin.id)))
+    async with _reading_import_state_lock:
+        _reading_import_job_tasks[job_id] = task
+    return ReadingContentImportStartResponse(job_id=job_id, status="pending", total=len(valid_rows))
+
+
+@router.get("/admin/reading-contents/import-jobs/{job_id}", response_model=ReadingContentImportJobResponse)
+async def get_reading_contents_import_job(
+    job_id: str,
+    admin: User = Depends(require_admin),
+) -> ReadingContentImportJobResponse:
+    _cleanup_reading_import_state()
+    job = _reading_import_job_cache.get(job_id)
+    if not job or int(job.get("created_by") or 0) != int(admin.id):
+        raise HTTPException(status_code=404, detail="导入任务不存在或已过期。")
+    return ReadingContentImportJobResponse(
+        job_id=job["job_id"],
+        status=str(job["status"]),
+        total=int(job["total"]),
+        processed=int(job["processed"]),
+        success_count=int(job["success_count"]),
+        failure_count=int(job["failure_count"]),
+        error=str(job.get("error") or ""),
+        failures=list(job.get("failures") or []),
+    )
 
 
 @router.post("/admin/reading-contents/batch")
@@ -2122,6 +2370,84 @@ async def create_admin_reading_content(
     )
 
 
+@router.post("/admin/reading-contents/batch-status")
+async def update_admin_reading_contents_status_batch(
+    payload: dict[str, Any] = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    raw_ids = payload.get("ids") or []
+    ids: list[int] = []
+    for item in raw_ids:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            ids.append(number)
+    ids = sorted(set(ids))
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择至少一条读书内容。")
+    status = str((payload or {}).get("status") or "").strip().lower()
+    if status not in {READING_CONTENT_ACTIVE, READING_STATUS_DISABLED}:
+        raise HTTPException(status_code=400, detail="状态值不合法。")
+
+    updated_ids: list[int] = []
+    skipped: list[dict[str, Any]] = []
+    for content_id in ids:
+        row = await _get_reading_content_or_404(db, content_id)
+        if not _can_manage_reading_content(admin, row):
+            skipped.append({"id": content_id, "reason": "无权操作该读书内容。"})
+            continue
+        row.status = status
+        updated_ids.append(content_id)
+    await db.flush()
+    return {"success": True, "updated_ids": updated_ids, "skipped": skipped}
+
+
+@router.post("/admin/reading-contents/batch-delete")
+async def delete_admin_reading_contents_batch(
+    payload: dict[str, Any] = Body(default={}),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    raw_ids = payload.get("ids") or []
+    ids: list[int] = []
+    for item in raw_ids:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            ids.append(number)
+    ids = sorted(set(ids))
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择至少一条读书内容。")
+
+    deleted_ids: list[int] = []
+    skipped: list[dict[str, Any]] = []
+    cleanup_keys: list[str] = []
+    for content_id in ids:
+        row = await _get_reading_content_or_404(db, content_id)
+        if not _can_manage_reading_content(admin, row):
+            skipped.append({"id": content_id, "reason": "无权删除该读书内容。"})
+            continue
+        targets = (await _get_reading_content_targets_map(db, [content_id])).get(content_id, [])
+        if await _has_reading_checkins(db, row, targets):
+            skipped.append({"id": content_id, "reason": "该内容已有打卡记录，不允许删除，请使用停用。"})
+            continue
+        cleanup_key = _owned_reading_image_cleanup_key(row)
+        row.is_deleted = True
+        row.deleted_at = _now()
+        if cleanup_key:
+            cleanup_keys.append(cleanup_key)
+        deleted_ids.append(content_id)
+    await db.flush()
+    await db.commit()
+    schedule_oss_object_cleanup(cleanup_keys, logger=logger)
+    return {"success": True, "deleted_ids": deleted_ids, "skipped": skipped}
+
+
 @router.put("/admin/reading-contents/{content_id}")
 async def update_admin_reading_content(
     content_id: int,
@@ -2145,6 +2471,8 @@ async def update_admin_reading_content(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     row = await _get_reading_content_or_404(db, content_id)
+    old_cleanup_key = _owned_reading_image_cleanup_key(row)
+    old_image_object_key = (row.image_object_key or "").strip()
     if not _can_manage_reading_content(admin, row):
         raise HTTPException(status_code=403, detail="无权编辑该读书内容。")
     targets_map = await _get_reading_content_targets_map(db, [content_id])
@@ -2240,6 +2568,10 @@ async def update_admin_reading_content(
                 employment_status_values=employment_status_values,
             )
     await db.flush()
+    await db.commit()
+    next_cleanup_key = _owned_reading_image_cleanup_key(row)
+    if old_cleanup_key and old_cleanup_key != next_cleanup_key and old_image_object_key != (row.image_object_key or "").strip():
+        schedule_oss_object_cleanup([old_cleanup_key], logger=logger)
     await db.refresh(row)
     creator = await db.get(User, row.created_by) if row.created_by else None
     series = await db.get(MagicReadingSeries, row.series_id) if row.series_id else None
@@ -2300,9 +2632,13 @@ async def delete_admin_reading_content(
     targets = (await _get_reading_content_targets_map(db, [content_id])).get(content_id, [])
     if await _has_reading_checkins(db, row, targets):
         raise HTTPException(status_code=400, detail="该内容已有打卡记录，不允许删除，请使用停用。")
+    cleanup_key = _owned_reading_image_cleanup_key(row)
     row.is_deleted = True
     row.deleted_at = _now()
     await db.flush()
+    await db.commit()
+    if cleanup_key:
+        schedule_oss_object_cleanup([cleanup_key], logger=logger)
     return {"success": True}
 
 

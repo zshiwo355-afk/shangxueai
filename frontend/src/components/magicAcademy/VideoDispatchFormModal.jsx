@@ -18,7 +18,7 @@ import {
 } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../../lib/api.materials";
-import { uploadMagicVideoCover } from "../../lib/api.magic";
+import { generateMagicVideoCover, uploadMagicVideoCover } from "../../lib/api.magic";
 import { fetchOptions } from "../../lib/api.options";
 import MaterialAssetPickerModal from "../common/MaterialAssetPickerModal";
 import {
@@ -41,6 +41,8 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const [coverKeyword, setCoverKeyword] = useState("");
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiReferenceFile, setAiReferenceFile] = useState(null);
   const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const { message } = AntdApp.useApp();
   const optionSource = useMemo(() => targetsToOptions(users), [users]);
@@ -115,10 +117,13 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
         cover_source: "none",
         cover_asset_id: undefined,
         cover_url: "",
+        cover_ai_prompt: "",
+        cover_ai_style: "企业培训",
         ...dispatchValues,
       });
       setUploadMeta(null);
       setSelectedFile(null);
+      setAiReferenceFile(null);
       return;
     }
     form.resetFields();
@@ -135,6 +140,8 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       cover_source: editing?.cover_asset_id ? "material" : editing?.cover_url ? "upload" : "none",
       cover_asset_id: editing?.cover_asset_id || undefined,
       cover_url: editing?.cover_url || "",
+      cover_ai_prompt: "",
+      cover_ai_style: "企业培训",
       ...dispatchValues,
     });
     setUploadMeta({
@@ -146,6 +153,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       original_filename: editing.original_filename || editing.file_name,
     });
     setSelectedFile(null);
+    setAiReferenceFile(null);
   };
 
   useEffect(() => {
@@ -202,6 +210,10 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       message.error("请选择素材库视频。");
       return;
     }
+    if (values.cover_source === "ai" && !String(values.cover_url || "").trim()) {
+      message.error("请先生成 AI 封面。");
+      return;
+    }
     await onSubmit({
       title: values.title,
       description: values.description || "",
@@ -218,6 +230,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       is_newcomer_required: !!values.is_newcomer_required,
       status: values.status,
       cover_url: values.cover_source === "upload"
+          || values.cover_source === "ai"
           ? (values.cover_url || "")
           : "",
       targets: buildVideoTargetsFromDispatch(values),
@@ -359,6 +372,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                   { value: "none", label: "不设置封面" },
                   { value: "upload", label: "上传封面图片" },
                   { value: "material", label: "从素材库选择图片" },
+                  { value: "ai", label: "AI 生成封面" },
                 ]}
               />
             </Form.Item>
@@ -427,7 +441,75 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                 </Form.Item>
               </Space>
             ) : null}
-            {coverSource === "upload" && coverUrl ? <Image src={coverUrl} width={160} /> : null}
+            {coverSource === "ai" ? (
+              <Space direction="vertical" style={{ width: "100%" }} size={12}>
+                <Upload
+                  maxCount={1}
+                  showUploadList={false}
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  beforeUpload={(file) => {
+                    setAiReferenceFile(file);
+                    return false;
+                  }}
+                  disabled={submitting || aiGenerating}
+                >
+                  <Button icon={<UploadOutlined />}>
+                    {aiReferenceFile ? `已选择参考图：${aiReferenceFile.name}` : "上传参考图"}
+                  </Button>
+                </Upload>
+                <Form.Item label="封面风格" name="cover_ai_style" style={{ marginBottom: 0 }}>
+                  <Select
+                    options={[
+                      { value: "企业培训", label: "企业培训" },
+                      { value: "简洁商务", label: "简洁商务" },
+                      { value: "科技蓝调", label: "科技蓝调" },
+                      { value: "海报感封面", label: "海报感封面" },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item label="补充提示词" name="cover_ai_prompt" style={{ marginBottom: 0 }}>
+                  <Input.TextArea rows={3} placeholder="例如：突出人物主体，保留原图配色，增强课程封面感" />
+                </Form.Item>
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    loading={aiGenerating}
+                    disabled={submitting || aiGenerating}
+                    onClick={async () => {
+                      const values = form.getFieldsValue(["title", "description", "category", "cover_ai_style", "cover_ai_prompt"]);
+                      if (!aiReferenceFile) {
+                        message.error("请先上传参考图。");
+                        return;
+                      }
+                      try {
+                        setAiGenerating(true);
+                        const result = await generateMagicVideoCover({
+                          title: values.title || "",
+                          description: values.description || "",
+                          category: values.category || "",
+                          style_preset: values.cover_ai_style || "",
+                          prompt: values.cover_ai_prompt || "",
+                          reference_image: aiReferenceFile,
+                        });
+                        form.setFieldsValue({
+                          cover_url: result?.url || "",
+                          cover_asset_id: undefined,
+                        });
+                        message.success("AI 封面生成成功。");
+                      } catch (error) {
+                        message.error(error?.message || "AI 封面生成失败。");
+                      } finally {
+                        setAiGenerating(false);
+                      }
+                    }}
+                  >
+                    生成封面
+                  </Button>
+                  <Text type="secondary">先上传参考图，再根据标题和提示词生成 16:9 封面。</Text>
+                </Space>
+              </Space>
+            ) : null}
+            {(coverSource === "upload" || coverSource === "ai") && coverUrl ? <Image src={coverUrl} width={160} /> : null}
             {coverSource === "material" && selectedCoverAsset ? (
               <Image src={buildMaterialAssetPreviewUrl(selectedCoverAsset.id)} width={160} />
             ) : null}

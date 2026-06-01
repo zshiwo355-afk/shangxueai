@@ -169,6 +169,20 @@ class MagicVideoReplaceFailPayload(BaseModel):
     reason: str = Field(default="替换上传失败", max_length=5000)
 
 
+class MagicVideoUploadStatusPayload(BaseModel):
+    video_id: int = Field(..., ge=1)
+    oss_object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=255)
+
+
+class MagicVideoCoverGeneratePayload(BaseModel):
+    title: str = Field(default="", max_length=255)
+    description: str = Field(default="", max_length=5000)
+    category: str = Field(default="", max_length=128)
+    style_preset: str = Field(default="", max_length=128)
+    prompt: str = Field(default="", max_length=5000)
+
+
 class QuizPointPayload(BaseModel):
     trigger_second: int = Field(..., ge=0)
     question_count: int = Field(default=0, ge=0)
@@ -288,7 +302,24 @@ class ReadingContentImportRowPayload(BaseModel):
 
 
 class ReadingContentImportConfirmPayload(BaseModel):
-    rows: list[ReadingContentImportRowPayload] = Field(default_factory=list)
+    import_token: str = Field(..., min_length=1, max_length=128)
+
+
+class ReadingContentImportStartResponse(BaseModel):
+    job_id: str
+    status: str = "pending"
+    total: int = 0
+
+
+class ReadingContentImportJobResponse(BaseModel):
+    job_id: str
+    status: str
+    total: int = 0
+    processed: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    error: str = ""
+    failures: list[dict[str, Any]] = Field(default_factory=list)
 
 
 READING_SERIES_STATUSES = {"draft", "active", "paused", "archived"}

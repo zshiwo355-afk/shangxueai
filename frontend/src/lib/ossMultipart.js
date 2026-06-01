@@ -34,29 +34,94 @@ async function uploadOssPartWithRetry(task, retryCount = 2) {
   throw lastError || new Error("OSS 分片上传失败。");
 }
 
-export async function multipartUploadToOss(file, uploadPlan, onPercentChange) {
-  const uploadedParts = [];
-  let committedBytes = 0;
-  for (const part of uploadPlan.part_urls || []) {
-    const start = (part.part_number - 1) * uploadPlan.part_size;
-    const end = Math.min(start + uploadPlan.part_size, file.size);
-    const blob = file.slice(start, end);
-    const etag = await uploadOssPartWithRetry(() => (
-      uploadOssPart({
-        url: part.url,
-        blob,
-        onProgress: (loaded) => {
-          const current = committedBytes + loaded;
-          const percent = Math.min(99, Math.round((current / file.size) * 100));
-          onPercentChange?.(percent);
-        },
-      })
-    ));
-    committedBytes += blob.size;
-    onPercentChange?.(Math.min(99, Math.round((committedBytes / file.size) * 100)));
-    uploadedParts.push({ part_number: part.part_number, etag });
+function resolveMultipartConcurrency(fileSize) {
+  if (fileSize >= 2 * 1024 * 1024 * 1024) return 4;
+  if (fileSize >= 512 * 1024 * 1024) return 3;
+  return 2;
+}
+
+function buildOverallProgressUpdater(fileSize, onPercentChange) {
+  const partLoadedMap = new Map();
+  let completedBytes = 0;
+  return {
+    onPartProgress(partNumber, loaded) {
+      partLoadedMap.set(partNumber, loaded);
+      let inFlightBytes = 0;
+      for (const value of partLoadedMap.values()) inFlightBytes += value;
+      const current = Math.min(fileSize, completedBytes + inFlightBytes);
+      onPercentChange?.(Math.min(99, Math.round((current / fileSize) * 100)));
+    },
+    onPartComplete(partNumber, partSize) {
+      partLoadedMap.delete(partNumber);
+      completedBytes += partSize;
+      onPercentChange?.(Math.min(99, Math.round((completedBytes / fileSize) * 100)));
+    },
+  };
+}
+
+export async function multipartUploadToOss(file, uploadPlan, onPercentChange, options = {}) {
+  const parts = Array.isArray(uploadPlan?.part_urls) ? uploadPlan.part_urls : [];
+  if (!parts.length) return [];
+  const retryCount = Number.isFinite(options.retryCount) ? options.retryCount : 2;
+  const existingParts = Array.isArray(options.existingParts) ? options.existingParts : [];
+  const existingPartsMap = new Map(
+    existingParts
+      .filter((item) => Number(item?.part_number) > 0 && item?.etag)
+      .map((item) => [Number(item.part_number), String(item.etag)]),
+  );
+  const concurrency = Math.max(
+    1,
+    Math.min(
+      parts.length,
+      Number.isFinite(options.concurrency) ? Number(options.concurrency) : resolveMultipartConcurrency(file.size),
+    ),
+  );
+  const uploadedParts = new Array(parts.length);
+  const progress = buildOverallProgressUpdater(file.size, onPercentChange);
+  let preCompletedBytes = 0;
+  for (const part of parts) {
+    if (existingPartsMap.has(part.part_number)) {
+      const start = (part.part_number - 1) * uploadPlan.part_size;
+      const end = Math.min(start + uploadPlan.part_size, file.size);
+      preCompletedBytes += Math.max(end - start, 0);
+    }
   }
-  return uploadedParts;
+  if (preCompletedBytes > 0 && file.size > 0) {
+    onPercentChange?.(Math.min(99, Math.round((preCompletedBytes / file.size) * 100)));
+  }
+  let cursor = 0;
+
+  async function worker() {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= parts.length) return;
+      const part = parts[index];
+      const start = (part.part_number - 1) * uploadPlan.part_size;
+      const end = Math.min(start + uploadPlan.part_size, file.size);
+      const blob = file.slice(start, end);
+      if (existingPartsMap.has(part.part_number)) {
+        uploadedParts[index] = { part_number: part.part_number, etag: existingPartsMap.get(part.part_number) };
+        continue;
+      }
+      const etag = await uploadOssPartWithRetry(
+        () => uploadOssPart({
+          url: part.url,
+          blob,
+          onProgress: (loaded) => {
+            progress.onPartProgress(part.part_number, loaded);
+          },
+        }),
+        retryCount,
+      );
+      progress.onPartComplete(part.part_number, blob.size);
+      uploadedParts[index] = { part_number: part.part_number, etag };
+      options.onPartUploaded?.(uploadedParts[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return uploadedParts.sort((a, b) => a.part_number - b.part_number);
 }
 
 export function logOssUploadError(error) {

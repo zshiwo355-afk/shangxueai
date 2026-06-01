@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import mimetypes
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 import oss2
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -31,11 +32,13 @@ from .magic_academy_api._oss import (
     _upload_binary_to_oss,
     _validate_reading_image_payload,
 )
+from .magic_academy_api._resource_cleanup import schedule_oss_object_cleanup
 from .models import MagicReadingContent, MagicVideo, MaterialAsset, MaterialProject, User
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 
 settings = get_settings()
+logger = logging.getLogger("app.materials_api")
 ASSET_TYPE_VALUES = {"video", "image", "document", "other"}
 PROJECT_VISIBILITY_VALUES = {"private", "admin", "shared"}
 MAX_MATERIAL_FILE_SIZE = 1024 * 1024 * 1024
@@ -114,6 +117,17 @@ def _build_oss_bucket() -> oss2.Bucket:
 
 def _build_oss_object_url(public_base_url: str, object_key: str) -> str:
     return f"{public_base_url.rstrip('/')}/{quote(object_key, safe='/')}"
+
+
+def _extract_oss_object_key_from_url(url: str) -> str:
+    text = (url or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return ""
+    return unquote((parsed.path or "").lstrip("/")).strip()
 
 
 def _build_signed_stream_url(object_key: str) -> str:
@@ -1047,9 +1061,15 @@ async def delete_material_asset(
     )
     if reading_ref.scalar_one_or_none() is not None:
         raise HTTPException(status_code=400, detail="该素材已被读书内容推送使用，不能删除。")
+    cleanup_keys = [(asset.object_key or "").strip()]
+    cover_cleanup_key = _extract_oss_object_key_from_url(asset.cover_url or "")
+    if cover_cleanup_key and cover_cleanup_key not in cleanup_keys:
+        cleanup_keys.append(cover_cleanup_key)
     asset.is_deleted = True
     asset.deleted_at = _now()
     await db.flush()
+    await db.commit()
+    schedule_oss_object_cleanup(cleanup_keys, logger=logger)
     return {"success": True}
 
 

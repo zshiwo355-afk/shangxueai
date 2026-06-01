@@ -200,15 +200,19 @@ async def enqueue_audio_actions_for_reading_content(
     targets: list[MagicReadingContentTarget],
     *,
     created_by: int | None,
+    auto_checkin_whitelist_user_ids: set[int] | None = None,
 ) -> None:
     settings = await _get_auto_action_settings(db)
     window_minutes = int(settings.audio_random_window_minutes or 0) if settings else 0
     target_users = await _collect_reading_target_users(db, targets)
-    whitelist_users = await _get_enabled_whitelist_users(
-        db,
-        target_user_ids=[item.id for item in target_users],
-        flag_name="auto_checkin_enabled",
-    )
+    if auto_checkin_whitelist_user_ids is None:
+        whitelist_users = await _get_enabled_whitelist_users(
+            db,
+            target_user_ids=[item.id for item in target_users],
+            flag_name="auto_checkin_enabled",
+        )
+    else:
+        whitelist_users = [item for item in target_users if int(item.id) in auto_checkin_whitelist_user_ids]
     for user in whitelist_users:
         dedupe_key = f"audio:{content.id}:{user.id}:{content.reading_date.isoformat()}"
         await _create_auto_action(

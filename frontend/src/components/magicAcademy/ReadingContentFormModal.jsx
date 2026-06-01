@@ -147,6 +147,7 @@ export default function ReadingContentFormModal({
   const [calendarMonth, setCalendarMonth] = useState(dayjs());
   const [activeSeriesId, setActiveSeriesId] = useState(null);
   const [materialKeyword, setMaterialKeyword] = useState("");
+  const [materialDebouncedKeyword, setMaterialDebouncedKeyword] = useState(""); // CODEX_MODIFIED
   const [materialAssets, setMaterialAssets] = useState([]);
   const lockedEditing = mode === "edit" && !!editing?.core_fields_locked;
 
@@ -164,11 +165,16 @@ export default function ReadingContentFormModal({
   }, [editing, mode, open]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setMaterialDebouncedKeyword(materialKeyword), 250); // CODEX_MODIFIED
+    return () => window.clearTimeout(timer); // CODEX_MODIFIED
+  }, [materialKeyword]); // CODEX_MODIFIED
+
+  useEffect(() => {
     if (!open) return;
-    listAllMaterialAssets({ asset_type: "image", keyword: materialKeyword || "" })
+    listAllMaterialAssets({ asset_type: "image", keyword: materialDebouncedKeyword || "", page: 1, page_size: 50 }) // CODEX_MODIFIED
       .then((data) => setMaterialAssets(Array.isArray(data) ? data : []))
       .catch(() => setMaterialAssets([]));
-  }, [materialKeyword, open]);
+  }, [materialDebouncedKeyword, open]); // CODEX_MODIFIED
 
   const employeeOptions = useMemo(
     () => employeeUsers.map((item) => ({

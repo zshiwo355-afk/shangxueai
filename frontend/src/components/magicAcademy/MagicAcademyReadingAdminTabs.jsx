@@ -35,6 +35,8 @@ export function buildReadingAdminTabItems({
   readingContentKeyword,
   setReadingContentKeyword,
   setReadingContentPage,
+  readingContentPageSize,
+  setReadingContentPageSize,
   readingContentSeriesId,
   setReadingContentSeriesId,
   readingSeriesRows = [],
@@ -46,9 +48,13 @@ export function buildReadingAdminTabItems({
   readingContents = [],
   readingContentPage,
   readingContentsTotal,
+  selectedReadingContentRowKeys,
+  setSelectedReadingContentRowKeys,
   openEditReadingContentModal,
   handleToggleReadingContentStatus,
   handleDeleteReadingContent,
+  handleBatchDeleteReadingContents,
+  handleBatchDisableReadingContents,
   readingSeriesKeyword,
   setReadingSeriesKeyword,
   readingSeriesPage,
@@ -173,6 +179,24 @@ export function buildReadingAdminTabItems({
               </Space>
               <Space wrap>
                 <Button
+                  disabled={!selectedReadingContentRowKeys.length}
+                  onClick={handleBatchDisableReadingContents}
+                >
+                  批量停用
+                </Button>
+                <Popconfirm
+                  title="批量删除选中的读书内容？"
+                  description="已有打卡记录的内容不会被删除。"
+                  onConfirm={handleBatchDeleteReadingContents}
+                  okText="确认删除"
+                  cancelText="取消"
+                  disabled={!selectedReadingContentRowKeys.length}
+                >
+                  <Button danger disabled={!selectedReadingContentRowKeys.length}>
+                    批量删除
+                  </Button>
+                </Popconfirm>
+                <Button
                   icon={<DownloadOutlined />}
                   onClick={async () => saveBlob(await downloadMagicFile("/api/magic-academy/admin/reading-contents/template"))}
                 >
@@ -199,6 +223,12 @@ export function buildReadingAdminTabItems({
               rowKey="id"
               dataSource={groupedReadingContents}
               scroll={{ x: 1400 }}
+              rowSelection={{
+                selectedRowKeys: selectedReadingContentRowKeys,
+                onChange: setSelectedReadingContentRowKeys,
+                checkStrictly: false,
+                getCheckboxProps: (row) => ({ disabled: row._rowType !== "content" }),
+              }}
               expandable={{
                 rowExpandable: (row) => row._rowType === "series" && Array.isArray(row.children) && row.children.length > 0,
                 expandRowByClick: true,
@@ -219,9 +249,21 @@ export function buildReadingAdminTabItems({
               rowClassName={(row) => (row._rowType === "series" ? "magic-academy-reading-series-row" : "")}
               pagination={{
                 current: readingContentPage,
-                pageSize: 20,
+                pageSize: readingContentPageSize,
                 total: readingContentsTotal,
-                onChange: (page) => setReadingContentPage(page),
+                showSizeChanger: true,
+                pageSizeOptions: ["10", "20", "30", "50", "100"],
+                onChange: (page, pageSize) => {
+                  setReadingContentPage(page);
+                  if (pageSize !== readingContentPageSize) {
+                    setReadingContentPageSize(pageSize);
+                  }
+                },
+                onShowSizeChange: (_, pageSize) => {
+                  setReadingContentPage(1);
+                  setReadingContentPageSize(pageSize);
+                },
+                showTotal: (total) => `共 ${total} 条`,
               }}
               columns={[
                 {
@@ -282,8 +324,9 @@ export function buildReadingAdminTabItems({
                     <Image
                       src={buildReadingContentImageUrl(row.id)}
                       alt={row.title}
-                      width={96}
-                      style={{ borderRadius: 8 }}
+                      width={44}
+                      height={58}
+                      style={{ borderRadius: 6, objectFit: "cover", border: "1px solid #f0f0f0" }}
                       preview={{ src: buildReadingContentImageUrl(row.id) }}
                     />
                   ) : "—",
