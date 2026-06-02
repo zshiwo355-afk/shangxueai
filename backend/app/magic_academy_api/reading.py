@@ -30,6 +30,13 @@ from ..magic_academy_schemas import (
     ReadingSeriesPayload,
 )
 from ..magic_auto_actions import enqueue_audio_actions_for_reading_content
+from ..magic_push_service import (
+    batch_to_dict,
+    entries_to_dicts,
+    get_latest_batch,
+    get_push_entries,
+    run_reading_manual_retry,
+)
 from ..models import ConfigOption, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, MagicReadingSeriesTarget, MaterialAsset, User, UserWhitelist
 from . import router
 from ._oss import (
@@ -2177,6 +2184,45 @@ async def get_admin_reading_content_detail(
         is_locked=is_locked,
         completed_count=await _count_reading_completed_users(db, row, targets),
     )
+
+
+@router.get("/admin/reading-contents/{content_id}/push-summary")
+async def get_reading_content_push_summary(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权查看该读书内容。")
+    batch = await get_latest_batch(db, content_type="reading_content", content_id=content_id)
+    return {"item": batch_to_dict(batch)}
+
+
+@router.get("/admin/reading-contents/{content_id}/push-entries")
+async def get_reading_content_push_entries(
+    content_id: int,
+    batch_id: int | None = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权查看该读书内容。")
+    entries = await get_push_entries(db, content_type="reading_content", content_id=content_id, batch_id=batch_id)
+    return {"items": await entries_to_dicts(db, entries)}
+
+
+@router.post("/admin/reading-contents/{content_id}/push-retry")
+async def retry_reading_content_push(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_reading_content_or_404(db, content_id)
+    if not _can_manage_reading_content(admin, row):
+        raise HTTPException(status_code=403, detail="无权操作该读书内容。")
+    return await run_reading_manual_retry(db, content_id=content_id, created_by=int(admin.id))
 
 
 @router.post("/admin/reading-contents/import-preview")

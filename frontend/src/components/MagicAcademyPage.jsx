@@ -82,6 +82,10 @@ import {
   fetchAdminReadingAudioStatisticUsers,
   fetchAdminReadingContentDetail,
   fetchAdminReadingContents,
+  getCoursePushEntries,
+  getCoursePushSummary,
+  getReadingPushEntries,
+  getReadingPushSummary,
   getAdminReadingContentsImportJob,
   fetchAdminReadingSeries,
   fetchAdminReadingSeriesDetail,
@@ -105,6 +109,8 @@ import {
   listMagicVideos,
   listMagicWhitelist,
   publishMagicVideo,
+  retryCoursePush,
+  retryReadingPush,
   previewAdminReadingContentsImport,
   previewAdminReadingContentsImportFromMaterial, // CODEX_MODIFIED
   reorderMagicVideoSeriesItems,
@@ -258,6 +264,15 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [audioMakeupSetting, setAudioMakeupSetting] = useState({ enabled: false, make_up_days: 0, description: "" });
   const [readingContents, setReadingContents] = useState([]);
   const [readingContentsTotal, setReadingContentsTotal] = useState(0);
+  const [videoPushSummaryMap, setVideoPushSummaryMap] = useState({});
+  const [readingPushSummaryMap, setReadingPushSummaryMap] = useState({});
+  const [pushDetailOpen, setPushDetailOpen] = useState(false);
+  const [pushDetailLoading, setPushDetailLoading] = useState(false);
+  const [pushDetailTitle, setPushDetailTitle] = useState("");
+  const [pushDetailRows, setPushDetailRows] = useState([]);
+  const [retryingVideoId, setRetryingVideoId] = useState(null);
+  const [retryingReadingContentId, setRetryingReadingContentId] = useState(null);
+  const [pushDetailTarget, setPushDetailTarget] = useState(null);
   const [readingContentModalOpen, setReadingContentModalOpen] = useState(false);
   const [readingContentModalMode, setReadingContentModalMode] = useState("create");
   const [readingContentEditing, setReadingContentEditing] = useState(null);
@@ -507,6 +522,36 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     [filteredStatsEmployees],
   );
 
+  const loadVideoPushSummaries = async (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    const summaries = await Promise.all(
+      rows.map(async (item) => {
+        try {
+          const result = await getCoursePushSummary(item.id);
+          return [item.id, result?.item || null];
+        } catch {
+          return [item.id, null];
+        }
+      }),
+    );
+    setVideoPushSummaryMap(Object.fromEntries(summaries));
+  };
+
+  const loadReadingPushSummaries = async (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    const summaries = await Promise.all(
+      rows.map(async (item) => {
+        try {
+          const result = await getReadingPushSummary(item.id);
+          return [item.id, result?.item || null];
+        } catch {
+          return [item.id, null];
+        }
+      }),
+    );
+    setReadingPushSummaryMap(Object.fromEntries(summaries));
+  };
+
   const reloadAdminData = async () => {
     if (!adminMode) return;
     const [userData, videoData, pagedVideoData, whitelistData, seriesData] = await Promise.all([
@@ -518,11 +563,13 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     ]);
     setUsers(Array.isArray(userData) ? userData : []);
     setVideos(Array.isArray(videoData) ? videoData : []);
-    setAdminVideoItems(Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []));
+    const adminVideoList = Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []);
+    setAdminVideoItems(adminVideoList);
     setAdminVideoTotal(Number(pagedVideoData?.total ?? (Array.isArray(pagedVideoData) ? pagedVideoData.length : 0)));
     setSelectedAdminVideoRowKeys([]);
     setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
     setVideoSeries(Array.isArray(seriesData) ? seriesData : []);
+    await loadVideoPushSummaries(adminVideoList);
     if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
     if (!quizVideoId && videoData?.[0]?.id) setQuizVideoId(videoData[0].id);
     if (!selectedSeriesId && seriesData?.[0]?.id) setSelectedSeriesId(seriesData[0].id);
@@ -594,9 +641,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       page: params.page ?? readingContentPage,
       page_size: params.page_size ?? readingContentPageSize,
     });
-    setReadingContents(Array.isArray(result?.items) ? result.items : []);
+    const items = Array.isArray(result?.items) ? result.items : [];
+    setReadingContents(items);
     setReadingContentsTotal(Number(result?.total || 0));
     setSelectedReadingContentRowKeys([]);
+    await loadReadingPushSummaries(items);
   };
 
   const reloadReadingSeries = async (params = {}) => {
@@ -613,6 +662,123 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const reloadReadingSeriesSelectOptions = async () => {
     const result = await fetchAdminReadingSeries({ page: 1, page_size: 100, only_selectable: true });
     setReadingSeriesSelectRows(Array.isArray(result?.items) ? result.items : []);
+  };
+
+  const refreshVideoPushSummary = async (videoId) => {
+    try {
+      const result = await getCoursePushSummary(videoId);
+      setVideoPushSummaryMap((prev) => ({ ...prev, [videoId]: result?.item || null }));
+      return result?.item || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const refreshReadingPushSummary = async (contentId) => {
+    try {
+      const result = await getReadingPushSummary(contentId);
+      setReadingPushSummaryMap((prev) => ({ ...prev, [contentId]: result?.item || null }));
+      return result?.item || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const loadPushDetail = async (target) => {
+    try {
+      setPushDetailLoading(true);
+      setPushDetailOpen(true);
+      setPushDetailTarget(target);
+      setPushDetailTitle(target.title);
+      const summary = target.type === "course"
+        ? (videoPushSummaryMap[target.id] || await refreshVideoPushSummary(target.id))
+        : (readingPushSummaryMap[target.id] || await refreshReadingPushSummary(target.id));
+      const batchId = summary?.id;
+      const result = target.type === "course"
+        ? await getCoursePushEntries(target.id, batchId)
+        : await getReadingPushEntries(target.id, batchId);
+      setPushDetailRows(Array.isArray(result?.items) ? result.items : []);
+    } catch (error) {
+      message.error(error?.message || "推送明细加载失败。");
+      setPushDetailOpen(false);
+    } finally {
+      setPushDetailLoading(false);
+    }
+  };
+
+  const handleOpenVideoPushDetail = (row) => {
+    loadPushDetail({ type: "course", id: row.id, title: `${row.title} · 推送明细` });
+  };
+
+  const handleOpenReadingPushDetail = (row) => {
+    loadPushDetail({ type: "reading_content", id: row.id, title: `${row.title} · 推送明细` });
+  };
+
+  const refreshOpenPushDetailIfNeeded = async (type, id) => {
+    if (!pushDetailOpen || !pushDetailTarget || pushDetailTarget.type !== type || pushDetailTarget.id !== id) return;
+    await loadPushDetail(pushDetailTarget);
+  };
+
+  const showRetryConfirm = ({ onOk }) => {
+    Modal.confirm({
+      title: "确认立即补推",
+      content: "本次只会补推历史未成功接收的人和当前新增命中的人，已成功接收的人不会重复推送。确认立即补推吗？",
+      okText: "确认补推",
+      cancelText: "取消",
+      onOk,
+    });
+  };
+
+  const handleRetryVideoPush = (row) => {
+    showRetryConfirm({
+      onOk: async () => {
+        try {
+          setRetryingVideoId(row.id);
+          const result = await retryCoursePush(row.id);
+          if (result?.status === "noop") {
+            message.info("没有可补推对象。");
+          } else {
+            message.success(`补推完成：成功 ${result?.success_count || 0}，失败 ${result?.failed_count || 0}，跳过 ${result?.skipped_count || 0}`);
+          }
+          await refreshVideoPushSummary(row.id);
+          await refreshOpenPushDetailIfNeeded("course", row.id);
+        } catch (error) {
+          if (error?.status === 409) {
+            message.warning("当前存在推送中任务，请稍后再试。");
+          } else {
+            message.error(error?.message || "课程补推失败。");
+          }
+        } finally {
+          setRetryingVideoId(null);
+        }
+      },
+    });
+  };
+
+  const handleRetryReadingPush = (row) => {
+    showRetryConfirm({
+      onOk: async () => {
+        try {
+          setRetryingReadingContentId(row.id);
+          const result = await retryReadingPush(row.id);
+          if (result?.status === "noop") {
+            message.info("没有可补推对象。");
+          } else {
+            message.success(`补推完成：成功 ${result?.success_count || 0}，失败 ${result?.failed_count || 0}，跳过 ${result?.skipped_count || 0}`);
+          }
+          await refreshReadingPushSummary(row.id);
+          await refreshOpenPushDetailIfNeeded("reading_content", row.id);
+        } catch (error) {
+          if (error?.status === 409) {
+            message.warning("当前存在推送中任务，请稍后再试。");
+          } else {
+            message.error(error?.message || "读书补推失败。");
+          }
+        } finally {
+          setRetryingReadingContentId(null);
+        }
+      },
+    });
   };
 
   const activeReadingSeriesOptions = useMemo(
@@ -1798,8 +1964,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       reloadAdminData,
       publishingVideoId,
       disablingVideoId,
+      videoPushSummaryMap,
+      handleOpenVideoPushDetail,
+      handleRetryVideoPush,
+      retryingVideoId,
     }),
-    [disablingVideoId, publishingVideoId],
+    [disablingVideoId, publishingVideoId, retryingVideoId, videoPushSummaryMap],
   );
 
   const whitelistColumns = useMemo(
@@ -3351,6 +3521,10 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       handleDeleteReadingContent,
       handleBatchDeleteReadingContents,
       handleBatchDisableReadingContents,
+      readingPushSummaryMap,
+      handleOpenReadingPushDetail,
+      handleRetryReadingPush,
+      retryingReadingContentId,
       readingSeriesKeyword,
       setReadingSeriesKeyword,
       readingSeriesPage,
@@ -3720,6 +3894,59 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       ) : (
         userViewContent
       )}
+
+      <Modal
+        open={pushDetailOpen}
+        title={pushDetailTitle || "推送明细"}
+        footer={null}
+        width={960}
+        onCancel={() => {
+          setPushDetailOpen(false);
+          setPushDetailRows([]);
+        }}
+      >
+        <Table
+          rowKey="id"
+          loading={pushDetailLoading}
+          dataSource={pushDetailRows}
+          pagination={{ pageSize: 10 }}
+          scroll={{ x: 900 }}
+          columns={[
+            { title: "用户姓名", dataIndex: "recipient_name", render: (value) => value || "—" },
+            { title: "部门", dataIndex: "department", render: (value) => value || "—" },
+            {
+              title: "企微账号",
+              dataIndex: "recipient_wecom_userid",
+              render: (value) => value || "未绑定",
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              render: (value) => {
+                if (value === "sent") return <Tag color="success">已发送</Tag>;
+                if (value === "failed") return <Tag color="error">发送失败</Tag>;
+                if (value === "skipped") return <Tag color="default">未发送</Tag>;
+                return <Tag color="processing">待发送</Tag>;
+              },
+            },
+            {
+              title: "跳过原因",
+              dataIndex: "skip_reason",
+              render: (value) => {
+                if (value === "missing_wecom_userid") return "缺少企微绑定";
+                if (value === "already_sent_in_previous_batch") return "历史已成功推送";
+                return value || "—";
+              },
+            },
+            { title: "失败原因", dataIndex: "error", render: (value) => value || "—" },
+            {
+              title: "推送时间",
+              dataIndex: "sent_at",
+              render: (value) => value?.replace("T", " ").slice(0, 19) || "—",
+            },
+          ]}
+        />
+      </Modal>
 
       <MagicAcademyPageModals
         videoDetail={videoDetail}

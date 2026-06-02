@@ -980,6 +980,67 @@ CREATE TABLE `notification_logs` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `magic_push_batches`
+--
+
+DROP TABLE IF EXISTS `magic_push_batches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_push_batches` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `content_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content_id` bigint NOT NULL,
+  `trigger_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `dedupe_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_snapshot_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `title_snapshot` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `scheduled_at` datetime DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `success_count` int NOT NULL DEFAULT '0',
+  `failed_count` int NOT NULL DEFAULT '0',
+  `skipped_count` int NOT NULL DEFAULT '0',
+  `created_by` bigint DEFAULT NULL,
+  `summary_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_push_batches_dedupe` (`dedupe_key`) USING BTREE,
+  KEY `idx_magic_push_batches_content` (`content_type`,`content_id`,`created_at`) USING BTREE,
+  KEY `idx_magic_push_batches_status` (`status`,`scheduled_at`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院推送批次';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_push_entries`
+--
+
+DROP TABLE IF EXISTS `magic_push_entries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_push_entries` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint NOT NULL,
+  `content_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content_id` bigint NOT NULL,
+  `recipient_user_id` bigint NOT NULL,
+  `recipient_wecom_userid` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `skip_reason` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `notification_log_id` bigint DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_magic_push_entries_batch_user` (`batch_id`,`recipient_user_id`) USING BTREE,
+  KEY `idx_magic_push_entries_content_user` (`content_type`,`content_id`,`recipient_user_id`,`created_at`) USING BTREE,
+  KEY `idx_magic_push_entries_status` (`status`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院推送明细';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `wecom_sync_batches`
 --
 

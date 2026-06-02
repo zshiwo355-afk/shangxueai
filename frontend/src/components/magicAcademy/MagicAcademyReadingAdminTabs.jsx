@@ -29,6 +29,15 @@ import { buildReadingContentImageUrl } from "../../lib/api.magic";
 import { getSeriesTargetSummary } from "./magicAcademyPageHelpers";
 import { getReadingTargetSummary, saveBlob } from "./magicAcademyShared";
 
+function getPushStatusMeta(status) {
+  if (status === "sent") return { label: "已推送", color: "success" };
+  if (status === "partial") return { label: "部分成功", color: "warning" };
+  if (status === "failed") return { label: "推送失败", color: "error" };
+  if (status === "pending") return { label: "待推送", color: "default" };
+  if (status === "running") return { label: "推送中", color: "processing" };
+  return { label: "未推送", color: "default" };
+}
+
 export function buildReadingAdminTabItems({
   readingContentMonth,
   setReadingContentMonth,
@@ -55,6 +64,10 @@ export function buildReadingAdminTabItems({
   handleDeleteReadingContent,
   handleBatchDeleteReadingContents,
   handleBatchDisableReadingContents,
+  readingPushSummaryMap = {},
+  handleOpenReadingPushDetail,
+  handleRetryReadingPush,
+  retryingReadingContentId,
   readingSeriesKeyword,
   setReadingSeriesKeyword,
   readingSeriesPage,
@@ -367,6 +380,43 @@ export function buildReadingAdminTabItems({
                       ? hideSeriesCell()
                       : (value?.replace("T", " ").slice(0, 19) || "—")
                   ),
+                },
+                {
+                  title: "推送",
+                  width: 240,
+                  render: (_, row) => {
+                    if (row._rowType === "series") return hideSeriesCell();
+                    const summary = readingPushSummaryMap?.[row.id] || null;
+                    const meta = getPushStatusMeta(summary?.status);
+                    const latestTime = summary?.finished_at || summary?.started_at || summary?.created_at || "";
+                    const retryDisabled = summary?.status === "running" || summary?.status === "pending";
+                    return (
+                      <Space direction="vertical" size={4}>
+                        <Space wrap size={4}>
+                          <Tag color={meta.color}>{meta.label}</Tag>
+                          <span style={{ color: "#8c8c8c", fontSize: 12 }}>
+                            {summary ? `成功 ${summary.success_count || 0} / 失败 ${summary.failed_count || 0} / 跳过 ${summary.skipped_count || 0}` : "暂无记录"}
+                          </span>
+                        </Space>
+                        <span style={{ color: "#8c8c8c", fontSize: 12 }}>
+                          {latestTime ? latestTime.replace("T", " ").slice(0, 19) : "—"}
+                        </span>
+                        <Space size={4} wrap>
+                          <Button size="small" onClick={() => handleOpenReadingPushDetail(row)}>
+                            查看明细
+                          </Button>
+                          <Button
+                            size="small"
+                            disabled={retryDisabled}
+                            loading={retryingReadingContentId === row.id}
+                            onClick={() => handleRetryReadingPush(row)}
+                          >
+                            立即补推
+                          </Button>
+                        </Space>
+                      </Space>
+                    );
+                  },
                 },
                 { title: "创建人", dataIndex: "creator_name", render: (value) => value || "—", width: 120 },
                 { title: "创建时间", dataIndex: "created_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—", width: 180 },

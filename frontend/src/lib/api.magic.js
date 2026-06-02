@@ -103,6 +103,18 @@ export async function updateMagicVideo(id, payload) {
 export async function deleteMagicVideo(id) {
   return deleteJson(`/api/magic-academy/videos/${id}`, "删除视频失败。");
 }
+export async function getCoursePushSummary(videoId) {
+  return getJson(`/api/magic-academy/videos/${videoId}/push-summary`, "课程推送汇总加载失败。");
+}
+export async function getCoursePushEntries(videoId, batchId) {
+  const search = new URLSearchParams();
+  if (batchId) search.set("batch_id", String(batchId));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/videos/${videoId}/push-entries${suffix}`, "课程推送明细加载失败。");
+}
+export async function retryCoursePush(videoId) {
+  return postJson(`/api/magic-academy/videos/${videoId}/push-retry`, {}, "课程补推失败。");
+}
 export async function listMagicVideoSeries() {
   return getJson("/api/magic-academy/admin/video-series", "系列列表加载失败。");
 }
@@ -406,6 +418,18 @@ export async function fetchAdminReadingContents(params = {}) {
 }
 export async function fetchAdminReadingContentDetail(id) {
   return getJson(`/api/magic-academy/admin/reading-contents/${id}`, "读书内容详情加载失败。");
+}
+export async function getReadingPushSummary(contentId) {
+  return getJson(`/api/magic-academy/admin/reading-contents/${contentId}/push-summary`, "读书推送汇总加载失败。");
+}
+export async function getReadingPushEntries(contentId, batchId) {
+  const search = new URLSearchParams();
+  if (batchId) search.set("batch_id", String(batchId));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/reading-contents/${contentId}/push-entries${suffix}`, "读书推送明细加载失败。");
+}
+export async function retryReadingPush(contentId) {
+  return postJson(`/api/magic-academy/admin/reading-contents/${contentId}/push-retry`, {}, "读书补推失败。");
 }
 async function submitReadingContentForm(url, method, payload, errorMessage) {
   const formData = new FormData();

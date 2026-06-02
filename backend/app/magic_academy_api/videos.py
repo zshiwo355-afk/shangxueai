@@ -30,6 +30,15 @@ from ..magic_academy_schemas import (
     MagicVideoUploadFailPayload,
     MagicVideoUploadInitPayload,
 )
+from ..magic_push_service import (
+    batch_to_dict,
+    entries_to_dicts,
+    get_latest_batch,
+    get_push_entries,
+    run_course_manual_retry,
+    schedule_course_initial_push,
+    should_trigger_course_initial_push,
+)
 from ..models import (
     MagicVideo,
     MagicVideoProgress,
@@ -972,7 +981,10 @@ async def create_video(
         )
     await db.flush()
     await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
-    return await _commit_refresh_and_serialize_video(db, video)
+    response = await _commit_refresh_and_serialize_video(db, video)
+    if should_trigger_course_initial_push(old_status="draft", new_status=video.status):
+        schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
+    return response
 
 
 @router.get("/videos/{video_id}")
@@ -994,6 +1006,41 @@ async def get_video(
     )
 
 
+@router.get("/videos/{video_id}/push-summary")
+async def get_video_push_summary(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    await _get_video_or_404(db, video_id)
+    batch = await get_latest_batch(db, content_type="course", content_id=video_id)
+    return {"item": batch_to_dict(batch)}
+
+
+@router.get("/videos/{video_id}/push-entries")
+async def get_video_push_entries(
+    video_id: int,
+    batch_id: int | None = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    await _get_video_or_404(db, video_id)
+    entries = await get_push_entries(db, content_type="course", content_id=video_id, batch_id=batch_id)
+    return {"items": await entries_to_dicts(db, entries)}
+
+
+@router.post("/videos/{video_id}/push-retry")
+async def retry_video_push(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    await _get_video_or_404(db, video_id)
+    return await run_course_manual_retry(db, video_id=video_id, created_by=int(admin.id))
+
+
 @router.put("/videos/{video_id}")
 async def update_video(
     video_id: int,
@@ -1003,6 +1050,7 @@ async def update_video(
 ) -> dict[str, Any]:
     async with _video_operation_scope(video_id):
         video = await _get_video_or_404(db, video_id)
+        old_status = (video.status or "draft").strip().lower()
         old_cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         old_cover_url = (video.cover_url or "").strip()
         next_file_name = payload.file_name.strip() or video.file_name
@@ -1106,7 +1154,10 @@ async def update_video(
             [old_cover_cleanup_key if old_cover_url != (video.cover_url or "").strip() else ""],
             logger=logger,
         )
-        return await _refresh_and_serialize_video(db, video)
+        response = await _refresh_and_serialize_video(db, video)
+        if should_trigger_course_initial_push(old_status=old_status, new_status=video.status):
+            schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
+        return response
 
 
 @router.delete("/videos/{video_id}")
@@ -1190,11 +1241,15 @@ async def publish_video(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     video = await _get_video_or_404(db, video_id)
+    old_status = (video.status or "draft").strip().lower()
     if not _is_video_upload_ready(video):
         raise HTTPException(status_code=400, detail="视频尚未上传完成，不能发布。")
     video.status = "published"
     await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
-    return await _commit_refresh_and_serialize_video(db, video)
+    response = await _commit_refresh_and_serialize_video(db, video)
+    if should_trigger_course_initial_push(old_status=old_status, new_status=video.status):
+        schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
+    return response
 
 
 @router.post("/videos/batch-publish")

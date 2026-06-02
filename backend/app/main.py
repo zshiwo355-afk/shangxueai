@@ -22,6 +22,7 @@ from .exams_api import (
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
+from .magic_push_service import reading_push_worker
 from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
@@ -55,6 +56,8 @@ _wecom_sync_stop_event = asyncio.Event()
 _wecom_sync_task: asyncio.Task | None = None
 _paper_ai_stop_event = asyncio.Event()
 _paper_ai_task: asyncio.Task | None = None
+_reading_push_stop_event = asyncio.Event()
+_reading_push_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,7 +111,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
-    global _auto_action_task, _wecom_sync_task, _paper_ai_task
+    global _auto_action_task, _wecom_sync_task, _paper_ai_task, _reading_push_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -128,14 +131,18 @@ async def _preload_rules() -> None:
     if _paper_ai_task is None or _paper_ai_task.done():
         _paper_ai_stop_event.clear()
         _paper_ai_task = asyncio.create_task(paper_ai_worker(_paper_ai_stop_event))
+    if _reading_push_task is None or _reading_push_task.done():
+        _reading_push_stop_event.clear()
+        _reading_push_task = asyncio.create_task(reading_push_worker(_reading_push_stop_event))
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
-    global _auto_action_task, _wecom_sync_task, _paper_ai_task
+    global _auto_action_task, _wecom_sync_task, _paper_ai_task, _reading_push_task
     _auto_action_stop_event.set()
     _wecom_sync_stop_event.set()
     _paper_ai_stop_event.set()
+    _reading_push_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -163,6 +170,15 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("paper AI worker stopped with error")
         finally:
             _paper_ai_task = None
+    if _reading_push_task is None:
+        pass
+    else:
+        try:
+            await _reading_push_task
+        except Exception:  # noqa: BLE001
+            logger.exception("reading push worker stopped with error")
+        finally:
+            _reading_push_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

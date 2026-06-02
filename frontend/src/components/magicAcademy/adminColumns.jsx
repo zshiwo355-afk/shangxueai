@@ -2,6 +2,15 @@ import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { Button, Image, Popconfirm, Space, Tag } from "antd";
 import { formatTime, getVideoStatusMeta } from "./magicAcademyShared";
 
+function getPushStatusMeta(status) {
+  if (status === "sent") return { label: "已推送", color: "success" };
+  if (status === "partial") return { label: "部分成功", color: "warning" };
+  if (status === "failed") return { label: "推送失败", color: "error" };
+  if (status === "pending") return { label: "待推送", color: "default" };
+  if (status === "running") return { label: "推送中", color: "processing" };
+  return { label: "未推送", color: "default" };
+}
+
 export function buildStatsColumns(showWhitelist = false) {
   const columns = [
     { title: "姓名", dataIndex: "name" },
@@ -48,6 +57,10 @@ export function buildAdminVideoColumns({
   reloadAdminData,
   publishingVideoId,
   disablingVideoId,
+  videoPushSummaryMap,
+  handleOpenVideoPushDetail,
+  handleRetryVideoPush,
+  retryingVideoId,
 }) {
   return [
     {
@@ -82,6 +95,43 @@ export function buildAdminVideoColumns({
     },
     { title: "上传", dataIndex: "upload_status", render: (v) => <Tag color={v === "completed" ? "success" : v === "failed" ? "error" : "processing"}>{v || "completed"}</Tag> },
     { title: "必修", dataIndex: "is_required", render: (v) => v ? <Tag color="gold">必修</Tag> : "—" },
+    {
+      title: "推送",
+      key: "push",
+      width: 240,
+      render: (_, row) => {
+        const summary = videoPushSummaryMap?.[row.id] || null;
+        const meta = getPushStatusMeta(summary?.status);
+        const latestTime = summary?.finished_at || summary?.started_at || summary?.created_at || "";
+        const retryDisabled = summary?.status === "running" || summary?.status === "pending";
+        return (
+          <Space direction="vertical" size={4}>
+            <Space wrap size={4}>
+              <Tag color={meta.color}>{meta.label}</Tag>
+              <span style={{ color: "#8c8c8c", fontSize: 12 }}>
+                {summary ? `成功 ${summary.success_count || 0} / 失败 ${summary.failed_count || 0} / 跳过 ${summary.skipped_count || 0}` : "暂无记录"}
+              </span>
+            </Space>
+            <span style={{ color: "#8c8c8c", fontSize: 12 }}>
+              {latestTime ? latestTime.replace("T", " ").slice(0, 19) : "—"}
+            </span>
+            <Space size={4} wrap>
+              <Button size="small" onClick={() => handleOpenVideoPushDetail(row)}>
+                查看明细
+              </Button>
+              <Button
+                size="small"
+                disabled={retryDisabled}
+                loading={retryingVideoId === row.id}
+                onClick={() => handleRetryVideoPush(row)}
+              >
+                立即补推
+              </Button>
+            </Space>
+          </Space>
+        );
+      },
+    },
     {
       title: "操作",
       key: "action",

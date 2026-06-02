@@ -77,6 +77,63 @@ class NotificationLog(Base):
     )
 
 
+class MagicPushBatch(Base):
+    __tablename__ = "magic_push_batches"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    trigger_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_snapshot_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    title_snapshot: Mapped[str] = mapped_column(String(255), default="")
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    summary_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uk_magic_push_batches_dedupe"),
+        Index("idx_magic_push_batches_content", "content_type", "content_id", "created_at"),
+        Index("idx_magic_push_batches_status", "status", "scheduled_at", "created_at"),
+    )
+
+
+class MagicPushEntry(Base):
+    __tablename__ = "magic_push_entries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recipient_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    recipient_wecom_userid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    skip_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notification_log_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("batch_id", "recipient_user_id", name="uk_magic_push_entries_batch_user"),
+        Index("idx_magic_push_entries_content_user", "content_type", "content_id", "recipient_user_id", "created_at"),
+        Index("idx_magic_push_entries_status", "status", "created_at"),
+    )
+
+
 class WecomSyncBatch(Base):
     __tablename__ = "wecom_sync_batches"
 
