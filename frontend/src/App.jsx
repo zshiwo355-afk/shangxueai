@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { Spin } from "antd";
 
 import LoginPage from "./components/LoginPage";
+import WecomCallbackPage from "./components/WecomCallbackPage";
 
 const HomePage = lazy(() => import("./components/HomePage"));
 const AdminLayout = lazy(() => import("./components/AdminLayout"));
@@ -88,6 +89,7 @@ export default function App() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/auth/wecom/callback" element={<WecomCallbackPage />} />
 
         <Route path="/" element={<HomeRedirect />} />
 

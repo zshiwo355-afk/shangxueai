@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,14 @@ from .access import ensure_super_admin, is_admin_like, is_super_admin
 from .config import get_settings
 from .db import get_db
 from .models import User
+from .wecom_auth import (
+    WecomAuthError,
+    build_auth_user_payload,
+    build_authorize_url,
+    build_frontend_callback_redirect,
+    decode_state,
+    login_by_code,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -180,6 +189,13 @@ class MeResponse(BaseModel):
     is_newcomer: bool = False
     employment_status: str = ""
     status: str = "active"
+    wecom_userid: str = ""
+
+
+class AuthProvidersResponse(BaseModel):
+    password_enabled: bool = True
+    wecom_enabled: bool = False
+    wecom_auto_redirect_in_client: bool = False
 
 
 # --------- routes ---------
@@ -216,6 +232,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
             "is_newcomer": bool(user.is_newcomer),
             "employment_status": user.employment_status or "",
             "status": user.status or "active",
+            "wecom_userid": user.wecom_userid or "",
         },
     )
 
@@ -233,6 +250,7 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
         is_newcomer=bool(user.is_newcomer),
         employment_status=user.employment_status or "",
         status=user.status or "active",
+        wecom_userid=user.wecom_userid or "",
     )
 
 
@@ -240,3 +258,54 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
 async def logout() -> dict:
     """JWT 是无状态的，登出由前端清 token 即可；这里仅返回 ok。"""
     return {"ok": True}
+
+
+@router.get("/providers", response_model=AuthProvidersResponse)
+async def auth_providers() -> AuthProvidersResponse:
+    return AuthProvidersResponse(
+        password_enabled=True,
+        wecom_enabled=bool(_settings.wecom_login_ready),
+        wecom_auto_redirect_in_client=bool(_settings.wecom_login_ready and _settings.wecom_auto_redirect_in_client),
+    )
+
+
+@router.get("/wecom/start")
+async def wecom_start(
+    redirect: str = "/home",
+) -> RedirectResponse:
+    if not _settings.wecom_login_ready:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业微信登录未启用。")
+    return RedirectResponse(build_authorize_url(redirect))
+
+
+@router.get("/wecom/callback")
+async def wecom_callback(
+    code: str = "",
+    state: str = "",
+    db: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    redirect = "/home"
+    if not _settings.wecom_login_ready:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="企业微信登录未启用。")
+    try:
+        redirect = decode_state(state)
+        if not code.strip():
+            raise WecomAuthError("企业微信未返回授权码。", code="wecom_missing_code")
+        user, _member = await login_by_code(db, code=code.strip())
+        token, exp = create_token(user.id, user.username, user.role)
+        return RedirectResponse(
+            build_frontend_callback_redirect(
+                redirect=redirect,
+                token=token,
+                expires_at=exp,
+                user=build_auth_user_payload(user),
+            )
+        )
+    except WecomAuthError as exc:
+        return RedirectResponse(
+            build_frontend_callback_redirect(
+                redirect=redirect,
+                error=str(exc),
+                error_code=exc.code,
+            )
+        )

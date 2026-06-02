@@ -1,16 +1,20 @@
-import { DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, InboxOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, DownloadOutlined, EditOutlined, ExclamationCircleOutlined, ImportOutlined, InboxOutlined, PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import {
   Alert,
   Button,
+  Col,
   Form,
   Input,
   Modal,
   Popconfirm,
+  Row,
+  Segmented,
   Select,
   Space,
   Switch,
   Table,
   Tag,
+  Tooltip,
   Upload,
   App as AntdApp,
 } from "antd";
@@ -21,8 +25,11 @@ import {
   adminBulkDeleteUsers,
   adminCreateUser,
   adminDeleteUser,
+  adminExecuteEmployeeSync,
   adminGetUserDetail,
   adminListDepartments,
+  adminPreviewEmployeeSync,
+  adminSearchExternalEmployees,
   adminSearchUsers,
   adminUpdateUser,
   buildUsersTemplateUrl,
@@ -31,6 +38,53 @@ import { getCurrentUser, isSuperAdmin } from "../../lib/auth";
 import { fetchOptions } from "../../lib/api.options";
 
 const { Dragger } = Upload;
+
+const EMPLOYEE_SYNC_ACTION_LABELS = {
+  update_bound: "更新已绑定账号",
+  bind_by_mobile: "按姓名手机号绑定",
+  update_by_name: "同名更新手机号",
+  pending_create: "新建本地账号",
+  local_unbound: "仅提示",
+  mark_left: "置为离职",
+  conflict: "冲突需处理",
+  skip_missing_identity: "跳过",
+};
+
+const EMPLOYEE_SYNC_ACTION_COLORS = {
+  update_bound: "blue",
+  bind_by_mobile: "cyan",
+  update_by_name: "geekblue",
+  pending_create: "green",
+  local_unbound: "default",
+  mark_left: "orange",
+  conflict: "red",
+  skip_missing_identity: "default",
+};
+
+const EMPLOYEE_SYNC_SUMMARY_LABELS = {
+  update_bound: "已绑定更新",
+  bind_by_mobile: "姓名手机号绑定",
+  update_by_name: "同名改号更新",
+  pending_create: "待新建",
+  local_unbound: "仅提示",
+  mark_left: "将离职",
+  conflict: "冲突",
+  skipped: "跳过",
+};
+
+const USER_SYNC_ISSUE_LABELS = {
+  conflict: "冲突待处理",
+  local_unbound: "待确认",
+  update_by_name: "改号未完成",
+  pending_create: "待新建",
+};
+
+const USER_SYNC_ISSUE_COLORS = {
+  conflict: "red",
+  local_unbound: "orange",
+  update_by_name: "gold",
+  pending_create: "blue",
+};
 
 export default function UsersTab() {
   const [items, setItems] = useState([]);
@@ -53,9 +107,20 @@ export default function UsersTab() {
   const [modalLoading, setModalLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [wecomPreviewOpen, setWecomPreviewOpen] = useState(false);
+  const [wecomPreviewLoading, setWecomPreviewLoading] = useState(false);
+  const [wecomSyncRunning, setWecomSyncRunning] = useState(false);
+  const [wecomInitialMode, setWecomInitialMode] = useState(true);
+  const [wecomPreview, setWecomPreview] = useState(null);
+  const [wecomPreviewActionFilter, setWecomPreviewActionFilter] = useState();
+  const [externalSearchOpen, setExternalSearchOpen] = useState(false);
+  const [externalSearchLoading, setExternalSearchLoading] = useState(false);
+  const [externalSearchItems, setExternalSearchItems] = useState([]);
+  const [externalSearchForm] = Form.useForm();
   const [form] = Form.useForm();
   const { message } = AntdApp.useApp();
   const fillTickRef = useRef(0);
+  const previewTickRef = useRef(0);
 
   const reload = async () => {
     setLoading(true);
@@ -237,9 +302,72 @@ export default function UsersTab() {
     }
   };
 
+  const loadWecomPreview = async (initialMode = wecomInitialMode) => {
+    const requestId = previewTickRef.current + 1;
+    previewTickRef.current = requestId;
+    setWecomInitialMode(initialMode);
+    setWecomPreviewLoading(true);
+    try {
+      const data = await adminPreviewEmployeeSync(initialMode);
+      if (requestId !== previewTickRef.current) return;
+      setWecomPreview(data);
+      setWecomInitialMode(Boolean(data?.initial_mode));
+      setWecomPreviewOpen(true);
+    } catch (err) {
+      if (requestId === previewTickRef.current) {
+        message.error(err?.message || "员工同步预览失败。");
+      }
+    } finally {
+      if (requestId === previewTickRef.current) {
+        setWecomPreviewLoading(false);
+      }
+    }
+  };
+
+  const runWecomSync = async () => {
+    setWecomSyncRunning(true);
+    try {
+      const effectiveInitialMode = Boolean(wecomPreview?.initial_mode ?? wecomInitialMode);
+      const result = await adminExecuteEmployeeSync(effectiveInitialMode, wecomPreview?.preview_token || "");
+      message.success(`员工同步已执行，批次 #${result.batch_id}`);
+      await loadWecomPreview(effectiveInitialMode);
+      await reload();
+      await reloadDepartments();
+    } catch (err) {
+      message.error(err?.message || "员工同步执行失败。");
+    } finally {
+      setWecomSyncRunning(false);
+    }
+  };
+
+  const searchExternalEmployees = async () => {
+    const values = externalSearchForm.getFieldsValue();
+    const params = {
+      name: values.name?.trim() || undefined,
+      mobile: values.mobile?.trim() || undefined,
+      external_user_id: values.external_user_id || undefined,
+    };
+    setExternalSearchLoading(true);
+    try {
+      const data = await adminSearchExternalEmployees(params);
+      setExternalSearchItems(Array.isArray(data?.items) ? data.items : []);
+      setExternalSearchOpen(true);
+    } catch (err) {
+      message.error(err?.message || "第三方员工查询失败。");
+    } finally {
+      setExternalSearchLoading(false);
+    }
+  };
+
   const isProtectedRow = (row) => (
     row.id === currentUser?.id || (row.role === "super_admin" && !canManageSuperAdmin)
   );
+
+  const filteredWecomPreviewItems = useMemo(() => {
+    const rows = Array.isArray(wecomPreview?.items) ? wecomPreview.items : [];
+    if (!wecomPreviewActionFilter) return rows;
+    return rows.filter((row) => row.action === wecomPreviewActionFilter);
+  }, [wecomPreview, wecomPreviewActionFilter]);
 
   const columns = [
     { title: "ID", dataIndex: "id", width: 70 },
@@ -284,6 +412,24 @@ export default function UsersTab() {
     },
     {
       title: "创建时间",
+      title: "同步标识",
+      dataIndex: "sync_issue_action",
+      width: 150,
+      render: (_, row) => {
+        if (!row.sync_issue_action) return "—";
+        const label = USER_SYNC_ISSUE_LABELS[row.sync_issue_action] || "待处理";
+        const color = USER_SYNC_ISSUE_COLORS[row.sync_issue_action] || "orange";
+        return (
+          <Tooltip title={row.sync_issue_reason || label}>
+            <Tag bordered={false} color={color} icon={<ExclamationCircleOutlined />}>
+              {label}
+            </Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: "鍒涘缓鏃堕棿",
       dataIndex: "created_at",
       width: 150,
       render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—",
@@ -331,6 +477,8 @@ export default function UsersTab() {
           value={employmentStatus}
           onChange={(v) => { setPage(1); setEmploymentStatus(v); }}
         />
+        <Button icon={<SearchOutlined />} loading={externalSearchLoading} onClick={() => setExternalSearchOpen(true)}>查第三方员工</Button>
+        <Button icon={<SyncOutlined />} loading={wecomPreviewLoading} onClick={() => loadWecomPreview(wecomInitialMode)}>员工同步预览</Button>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建用户</Button>
         <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>批量导入</Button>
         <Button icon={<DownloadOutlined />} href={buildUsersTemplateUrl()} target="_blank">下载模板</Button>
@@ -384,6 +532,135 @@ export default function UsersTab() {
       ) : null}
 
       <Modal
+        open={wecomPreviewOpen}
+        title="员工同步预览"
+        onCancel={() => setWecomPreviewOpen(false)}
+        onOk={runWecomSync}
+        okText="执行同步"
+        cancelText="关闭"
+        confirmLoading={wecomSyncRunning}
+        width="92vw"
+        style={{ top: 24 }}
+        destroyOnHidden
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <Space wrap align="center">
+            <span style={{ fontWeight: 600 }}>同步模式</span>
+            <Segmented
+              value={wecomInitialMode ? "initial" : "daily"}
+              options={[
+                { label: "首次初始化", value: "initial" },
+                { label: "日常同步", value: "daily" },
+              ]}
+              onChange={(value) => {
+                const nextInitialMode = value === "initial";
+                setWecomInitialMode(nextInitialMode);
+                loadWecomPreview(nextInitialMode);
+              }}
+            />
+            <Tag color={wecomInitialMode ? "blue" : "orange"}>
+              {wecomInitialMode ? "不会置离职" : "会处理离职"}
+            </Tag>
+          </Space>
+          <Alert
+            type="info"
+            showIcon
+            message={wecomInitialMode ? "初始化模式：先显示第三方员工的匹配/新建结果，再显示本地多出来的账号；本地多出来的账号只提示，不处理。" : "日常模式：继续更新、新建员工；已绑定但第三方缺失的普通账号会置为离职/禁用，受保护状态会跳过。"}
+          />
+          {wecomPreview ? (
+            <Space wrap>
+              <Tag color="blue">外部员工 {wecomPreview.total_source_users || 0}</Tag>
+              {Object.entries(wecomPreview.summary || {}).map(([key, value]) => (
+                <Tag key={key}>{EMPLOYEE_SYNC_SUMMARY_LABELS[key] || key}: {value}</Tag>
+              ))}
+            </Space>
+          ) : null}
+          <Space wrap>
+            <Select
+              allowClear
+              placeholder="筛选处理结果"
+              value={wecomPreviewActionFilter}
+              onChange={setWecomPreviewActionFilter}
+              style={{ width: 180 }}
+              options={Object.entries(EMPLOYEE_SYNC_ACTION_LABELS).map(([value, label]) => ({ value, label }))}
+            />
+            <span style={{ color: "var(--text-mute)" }}>
+              当前显示 {filteredWecomPreviewItems.length} 条
+            </span>
+          </Space>
+          <Table
+            rowKey={(row) => `${row.action}-${row.local_user_id || 0}-${row.wecom_userid || row.mobile || "x"}`}
+            loading={wecomPreviewLoading}
+            dataSource={filteredWecomPreviewItems}
+            size="small"
+            pagination={{ pageSize: 8 }}
+            scroll={{ x: 1280 }}
+            columns={[
+              {
+                title: "处理结果",
+                dataIndex: "action",
+                width: 150,
+                render: (value) => (
+                  <Tag color={EMPLOYEE_SYNC_ACTION_COLORS[value] || "default"}>
+                    {EMPLOYEE_SYNC_ACTION_LABELS[value] || value || "未知"}
+                  </Tag>
+                ),
+              },
+              { title: "本地账号", dataIndex: "local_username", width: 220, render: (_, row) => row.local_name ? `${row.local_name} / ${row.local_username || "—"}` : (row.local_username || "—") },
+              { title: "第三方员工", dataIndex: "wecom_name", width: 240, render: (_, row) => row.wecom_name ? `${row.wecom_name} / ${row.wecom_userid || "—"}` : (row.wecom_userid || "—") },
+              { title: "手机号", dataIndex: "mobile", width: 130, render: (value) => value || "—" },
+              { title: "部门", dataIndex: "department", width: 260, render: (value) => value || "—" },
+              { title: "说明", dataIndex: "reason", width: 420, render: (value) => value || "将更新本地账号信息。" },
+            ]}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        open={externalSearchOpen}
+        title="查第三方员工"
+        onCancel={() => setExternalSearchOpen(false)}
+        footer={<Button onClick={() => setExternalSearchOpen(false)}>关闭</Button>}
+        width={980}
+        destroyOnHidden
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size={16}>
+          <Form form={externalSearchForm} layout="inline" onFinish={searchExternalEmployees}>
+            <Form.Item name="name" label="姓名">
+              <Input allowClear placeholder="模糊搜索" style={{ width: 140 }} />
+            </Form.Item>
+            <Form.Item name="mobile" label="手机号">
+              <Input allowClear placeholder="模糊搜索" style={{ width: 150 }} />
+            </Form.Item>
+            <Form.Item name="external_user_id" label="员工ID">
+              <Input allowClear placeholder="精确查询" style={{ width: 130 }} />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" icon={<SearchOutlined />} loading={externalSearchLoading}>查询</Button>
+            </Form.Item>
+          </Form>
+          <Table
+            rowKey={(row) => row.external_user_id || `${row.mobile}-${row.wecom_userid}`}
+            loading={externalSearchLoading}
+            dataSource={externalSearchItems}
+            size="small"
+            pagination={{ pageSize: 8 }}
+            scroll={{ x: 1000 }}
+            columns={[
+              { title: "员工ID", dataIndex: "external_user_id", width: 90 },
+              { title: "姓名", dataIndex: "name", width: 100 },
+              { title: "手机号", dataIndex: "mobile", width: 130 },
+              { title: "部门", dataIndex: "department_name", width: 260, render: (value) => value || "—" },
+              { title: "岗位", dataIndex: "position", width: 130, render: (value) => value || "—" },
+              { title: "花名册状态", dataIndex: "status", width: 110, render: (value) => value === 2 ? "试用期" : "在职" },
+              { title: "企微状态", dataIndex: "employment_status", width: 110, render: (value) => value === 1 ? "在职" : value === 2 ? "禁用" : value === 3 ? "离职" : "未绑定" },
+              { title: "企微 userid", dataIndex: "wecom_userid", width: 220, render: (value) => value || "—" },
+            ]}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
         open={modalOpen}
         title={mode === "create" ? "新建用户" : "编辑用户"}
         onCancel={closeModal}
@@ -398,8 +675,13 @@ export default function UsersTab() {
         }}
         destroyOnHidden={false}
         forceRender
+        width={860}
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", columnGap: 16 }}
+        >
           <Form.Item label="用户名" name="username" rules={[{ required: true, message: "请输入用户名" }]}>
             <Input disabled={mode === "edit"} placeholder="登录用户名" />
           </Form.Item>

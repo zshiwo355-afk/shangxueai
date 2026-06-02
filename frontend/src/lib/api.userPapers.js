@@ -6,9 +6,18 @@ export async function fetchMyPaperAssignments() {
   return getJson("/api/papers/my-assignments", "考试列表加载失败。");
 }
 
-/** 答题用：取试卷题目（不含正确答案）。 */
+/** 答题用：取试卷题目（不含正确答案）。纯读，不会创建 in_progress 提交。 */
 export async function fetchAssignmentForTaking(assignmentId) {
   return getJson(`/api/papers/assignments/${assignmentId}`, "考试详情加载失败。");
+}
+
+/** 显式开始考试：创建（或复用）当前 in_progress 提交，返回与 GET 同结构的详情。 */
+export async function startAssignment(assignmentId) {
+  return postJson(
+    `/api/papers/assignments/${assignmentId}/start`,
+    {},
+    "开始考试失败。",
+  );
 }
 
 /** 我的答题记录列表。 */

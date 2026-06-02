@@ -1,10 +1,7 @@
-/** 鉴权 API：登录/获取当前用户/登出。前端把密码 md5 后再传。 */
 import { getJson, postJson } from "./http";
+import { buildApiUrl } from "./runtimeConfig";
 
-// 简单的 md5 实现（与后端 hashlib.md5 一致输出 32 位 hex）
 function md5(input) {
-  // 用浏览器内置 SubtleCrypto 不行（不支持 md5）；这里用纯 JS 实现
-  // 来源：blueimp-md5 简化版
   function safeAdd(x, y) {
     const lsw = (x & 0xffff) + (y & 0xffff);
     const msw = (x >> 16) + (y >> 16) + (lsw >> 16);
@@ -21,9 +18,15 @@ function md5(input) {
   function binlMD5(x, len) {
     x[len >> 5] |= 0x80 << (len % 32);
     x[(((len + 64) >>> 9) << 4) + 14] = len;
-    let a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
+    let a = 1732584193;
+    let b = -271733879;
+    let c = -1732584194;
+    let d = 271733878;
     for (let i = 0; i < x.length; i += 16) {
-      const olda = a, oldb = b, oldc = c, oldd = d;
+      const olda = a;
+      const oldb = b;
+      const oldc = c;
+      const oldd = d;
       a = md5ff(a, b, c, d, x[i], 7, -680876936);
       d = md5ff(d, a, b, c, x[i + 1], 12, -389564586);
       c = md5ff(c, d, a, b, x[i + 2], 17, 606105819);
@@ -88,16 +91,19 @@ function md5(input) {
       d = md5ii(d, a, b, c, x[i + 11], 10, -1120210379);
       c = md5ii(c, d, a, b, x[i + 2], 15, 718787259);
       b = md5ii(b, c, d, a, x[i + 9], 21, -343485551);
-      a = safeAdd(a, olda); b = safeAdd(b, oldb); c = safeAdd(c, oldc); d = safeAdd(d, oldd);
+      a = safeAdd(a, olda);
+      b = safeAdd(b, oldb);
+      c = safeAdd(c, oldc);
+      d = safeAdd(d, oldd);
     }
     return [a, b, c, d];
   }
   function binl2hex(binarray) {
     const hex = "0123456789abcdef";
     let str = "";
-    for (let i = 0; i < binarray.length * 4; i++) {
-      str += hex.charAt((binarray[i >> 2] >> ((i % 4) * 8 + 4)) & 0x0f) +
-             hex.charAt((binarray[i >> 2] >> ((i % 4) * 8)) & 0x0f);
+    for (let i = 0; i < binarray.length * 4; i += 1) {
+      str += hex.charAt((binarray[i >> 2] >> ((i % 4) * 8 + 4)) & 0x0f)
+        + hex.charAt((binarray[i >> 2] >> ((i % 4) * 8)) & 0x0f);
     }
     return str;
   }
@@ -109,7 +115,6 @@ function md5(input) {
     }
     return bin;
   }
-  // utf-8 编码
   const utf8 = unescape(encodeURIComponent(input));
   return binl2hex(binlMD5(str2binl(utf8), utf8.length * 8));
 }
@@ -125,4 +130,13 @@ export async function fetchMe() {
 
 export async function logoutApi() {
   return postJson("/api/auth/logout", {}, "退出失败。");
+}
+
+export async function getAuthProviders() {
+  return getJson("/api/auth/providers", "登录方式加载失败。");
+}
+
+export function buildWecomStartUrl(redirect = "/home") {
+  const target = redirect && redirect.startsWith("/") ? redirect : "/home";
+  return buildApiUrl(`/api/auth/wecom/start?redirect=${encodeURIComponent(target)}`);
 }

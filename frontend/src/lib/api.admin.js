@@ -77,6 +77,32 @@ export function buildUsersTemplateUrl() {
   return url.toString();
 }
 
+export async function adminPreviewEmployeeSync(initial_mode = true) {
+  return postJson(
+    "/api/admin/users/employee-sync/preview",
+    { initial_mode },
+    "员工同步预览失败。",
+  );
+}
+
+export async function adminExecuteEmployeeSync(initial_mode = true, preview_token = "") {
+  return postJson(
+    "/api/admin/users/employee-sync/execute",
+    { initial_mode, preview_token },
+    "员工同步执行失败。",
+  );
+}
+
+export async function adminSearchExternalEmployees(params = {}) {
+  return getJson(
+    `/api/admin/users/employee-sync/search${toQs(params)}`,
+    "第三方员工查询失败。",
+  );
+}
+
+export const adminPreviewWecomSync = adminPreviewEmployeeSync;
+export const adminExecuteWecomSync = adminExecuteEmployeeSync;
+
 // ---- 白名单 ----
 export async function adminListWhitelist() {
   return getJson("/api/whitelist", "白名单列表加载失败。");

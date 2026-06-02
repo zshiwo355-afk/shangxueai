@@ -18,6 +18,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
@@ -205,7 +206,13 @@ export default function AssignmentsPanel() {
   const push = async (row) => {
     try {
       const updated = await pushAssignmentWeCom(row.id);
-      message.success("已加入推送队列（企微接入待开发）。");
+      if (updated.wecom_push_status === "sent") {
+        message.success("企业微信推送成功。");
+      } else if (updated.wecom_push_status === "failed") {
+        message.warning(updated.wecom_push_error || "企业微信推送失败，已记录失败原因。");
+      } else {
+        message.info("企业微信推送状态已更新。");
+      }
       setItems((arr) => arr.map((it) => (it.id === updated.id ? updated : it)));
     } catch (err) {
       message.error(err?.message || "推送失败。");
@@ -353,9 +360,11 @@ export default function AssignmentsPanel() {
       title: "企微推送",
       dataIndex: "wecom_push_status",
       width: 110,
-      render: (v) => {
+      render: (v, row) => {
         const cfg = PUSH_TAG[v] || { color: "default", text: v };
-        return <Tag color={cfg.color} bordered={false}>{cfg.text}</Tag>;
+        const tag = <Tag color={cfg.color} bordered={false}>{cfg.text}</Tag>;
+        if (v !== "failed" || !row.wecom_push_error) return tag;
+        return <Tooltip title={row.wecom_push_error}>{tag}</Tooltip>;
       },
     },
     {

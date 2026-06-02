@@ -41,9 +41,87 @@ class User(Base):
     employment_status: Mapped[str] = mapped_column(String(32), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    wecom_userid: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    wecom_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    wecom_raw_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class NotificationLog(Base):
+    __tablename__ = "notification_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    recipient_wecom_userid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    business_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    business_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    payload_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    response_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_notification_logs_recipient", "recipient_user_id", "created_at"),
+        Index("idx_notification_logs_business", "business_type", "business_id"),
+        Index("idx_notification_logs_status", "status", "created_at"),
+    )
+
+
+class WecomSyncBatch(Base):
+    __tablename__ = "wecom_sync_batches"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    initial_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+    total_wecom_users: Mapped[int] = mapped_column(Integer, default=0)
+    matched_count: Mapped[int] = mapped_column(Integer, default=0)
+    bound_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_count: Mapped[int] = mapped_column(Integer, default=0)
+    left_count: Mapped[int] = mapped_column(Integer, default=0)
+    disabled_count: Mapped[int] = mapped_column(Integer, default=0)
+    conflict_count: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, default=0)
+    summary_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    executed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_wecom_sync_batches_started", "started_at"),
+    )
+
+
+class WecomSyncEntry(Base):
+    __tablename__ = "wecom_sync_entries"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    wecom_userid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    match_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    before_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_wecom_sync_entries_batch", "batch_id", "created_at"),
+        Index("idx_wecom_sync_entries_user", "user_id", "created_at"),
+        Index("idx_wecom_sync_entries_action", "action", "created_at"),
     )
 
 

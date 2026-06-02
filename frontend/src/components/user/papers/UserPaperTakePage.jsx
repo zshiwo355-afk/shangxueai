@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   fetchAssignmentForTaking,
+  startAssignment,
   submitAssignment,
 } from "../../../lib/api.userPapers";
 
@@ -99,7 +100,21 @@ export default function UserPaperTakePage() {
     let alive = true;
     (async () => {
       try {
-        const data = await fetchAssignmentForTaking(assignmentId);
+        // 进入答题页：先 GET 详情判断 can_start。如果可以开始且服务端
+        // 还没有 in_progress 提交（started_at 为空），再调 POST /start
+        // 显式创建一条 —— 把"写库"操作从 GET 里挪走。
+        const initial = await fetchAssignmentForTaking(assignmentId);
+        let data = initial;
+        if (initial?.can_start && !initial?.started_at) {
+          try {
+            data = await startAssignment(assignmentId);
+          } catch (err) {
+            if (alive) {
+              message.error(err?.message || "开始考试失败。");
+            }
+            return;
+          }
+        }
         if (!alive) return;
         setDetail(data);
         const initialAnswers = {};

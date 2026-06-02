@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     maxkb_knowledge_similarity: float = Field(0.3, alias="MAXKB_KNOWLEDGE_SIMILARITY")
 
     # ---- LLM ----
-    llm_base_url: str = Field("https://api.ofox.ai/v1", alias="LLM_BASE_URL")
+    llm_base_url: str = Field("https://api.ofox.io/v1", alias="LLM_BASE_URL")
     llm_api_key: str = Field("", alias="LLM_API_KEY")
     llm_model: str = Field("openai/gpt-4o", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(120, alias="LLM_TIMEOUT_SECONDS")
@@ -67,7 +67,8 @@ class Settings(BaseSettings):
         alias="DB_DSN",
     )
     db_echo: bool = Field(False, alias="DB_ECHO")
-    db_pool_size: int = Field(10, alias="DB_POOL_SIZE")
+    db_pool_size: int = Field(30, alias="DB_POOL_SIZE")
+    db_pool_max_overflow: int = Field(20, alias="DB_POOL_MAX_OVERFLOW")
     db_pool_recycle_seconds: int = Field(1800, alias="DB_POOL_RECYCLE_SECONDS")
 
     # ---- 鉴权（JWT，密码 MD5）----
@@ -78,6 +79,39 @@ class Settings(BaseSettings):
     super_admin_username: str = Field("", alias="SUPER_ADMIN_USERNAME")
     super_admin_password: str = Field("", alias="SUPER_ADMIN_PASSWORD")
     super_admin_name: str = Field("", alias="SUPER_ADMIN_NAME")
+
+    # ---- 企业微信 ----
+    wecom_enabled: bool = Field(False, alias="WECOM_ENABLED")
+    wecom_push_enabled: bool = Field(True, alias="WECOM_PUSH_ENABLED")
+    wecom_login_enabled: bool = Field(True, alias="WECOM_LOGIN_ENABLED")
+    wecom_sync_enabled: bool = Field(True, alias="WECOM_SYNC_ENABLED")
+    wecom_corp_id: str = Field("", alias="WECOM_CORP_ID")
+    wecom_agent_id: int = Field(0, alias="WECOM_AGENT_ID")
+    wecom_app_secret: str = Field("", alias="WECOM_APP_SECRET")
+    wecom_contact_secret: str = Field("", alias="WECOM_CONTACT_SECRET")
+    wecom_redirect_uri: str = Field("", alias="WECOM_REDIRECT_URI")
+    wecom_frontend_callback_url: str = Field("", alias="WECOM_FRONTEND_CALLBACK_URL")
+    wecom_frontend_base_url: str = Field("", alias="WECOM_FRONTEND_BASE_URL")
+    wecom_admin_userids: str = Field("", alias="WECOM_ADMIN_USERIDS")
+    wecom_token_cache_seconds: int = Field(7000, alias="WECOM_TOKEN_CACHE_SECONDS")
+    wecom_request_timeout_seconds: int = Field(10, alias="WECOM_REQUEST_TIMEOUT_SECONDS")
+    wecom_auto_create_user: bool = Field(False, alias="WECOM_AUTO_CREATE_USER")
+    wecom_sync_disabled_users: bool = Field(True, alias="WECOM_SYNC_DISABLED_USERS")
+    wecom_auto_redirect_in_client: bool = Field(True, alias="WECOM_AUTO_REDIRECT_IN_CLIENT")
+    wecom_state_ttl_seconds: int = Field(600, alias="WECOM_STATE_TTL_SECONDS")
+    wecom_daily_sync_enabled: bool = Field(True, alias="WECOM_DAILY_SYNC_ENABLED")
+    wecom_daily_sync_hour: int = Field(8, alias="WECOM_DAILY_SYNC_HOUR")
+    wecom_daily_sync_minute: int = Field(0, alias="WECOM_DAILY_SYNC_MINUTE")
+    wecom_sync_protected_statuses: str = Field("试岗,离职", alias="WECOM_SYNC_PROTECTED_STATUSES")
+
+    # ---- 第三方员工通讯录同步 ----
+    employee_sync_enabled: bool = Field(False, alias="EMPLOYEE_SYNC_ENABLED")
+    employee_sync_base_url: str = Field("", alias="EMPLOYEE_SYNC_BASE_URL")
+    employee_sync_app_id: str = Field("", alias="EMPLOYEE_SYNC_APP_ID")
+    employee_sync_partner_private_key: str = Field("", alias="EMPLOYEE_SYNC_PARTNER_PRIVATE_KEY")
+    employee_sync_hr_public_key: str = Field("", alias="EMPLOYEE_SYNC_HR_PUBLIC_KEY")
+    employee_sync_timeout_seconds: int = Field(15, alias="EMPLOYEE_SYNC_TIMEOUT_SECONDS")
+    employee_sync_auto_create_user: bool = Field(True, alias="EMPLOYEE_SYNC_AUTO_CREATE_USER")
 
     # ---- 阿里云 OSS（魔学院视频）----
     oss_access_key_id: str = Field("", alias="OSS_ACCESS_KEY_ID")
@@ -103,6 +137,63 @@ class Settings(BaseSettings):
         if self.maxkb_admin_base_url:
             return self.maxkb_admin_base_url.rstrip("/")
         return f"{self.maxkb_origin_url}/admin/api"
+
+    @property
+    def wecom_ready(self) -> bool:
+        return self.wecom_login_ready
+
+    @property
+    def wecom_push_ready(self) -> bool:
+        return bool(
+            self.wecom_enabled
+            and self.wecom_push_enabled
+            and self.wecom_corp_id.strip()
+            and self.wecom_agent_id
+            and self.wecom_app_secret.strip()
+        )
+
+    @property
+    def wecom_login_ready(self) -> bool:
+        return bool(
+            self.wecom_enabled
+            and self.wecom_login_enabled
+            and self.wecom_corp_id.strip()
+            and self.wecom_agent_id
+            and self.wecom_app_secret.strip()
+            and self.wecom_contact_secret.strip()
+            and self.wecom_redirect_uri.strip()
+            and self.wecom_frontend_callback_url.strip()
+        )
+
+    @property
+    def wecom_sync_ready(self) -> bool:
+        return bool(
+            self.wecom_enabled
+            and self.wecom_sync_enabled
+            and self.wecom_corp_id.strip()
+            and self.wecom_contact_secret.strip()
+        )
+
+    @property
+    def employee_sync_ready(self) -> bool:
+        return bool(
+            self.employee_sync_enabled
+            and self.employee_sync_base_url.strip()
+            and self.employee_sync_app_id.strip()
+            and self.employee_sync_partner_private_key.strip()
+        )
+
+    @property
+    def resolved_wecom_frontend_base_url(self) -> str:
+        if self.wecom_frontend_base_url.strip():
+            return self.wecom_frontend_base_url.rstrip("/")
+        callback = self.wecom_frontend_callback_url.strip()
+        if not callback:
+            return ""
+        parsed = urlparse(callback)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        return callback.rstrip("/")
 
     @property
     def cors_origins(self) -> list[str]:

@@ -1,16 +1,65 @@
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { Button, Form, Input, App as AntdApp } from "antd";
+import { App as AntdApp, Button, Form, Input } from "antd";
 import dayjs from "dayjs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { login } from "../lib/api.auth";
+
+import { buildWecomStartUrl, getAuthProviders, login } from "../lib/api.auth";
 import { setCurrentUser, setToken } from "../lib/auth";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
+  const [providerLoading, setProviderLoading] = useState(true);
+  const [wecomEnabled, setWecomEnabled] = useState(false);
+  const [wecomAutoRedirect, setWecomAutoRedirect] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = AntdApp.useApp();
+
+  useEffect(() => {
+    let mounted = true;
+    const loadProviders = async () => {
+      try {
+        const providers = await getAuthProviders();
+        if (!mounted) return;
+        setWecomEnabled(Boolean(providers?.wecom_enabled));
+        setWecomAutoRedirect(Boolean(providers?.wecom_auto_redirect_in_client));
+      } catch {
+        if (!mounted) return;
+        setWecomEnabled(false);
+        setWecomAutoRedirect(false);
+      } finally {
+        if (mounted) {
+          setProviderLoading(false);
+        }
+      }
+    };
+    loadProviders();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const errorText = location.state?.wecomError;
+    if (!errorText) return;
+    message.error(errorText);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.pathname, location.state, message, navigate]);
+
+  useEffect(() => {
+    if (providerLoading || !wecomEnabled || !wecomAutoRedirect) {
+      return;
+    }
+    const ua = (navigator.userAgent || "").toLowerCase();
+    if (!ua.includes("wxwork")) {
+      return;
+    }
+    const redirect = location.state?.from && location.state.from !== "/login"
+      ? location.state.from
+      : "/home";
+    window.location.assign(buildWecomStartUrl(redirect));
+  }, [location.state, providerLoading, wecomAutoRedirect, wecomEnabled]);
 
   const handleSubmit = async (values) => {
     setLoading(true);
@@ -87,9 +136,9 @@ export default function LoginPage() {
       <main className="auth-shell__panel">
         <div className="auth-shell__panel-inner">
           <div className="auth-shell__panel-head">
-            <span className="auth-shell__eyebrow">— Sign In</span>
+            <span className="auth-shell__eyebrow">Sign In</span>
             <h2>欢迎登录</h2>
-            <p>请使用工号或企业账号继续。</p>
+            <p>请使用账号密码登录。从企业微信工作台进入时会自动免登录。</p>
           </div>
 
           <Form

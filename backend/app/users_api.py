@@ -17,7 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .access import is_super_admin
 from .auth import md5_password, require_admin
 from .db import get_db
-from .models import User
+from .employee_open_client import EmployeeOpenApiError
+from .employee_open_client import EmployeeOpenClient
+from .employee_sync import (
+    build_employee_sync_preview_with_token,
+    consume_preview,
+    execute_employee_sync,
+)
+from .models import User, WecomSyncEntry
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
@@ -34,6 +41,10 @@ class UserDTO(BaseModel):
     employment_status: str = ""
     status: str
     disabled: bool
+    wecom_userid: str = ""
+    wecom_synced_at: str | None = None
+    sync_issue_action: str = ""
+    sync_issue_reason: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -118,6 +129,53 @@ class BulkUserIdsPayload(BaseModel):
     ids: list[int] = Field(..., min_length=1)
 
 
+class EmployeeSyncPreviewRequest(BaseModel):
+    initial_mode: bool = True
+
+
+class EmployeeSyncItemDTO(BaseModel):
+    action: str
+    reason: str = ""
+    match_type: str = ""
+    local_user_id: int | None = None
+    local_username: str = ""
+    local_name: str = ""
+    local_role: str = ""
+    external_user_id: int | None = None
+    source_hr_status: int | None = None
+    source_employment_status: int | None = None
+    source_name: str = ""
+    wecom_name: str = ""
+    wecom_userid: str = ""
+    mobile: str = ""
+    department: str = ""
+    position: str = ""
+
+
+class EmployeeSyncPreviewResponse(BaseModel):
+    initial_mode: bool
+    total_source_users: int
+    summary: dict[str, int]
+    items: list[EmployeeSyncItemDTO]
+    preview_token: str = ""
+
+
+class EmployeeSyncExecuteRequest(BaseModel):
+    initial_mode: bool = True
+    preview_token: str | None = None
+
+
+class EmployeeSyncExecuteResponse(BaseModel):
+    batch_id: int
+    initial_mode: bool
+    summary: dict[str, int]
+
+
+class EmployeeSearchResponse(BaseModel):
+    total: int
+    items: list[dict[str, object]]
+
+
 def _digest(raw: str) -> str:
     raw = (raw or "").strip()
     if len(raw) == 32 and all(c in "0123456789abcdefABCDEF" for c in raw):
@@ -138,9 +196,42 @@ def _to_dto(user: User) -> UserDTO:
         employment_status=user.employment_status or "",
         status=user.status or "active",
         disabled=bool(user.disabled),
+        wecom_userid=user.wecom_userid or "",
+        wecom_synced_at=user.wecom_synced_at.isoformat() if user.wecom_synced_at else None,
+        sync_issue_action="",
+        sync_issue_reason="",
         created_at=user.created_at.isoformat() if user.created_at else "",
         updated_at=user.updated_at.isoformat() if user.updated_at else "",
     )
+
+
+async def _attach_sync_issue_info(db: AsyncSession, users: list[UserDTO]) -> list[UserDTO]:
+    if not users:
+        return users
+    user_ids = [int(user.id) for user in users]
+    entries = (
+        await db.execute(
+            select(WecomSyncEntry)
+            .where(WecomSyncEntry.user_id.in_(user_ids))
+            .order_by(WecomSyncEntry.user_id.asc(), WecomSyncEntry.id.desc())
+        )
+    ).scalars().all()
+    latest_by_user_id: dict[int, WecomSyncEntry] = {}
+    for entry in entries:
+        if entry.user_id is None:
+            continue
+        key = int(entry.user_id)
+        if key not in latest_by_user_id:
+            latest_by_user_id[key] = entry
+    for user in users:
+        latest = latest_by_user_id.get(int(user.id))
+        if latest is None:
+            continue
+        if (latest.status or "").strip() in {"applied", "created"}:
+            continue
+        user.sync_issue_action = latest.action or ""
+        user.sync_issue_reason = latest.reason or ""
+    return users
 
 
 def _is_manageable_by(actor: User, target: User) -> bool:
@@ -166,7 +257,7 @@ async def list_users(
     if not is_super_admin(admin):
         stmt = stmt.where(User.role != "super_admin")
     result = await db.execute(stmt)
-    return [_to_dto(u) for u in result.scalars().all()]
+    return await _attach_sync_issue_info(db, [_to_dto(u) for u in result.scalars().all()])
 
 
 @router.get("/search", response_model=UserPageResponse)
@@ -204,8 +295,9 @@ async def search_users(
     total = (await db.execute(count_stmt)).scalar_one()
     stmt = stmt.order_by(User.id.desc()).limit(page_size).offset((page - 1) * page_size)
     rows = (await db.execute(stmt)).scalars().all()
+    items = await _attach_sync_issue_info(db, [_to_dto(u) for u in rows])
     return UserPageResponse(
-        items=[_to_dto(u) for u in rows],
+        items=items,
         total=int(total),
         page=page,
         page_size=page_size,
@@ -403,30 +495,29 @@ async def bulk_import_users(
         role = _norm_role(role_raw)
         is_newcomer = _norm_bool(newcomer_raw)
 
-        user = User(
-            username=username,
-            password_md5=_digest(password),
-            display_name=display_name,
-            real_name=real_name or display_name,
-            department=department,
-            position=position,
-            role=role,
-            is_newcomer=is_newcomer,
-            status="active",
-            disabled=False,
-        )
-        db.add(user)
+        # 每行用 savepoint 保护：单行 IntegrityError 只回滚这一行，
+        # 之前 add 但还未 commit 的行仍留在主事务里，最后一次 commit 落盘。
         try:
-            await db.flush()
+            async with db.begin_nested():
+                user = User(
+                    username=username,
+                    password_md5=_digest(password),
+                    display_name=display_name,
+                    real_name=real_name or display_name,
+                    department=department,
+                    position=position,
+                    role=role,
+                    is_newcomer=is_newcomer,
+                    status="active",
+                    disabled=False,
+                )
+                db.add(user)
+                await db.flush()
             existing.add(username)
             summary.created += 1
         except IntegrityError:
-            await db.rollback()
             summary.failed += 1
             summary.errors.append(f"第 {line_no} 行（{username}）：用户名冲突或数据库异常")
-            existing = set(
-                (await db.execute(select(User.username))).scalars().all()
-            )
 
     return summary
 
@@ -462,6 +553,96 @@ async def bulk_delete_users(
         "deleted": int(res.rowcount or 0),
         "skipped": skipped,
     }
+
+
+@router.post("/employee-sync/preview", response_model=EmployeeSyncPreviewResponse)
+@router.post("/wecom-sync/preview", response_model=EmployeeSyncPreviewResponse)
+async def preview_employee_sync(
+    payload: EmployeeSyncPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> EmployeeSyncPreviewResponse:
+    del admin
+    try:
+        preview, preview_token = await build_employee_sync_preview_with_token(
+            db, initial_mode=payload.initial_mode
+        )
+    except EmployeeOpenApiError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    items = [
+        EmployeeSyncItemDTO(
+            action=item["action"],
+            reason=item.get("reason") or "",
+            match_type=item.get("match_type") or "",
+            local_user_id=item.get("local_user_id"),
+            local_username=item.get("local_username") or "",
+            local_name=item.get("local_name") or "",
+            local_role=item.get("local_role") or "",
+            external_user_id=item.get("external_user_id"),
+            source_hr_status=item.get("source_hr_status"),
+            source_employment_status=item.get("source_employment_status"),
+            source_name=item.get("source_name") or "",
+            wecom_name=item.get("wecom_name") or item.get("source_name") or "",
+            wecom_userid=item.get("wecom_userid") or "",
+            mobile=item.get("mobile") or "",
+            department=item.get("department") or "",
+            position=item.get("position") or "",
+        )
+        for item in preview.get("items", [])
+    ]
+    return EmployeeSyncPreviewResponse(
+        initial_mode=bool(preview.get("initial_mode")),
+        total_source_users=int(preview.get("total_source_users") or 0),
+        summary={str(k): int(v) for k, v in (preview.get("summary") or {}).items()},
+        items=items,
+        preview_token=preview_token,
+    )
+
+
+@router.post("/employee-sync/execute", response_model=EmployeeSyncExecuteResponse)
+@router.post("/wecom-sync/execute", response_model=EmployeeSyncExecuteResponse)
+async def run_employee_sync(
+    payload: EmployeeSyncExecuteRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> EmployeeSyncExecuteResponse:
+    cached_preview = consume_preview(payload.preview_token or "")
+    try:
+        result = await execute_employee_sync(
+            db,
+            actor=admin,
+            initial_mode=payload.initial_mode,
+            preview=cached_preview,
+        )
+    except EmployeeOpenApiError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EmployeeSyncExecuteResponse(
+        batch_id=int(result["batch_id"]),
+        initial_mode=bool(result["initial_mode"]),
+        summary={str(k): int(v) for k, v in (result.get("summary") or {}).items()},
+    )
+
+
+@router.get("/employee-sync/search", response_model=EmployeeSearchResponse)
+async def search_external_employees(
+    name: str | None = None,
+    mobile: str | None = None,
+    external_user_id: str | None = None,
+    admin: User = Depends(require_admin),
+) -> EmployeeSearchResponse:
+    del admin
+    filters: dict[str, object] = {}
+    if name and name.strip():
+        filters["name"] = name.strip()
+    if mobile and mobile.strip():
+        filters["mobile"] = mobile.strip()
+    if external_user_id and external_user_id.strip():
+        filters["external_user_id"] = external_user_id.strip()
+    try:
+        items = await EmployeeOpenClient().fetch_employees(filters)
+    except EmployeeOpenApiError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EmployeeSearchResponse(total=len(items), items=items)
 
 
 # ---------- 单条 CRUD ----------

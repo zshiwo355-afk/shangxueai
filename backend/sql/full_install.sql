@@ -939,12 +939,100 @@ CREATE TABLE `users` (
   `employment_status` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active' COMMENT 'active / inactive',
   `disabled` tinyint(1) NOT NULL DEFAULT '0',
+  `wecom_userid` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `wecom_synced_at` datetime DEFAULT NULL,
+  `wecom_raw_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_users_username` (`username`) USING BTREE,
+  UNIQUE KEY `uk_users_wecom_userid` (`wecom_userid`) USING BTREE,
   KEY `idx_users_role_disabled_status_dept` (`role`,`disabled`,`status`,`department`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=971 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='用户表';
+/*!40101 SET character_set_client = @saved_cs_client */;
+--
+-- Table structure for table `notification_logs`
+--
+
+DROP TABLE IF EXISTS `notification_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `notification_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `channel` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `event_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recipient_user_id` bigint DEFAULT NULL,
+  `recipient_wecom_userid` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `business_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `business_id` bigint DEFAULT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `payload_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `response_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_notification_logs_recipient` (`recipient_user_id`,`created_at`) USING BTREE,
+  KEY `idx_notification_logs_business` (`business_type`,`business_id`) USING BTREE,
+  KEY `idx_notification_logs_status` (`status`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='企业微信通知日志';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `wecom_sync_batches`
+--
+
+DROP TABLE IF EXISTS `wecom_sync_batches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `wecom_sync_batches` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `mode` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `initial_mode` tinyint(1) NOT NULL DEFAULT '1',
+  `total_wecom_users` int NOT NULL DEFAULT '0',
+  `matched_count` int NOT NULL DEFAULT '0',
+  `bound_count` int NOT NULL DEFAULT '0',
+  `updated_count` int NOT NULL DEFAULT '0',
+  `created_count` int NOT NULL DEFAULT '0',
+  `left_count` int NOT NULL DEFAULT '0',
+  `disabled_count` int NOT NULL DEFAULT '0',
+  `conflict_count` int NOT NULL DEFAULT '0',
+  `skipped_count` int NOT NULL DEFAULT '0',
+  `summary_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `executed_by` bigint DEFAULT NULL,
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `finished_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_wecom_sync_batches_started` (`started_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='企业微信同步批次';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `wecom_sync_entries`
+--
+
+DROP TABLE IF EXISTS `wecom_sync_entries`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `wecom_sync_entries` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint NOT NULL,
+  `user_id` bigint DEFAULT NULL,
+  `wecom_userid` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mobile` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `match_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `action` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `before_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `after_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_wecom_sync_entries_batch` (`batch_id`,`created_at`) USING BTREE,
+  KEY `idx_wecom_sync_entries_user` (`user_id`,`created_at`) USING BTREE,
+  KEY `idx_wecom_sync_entries_action` (`action`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='企业微信同步明细';
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 

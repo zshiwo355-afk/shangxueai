@@ -1,8 +1,3 @@
-"""企业微信推送 stub。
-
-当前只做占位，把推送状态置为 pending 并写日志，等接入企微应用消息后替换实现。
-保持函数签名稳定，避免日后改路由。
-"""
 from __future__ import annotations
 
 import json
@@ -15,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Paper, PaperAssignment, User
+from .notification_service import notify_paper_assignment
+from .wecom_client import WecomApiError
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +19,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PushResult:
     ok: bool
-    status: str  # pending / sent / failed
+    status: str
     message: str
     payload: dict[str, Any] | None = None
 
 
 async def push_assignment(assignment_id: int, db: AsyncSession) -> PushResult:
-    """把试卷派发任务推送到企微（暂未对接，仅置 pending）。"""
     res = await db.execute(select(PaperAssignment).where(PaperAssignment.id == assignment_id))
     assignment = res.scalar_one_or_none()
     if not assignment:
-        return PushResult(ok=False, status="failed", message="派发任务不存在")
+        return PushResult(ok=False, status="failed", message="派发任务不存在。")
 
     paper_res = await db.execute(select(Paper).where(Paper.id == assignment.paper_id))
     paper = paper_res.scalar_one_or_none()
@@ -49,17 +45,26 @@ async def push_assignment(assignment_id: int, db: AsyncSession) -> PushResult:
         "deadline_at": assignment.deadline_at.isoformat() if assignment.deadline_at else None,
         "max_attempts": assignment.max_attempts,
     }
-
-    assignment.wecom_push_status = "pending"
     assignment.wecom_push_payload_json = json.dumps(payload, ensure_ascii=False)
     assignment.wecom_push_error = None
+
+    try:
+        response = await notify_paper_assignment(db, assignment)
+    except WecomApiError as exc:
+        assignment.wecom_push_status = "failed"
+        assignment.wecom_push_error = str(exc)
+        assignment.wecom_pushed_at = datetime.now()
+        logger.warning("[wecom_push] send failed assignment_id=%s error=%s", assignment_id, exc)
+        return PushResult(ok=False, status="failed", message=str(exc), payload=payload)
+    except Exception as exc:  # noqa: BLE001
+        assignment.wecom_push_status = "failed"
+        assignment.wecom_push_error = str(exc)
+        assignment.wecom_pushed_at = datetime.now()
+        logger.exception("[wecom_push] unexpected error assignment_id=%s", assignment_id)
+        return PushResult(ok=False, status="failed", message=str(exc), payload=payload)
+
+    assignment.wecom_push_status = "sent"
+    assignment.wecom_push_error = None
     assignment.wecom_pushed_at = datetime.now()
-
-    logger.info("[wecom_push:STUB] 已加入推送队列（实际接入待开发）payload=%s", payload)
-
-    return PushResult(
-        ok=True,
-        status="pending",
-        message="已加入推送队列（企微接入待开发）。",
-        payload=payload,
-    )
+    logger.info("[wecom_push] sent assignment_id=%s payload=%s", assignment_id, payload)
+    return PushResult(ok=True, status="sent", message="企业微信推送成功。", payload=response)

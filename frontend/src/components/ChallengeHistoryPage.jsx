@@ -1,10 +1,15 @@
 import { CheckCircleOutlined, ClockCircleOutlined, HistoryOutlined, TrophyOutlined } from "@ant-design/icons";
 import { App as AntdApp, Button, Card, Empty, Space, Tag, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMyExams } from "../lib/api.exam";
 
 const { Paragraph, Text, Title } = Typography;
+const VALID_FILTER_KEYS = new Set(["all", "pending", "review", "done"]);
+
+function normalizeFilterKey(value) {
+  return VALID_FILTER_KEYS.has(value) ? value : "all";
+}
 
 function challengeStatusMeta(exam, attempts) {
   if (exam?.status === "pending_review" || attempts.some((item) => item.review_pending)) {
@@ -51,10 +56,11 @@ function scoreHint(entry) {
 
 export default function ChallengeHistoryPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { message } = AntdApp.useApp();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterKey, setFilterKey] = useState("all");
+  const [filterKey, setFilterKey] = useState(() => normalizeFilterKey(searchParams.get("filter")));
 
   useEffect(() => {
     let alive = true;
@@ -75,6 +81,20 @@ export default function ChallengeHistoryPage() {
       alive = false;
     };
   }, [message]);
+
+  useEffect(() => {
+    const nextFilter = normalizeFilterKey(searchParams.get("filter"));
+    setFilterKey((current) => (current === nextFilter ? current : nextFilter));
+  }, [searchParams]);
+
+  const applyFilter = (nextFilter) => {
+    const normalized = normalizeFilterKey(nextFilter);
+    setFilterKey(normalized);
+    const nextParams = new URLSearchParams(searchParams);
+    if (normalized === "all") nextParams.delete("filter");
+    else nextParams.set("filter", normalized);
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const summary = useMemo(() => {
     const pending = items.filter((item) => ["pending", "in_progress"].includes(item.exam?.status)).length;
@@ -197,10 +217,10 @@ export default function ChallengeHistoryPage() {
       <Card className="history-filter-card history-filter-card--minimal" bordered={false}>
         <div className="history-filter-card__content">
           <Space align="center" size={[8, 8]} wrap>
-            <Button type={filterKey === "all" ? "primary" : "default"} onClick={() => setFilterKey("all")}>全部</Button>
-            <Button type={filterKey === "pending" ? "primary" : "default"} onClick={() => setFilterKey("pending")}>待通关</Button>
-            <Button type={filterKey === "review" ? "primary" : "default"} onClick={() => setFilterKey("review")}>待复核</Button>
-            <Button type={filterKey === "done" ? "primary" : "default"} onClick={() => setFilterKey("done")}>已结束</Button>
+            <Button type={filterKey === "all" ? "primary" : "default"} onClick={() => applyFilter("all")}>全部</Button>
+            <Button type={filterKey === "pending" ? "primary" : "default"} onClick={() => applyFilter("pending")}>待通关</Button>
+            <Button type={filterKey === "review" ? "primary" : "default"} onClick={() => applyFilter("review")}>待复核</Button>
+            <Button type={filterKey === "done" ? "primary" : "default"} onClick={() => applyFilter("done")}>已结束</Button>
           </Space>
           <Text type="secondary">{filteredItems.length} 条</Text>
         </div>

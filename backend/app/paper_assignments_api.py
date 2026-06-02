@@ -19,7 +19,8 @@ from sqlalchemy import delete as sql_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import get_current_user, require_admin
-from .db import get_db
+from .db import get_db, session_scope
+from .id_lock import IdLockRegistry
 from .models import (
     Paper,
     PaperAnswer,
@@ -28,6 +29,11 @@ from .models import (
     PaperSubmission,
     QuestionBank,
     User,
+)
+from .notification_service import (
+    notify_paper_deadline_reminder,
+    notify_submission_received,
+    safe_dispatch,
 )
 from .paper_grading import (
     grade_short_answer_with_ai,
@@ -43,6 +49,7 @@ from .wecom_push import push_assignment
 
 router = APIRouter(prefix="/api/admin/paper-assignments", tags=["admin-paper-assignments"])
 paper_grading_logger = logging.getLogger("app.paper_grading")
+_assignment_lock_registry = IdLockRegistry(name="paper-assignment")
 
 
 # ---------------- DTO ----------------
@@ -149,6 +156,11 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"日期格式错误：{value}") from exc
+
+
+def _assignment_lock(assignment_id: int):
+    """获取 per-assignment 的串行锁；async with 使用。"""
+    return _assignment_lock_registry.acquire(int(assignment_id))
 
 
 def _assignment_to_dto(
@@ -454,6 +466,16 @@ async def _ensure_assignment_status(assignment: PaperAssignment, db: AsyncSessio
     assignment.status = "in_progress"
 
 
+# ---------------- 通知调度（独立 session 包装） ----------------
+
+
+async def _notify_submission_received_in_session(session: AsyncSession, submission_id: int) -> None:
+    sub = await session.get(PaperSubmission, submission_id)
+    if sub is None:
+        return
+    await notify_submission_received(session, sub)
+
+
 # ---------------- 派发管理 ----------------
 
 
@@ -705,10 +727,10 @@ async def push_to_wecom(
     row = res.scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="派发任务不存在。")
-    result = await push_assignment(assignment_id, db)
-    if not result.ok:
-        raise HTTPException(status_code=500, detail=result.message)
-    await db.flush()
+    # 推送本身可能因网络抖动耗时数秒到十几秒。把它放到独立 session 里，
+    # 避免主请求事务长时间持锁；推送函数内部已经把状态字段、log 都写好。
+    async with session_scope() as push_session:
+        await push_assignment(assignment_id, push_session)
     await db.refresh(row)
     return await _build_assignment_dto(row, db)
 
@@ -720,6 +742,10 @@ class BulkAssignmentIdsPayload(BaseModel):
 
 class BulkAssignmentPushPayload(BaseModel):
     ids: list[int] = Field(..., min_length=1)
+
+
+class DeadlineReminderPayload(BaseModel):
+    hours_before: int = Field(default=24, ge=1, le=168)
 
 
 @router.post("/bulk-delete")
@@ -790,42 +816,107 @@ async def bulk_push_assignments_wecom(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    """批量推送企微。逐条调用 push_assignment，单个失败不影响其它。
+    """批量推送企微。立即返回，真正的推送在后台 task 里跑。
 
-    返回每条的成功 / 失败状态，前端展示汇总即可。
+    把推送丢到 fire-and-forget 的 asyncio task：
+    - 单个网络抖动不会拖慢整个 HTTP 响应；
+    - 每条仍然用独立 session，互不影响；
+    - 完成后状态写回 paper_assignments 表的 wecom_push_status / error 字段，
+      前端轮询列表即可看到结果。
     """
     del admin
     ids = sorted({int(i) for i in payload.ids})
     if not ids:
-        return {"sent": 0, "failed": 0, "results": []}
+        return {"queued": 0, "missing": []}
 
     rows = (
-        await db.execute(select(PaperAssignment).where(PaperAssignment.id.in_(ids)))
-    ).scalars().all()
-    found_ids = {int(r.id) for r in rows}
+        await db.execute(select(PaperAssignment.id).where(PaperAssignment.id.in_(ids)))
+    ).all()
+    found_ids = {int(r[0]) for r in rows}
+    missing = [i for i in ids if i not in found_ids]
+    queued = [i for i in ids if i in found_ids]
 
-    results: list[dict[str, Any]] = []
-    sent = 0
-    failed = 0
-    for assignment_id in ids:
-        if assignment_id not in found_ids:
-            results.append({"id": assignment_id, "ok": False, "message": "派发任务不存在"})
-            failed += 1
-            continue
-        try:
-            result = await push_assignment(assignment_id, db)
-            if result.ok:
-                sent += 1
-                results.append({"id": assignment_id, "ok": True, "message": result.message or ""})
-            else:
-                failed += 1
-                results.append({"id": assignment_id, "ok": False, "message": result.message or "推送失败"})
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            results.append({"id": assignment_id, "ok": False, "message": str(exc)})
+    async def _run_bulk_push(target_ids: list[int]) -> None:
+        for assignment_id in target_ids:
+            try:
+                async with session_scope() as push_session:
+                    await push_assignment(assignment_id, push_session)
+            except Exception:  # noqa: BLE001
+                paper_grading_logger.exception(
+                    "bulk_wecom_push failed assignment_id=%s", assignment_id
+                )
 
-    await db.flush()
-    return {"sent": sent, "failed": failed, "results": results}
+    if queued:
+        asyncio.create_task(_run_bulk_push(queued))
+
+    return {
+        "queued": len(queued),
+        "missing": missing,
+        # 兼容旧前端字段：sent/failed/results 已无法在同步返回里给出；
+        # 前端只用 sent/failed 来挑提示文案，没有的话退化为"已加入推送队列"。
+        "sent": len(queued),
+        "failed": 0,
+        "results": [{"id": i, "ok": True, "message": "已加入推送队列"} for i in queued],
+    }
+
+
+@router.post("/wecom-deadline-reminders")
+async def send_deadline_reminders(
+    payload: DeadlineReminderPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Send WeCom reminders for assignments due soon.
+
+    异步触发：先把待提醒的 assignment_id 列表查出来，立即返回 queued 数量，
+    实际通知在后台 task 里逐条独立 session 发送，避免一次请求阻塞数十秒。
+    """
+    del admin
+    now = datetime.now()
+    upper = now + timedelta(hours=int(payload.hours_before))
+    rows = (
+        await db.execute(
+            select(PaperAssignment.id)
+            .where(
+                PaperAssignment.deadline_at.is_not(None),
+                PaperAssignment.deadline_at >= now,
+                PaperAssignment.deadline_at <= upper,
+                PaperAssignment.status.in_(["pending", "in_progress"]),
+            )
+            .order_by(PaperAssignment.deadline_at.asc())
+        )
+    ).all()
+    target_ids = [int(row[0]) for row in rows]
+
+    async def _run_bulk_reminders(ids: list[int]) -> None:
+        for assignment_id in ids:
+            try:
+                async with session_scope() as notify_session:
+                    fresh = (
+                        await notify_session.execute(
+                            select(PaperAssignment).where(PaperAssignment.id == assignment_id)
+                        )
+                    ).scalar_one_or_none()
+                    if fresh is None:
+                        continue
+                    await notify_paper_deadline_reminder(notify_session, fresh)
+            except Exception:  # noqa: BLE001
+                paper_grading_logger.exception(
+                    "notify_paper_deadline_reminder failed assignment_id=%s",
+                    assignment_id,
+                )
+
+    if target_ids:
+        asyncio.create_task(_run_bulk_reminders(target_ids))
+
+    return {
+        "queued": len(target_ids),
+        "total": len(target_ids),
+        # 兼容旧前端字段
+        "sent": len(target_ids),
+        "failed": 0,
+        "results": [{"id": i, "ok": True, "message": "已加入提醒队列"} for i in target_ids],
+    }
 
 
 # ---------------- 提交记录 ----------------
@@ -1011,6 +1102,7 @@ async def grade_submission(
         await _ensure_assignment_status(assign, db)
 
     await db.flush()
+    await db.commit()
     return await get_submission_detail(submission_id, db, admin)
 
 
@@ -1209,31 +1301,17 @@ async def _user_assignment_dto(
     return (await _user_assignment_dtos([assignment], db))[0]
 
 
-# ---------------- 用户端：我的考试 ----------------
-
-
-@submit_router.get("/my-assignments", response_model=list[UserAssignmentDTO])
-async def list_my_assignments(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> list[UserAssignmentDTO]:
-    rows = (
-        await db.execute(
-            select(PaperAssignment)
-            .where(PaperAssignment.user_id == user.id)
-            .order_by(PaperAssignment.id.desc())
-        )
-    ).scalars().all()
-    return await _user_assignment_dtos(rows, db)
-
-
-@submit_router.get("/assignments/{assignment_id}", response_model=UserAssignmentDetail)
-async def get_assignment_for_user(
+async def _load_assignment_for_user_readonly(
+    *,
     assignment_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> UserAssignmentDetail:
-    """学员答题用：返回试卷题目（无正确答案 / 解析）。"""
+    db: AsyncSession,
+    user: User,
+) -> tuple[PaperAssignment, Paper, list[UserPaperQuestionDTO], bool, str, int]:
+    """纯读：取出考试 / 试卷 / 题目，并校验权限和可考性。
+
+    返回 (assignment, paper, questions_dto, can_start, block_reason, duration_minutes)。
+    不写库、不 commit。GET 详情和 POST /start 共用此函数。
+    """
     assignment = (
         await db.execute(select(PaperAssignment).where(PaperAssignment.id == assignment_id))
     ).scalar_one_or_none()
@@ -1286,13 +1364,45 @@ async def get_assignment_for_user(
         can_start = False
         block_reason = "答题次数已用完。"
 
-    # 找/建当前 in_progress 提交，用于：
-    #   - 断点续答（刷新页面后倒计时不重置）
-    #   - 正确处理"用户开始但未提交"的中间状态
+    return assignment, paper, questions, can_start, block_reason, int(paper.duration_minutes or 0)
+
+
+def _compute_remain(
+    in_progress: PaperSubmission | None,
+    duration_min: int,
+) -> tuple[str | None, int | None, bool, str]:
+    """根据 in_progress 提交计算 started_at / remain_sec / 是否仍可作答。"""
+    if in_progress is None:
+        return None, None, True, ""
+    started_at_iso = in_progress.started_at.isoformat() if in_progress.started_at else None
+    if duration_min <= 0 or not in_progress.started_at:
+        return started_at_iso, None, True, ""
+    deadline = in_progress.started_at + timedelta(minutes=duration_min)
+    remain_sec = max(0, int((deadline - datetime.now()).total_seconds()))
+    if remain_sec <= 0:
+        return started_at_iso, remain_sec, False, "本次答题时间已用尽，请直接提交或开始新的一次。"
+    return started_at_iso, remain_sec, True, ""
+
+
+async def _get_assignment_for_user_readonly(
+    *,
+    assignment_id: int,
+    db: AsyncSession,
+    user: User,
+) -> "UserAssignmentDetail":
+    """GET 详情：纯读。
+
+    - 如果已存在 in_progress 提交：返回 started_at + remain_sec（用于断点续答）
+    - 没有 in_progress：started_at/remain_sec 为 None；前端通过 POST /start 来创建
+    """
+    assignment, paper, questions, can_start, block_reason, duration_min = (
+        await _load_assignment_for_user_readonly(
+            assignment_id=assignment_id, db=db, user=user
+        )
+    )
+
     started_at_iso: str | None = None
     remain_sec: int | None = None
-    duration_min = int(paper.duration_minutes or 0)
-
     if can_start:
         in_progress = (
             await db.execute(
@@ -1306,28 +1416,12 @@ async def get_assignment_for_user(
                 .limit(1)
             )
         ).scalar_one_or_none()
-
-        if in_progress is None:
-            in_progress = PaperSubmission(
-                assignment_id=assignment.id,
-                paper_id=assignment.paper_id,
-                user_id=user.id,
-                attempt_no=int(assignment.attempt_count or 0) + 1,
-                status="in_progress",
-                started_at=datetime.now(),
-            )
-            db.add(in_progress)
-            await db.flush()
-            await db.refresh(in_progress)
-
-        started_at_iso = in_progress.started_at.isoformat() if in_progress.started_at else None
-        if duration_min > 0 and in_progress.started_at:
-            deadline = in_progress.started_at + timedelta(minutes=duration_min)
-            remain = int((deadline - datetime.now()).total_seconds())
-            remain_sec = max(0, remain)
-            if remain_sec <= 0:
-                can_start = False
-                block_reason = "本次答题时间已用尽，请直接提交或开始新的一次。"
+        started_at_iso, remain_sec, can_start_after, reason_after = _compute_remain(
+            in_progress, duration_min
+        )
+        if not can_start_after:
+            can_start = False
+            block_reason = reason_after
 
     return UserAssignmentDetail(
         assignment=await _user_assignment_dto(assignment, db),
@@ -1336,6 +1430,259 @@ async def get_assignment_for_user(
         block_reason=block_reason,
         started_at=started_at_iso,
         remain_sec=remain_sec,
+    )
+
+
+async def _start_assignment_for_user(
+    *,
+    assignment_id: int,
+    db: AsyncSession,
+    user: User,
+) -> "UserAssignmentDetail":
+    """POST /start：找/建 in_progress 提交，返回与 GET 同结构的详情。
+
+    需要锁防止用户在多个 tab 同时点开始造成两条 in_progress 行。
+    """
+    async with _assignment_lock(assignment_id):
+        assignment, paper, questions, can_start, block_reason, duration_min = (
+            await _load_assignment_for_user_readonly(
+                assignment_id=assignment_id, db=db, user=user
+            )
+        )
+
+        started_at_iso: str | None = None
+        remain_sec: int | None = None
+
+        if can_start:
+            in_progress = (
+                await db.execute(
+                    select(PaperSubmission)
+                    .where(
+                        PaperSubmission.assignment_id == assignment.id,
+                        PaperSubmission.user_id == user.id,
+                        PaperSubmission.status == "in_progress",
+                    )
+                    .order_by(PaperSubmission.id.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            if in_progress is None:
+                in_progress = PaperSubmission(
+                    assignment_id=assignment.id,
+                    paper_id=assignment.paper_id,
+                    user_id=user.id,
+                    attempt_no=int(assignment.attempt_count or 0) + 1,
+                    status="in_progress",
+                    started_at=datetime.now(),
+                )
+                db.add(in_progress)
+                await db.flush()
+                await db.refresh(in_progress)
+
+            started_at_iso, remain_sec, can_start_after, reason_after = _compute_remain(
+                in_progress, duration_min
+            )
+            if not can_start_after:
+                can_start = False
+                block_reason = reason_after
+
+    return UserAssignmentDetail(
+        assignment=await _user_assignment_dto(assignment, db),
+        questions=questions,
+        can_start=can_start,
+        block_reason=block_reason,
+        started_at=started_at_iso,
+        remain_sec=remain_sec,
+    )
+
+
+async def _submit_paper_for_user_locked(
+    *,
+    assignment_id: int,
+    payload: "SubmitPayload",
+    db: AsyncSession,
+    user: User,
+) -> tuple[SubmissionDTO, int, str]:
+    res = await db.execute(
+        select(PaperAssignment)
+        .where(PaperAssignment.id == assignment_id)
+        .with_for_update()
+    )
+    assign = res.scalar_one_or_none()
+    if not assign:
+        raise HTTPException(status_code=404, detail="考试不存在。")
+    if assign.user_id != user.id:
+        raise HTTPException(status_code=403, detail="无权提交他人试卷。")
+    if _is_assignment_expired(assign):
+        raise HTTPException(status_code=400, detail="已超过考试截止时间。")
+
+    latest_submission = (
+        await db.execute(
+            select(PaperSubmission)
+            .where(
+                PaperSubmission.assignment_id == assign.id,
+                PaperSubmission.user_id == user.id,
+                PaperSubmission.status != "in_progress",
+            )
+            .order_by(PaperSubmission.attempt_no.desc(), PaperSubmission.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if assign.attempt_count >= assign.max_attempts:
+        if latest_submission is not None:
+            return _submission_to_dto(latest_submission), int(latest_submission.id), latest_submission.status
+        raise HTTPException(status_code=400, detail="已用尽答题次数。")
+
+    paper_res = await db.execute(select(Paper).where(Paper.id == assign.paper_id))
+    paper = paper_res.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="试卷不存在。")
+    if paper.status != "published":
+        raise HTTPException(status_code=400, detail="试卷尚未发布。")
+
+    submission = (
+        await db.execute(
+            select(PaperSubmission)
+            .where(
+                PaperSubmission.assignment_id == assign.id,
+                PaperSubmission.user_id == user.id,
+                PaperSubmission.status == "in_progress",
+            )
+            .order_by(PaperSubmission.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if submission is None and latest_submission is not None and int(latest_submission.attempt_no or 0) == int(assign.attempt_count or 0):
+        return _submission_to_dto(latest_submission), int(latest_submission.id), latest_submission.status
+
+    if submission is None:
+        attempt_no = int(assign.attempt_count or 0) + 1
+        submission = PaperSubmission(
+            assignment_id=assign.id,
+            paper_id=assign.paper_id,
+            user_id=user.id,
+            attempt_no=attempt_no,
+            status="submitted",
+            started_at=datetime.now(),
+            submitted_at=datetime.now(),
+        )
+        db.add(submission)
+        await db.flush()
+    else:
+        if int(paper.duration_minutes or 0) > 0 and submission.started_at:
+            deadline = submission.started_at + timedelta(minutes=int(paper.duration_minutes))
+            if datetime.now() > deadline + timedelta(seconds=30):
+                pass
+        submission.status = "submitted"
+        submission.submitted_at = datetime.now()
+        await db.execute(
+            sql_delete(PaperAnswer).where(PaperAnswer.submission_id == submission.id)
+        )
+
+    pq_rows = (
+        await db.execute(
+            select(PaperQuestion, QuestionBank)
+            .join(QuestionBank, QuestionBank.id == PaperQuestion.question_id)
+            .where(PaperQuestion.paper_id == assign.paper_id)
+        )
+    ).all()
+    pq_by_id = {pq.id: (pq, qb) for (pq, qb) in pq_rows}
+
+    answer_map = {a.paper_question_id: a.answer for a in payload.answers}
+    has_pending_ai = False
+    for pq_id, (pq, qb) in pq_by_id.items():
+        user_ans = answer_map.get(pq_id, [])
+        score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
+        is_correct, auto_score = score_question(
+            qb.question_type,
+            parse_answer(qb.correct_answer_json),
+            user_ans,
+            score,
+        )
+        new_row = PaperAnswer(
+            submission_id=submission.id,
+            paper_question_id=pq.id,
+            question_id=qb.id,
+            question_type=qb.question_type,
+            answer_json=json.dumps(user_ans, ensure_ascii=False),
+            auto_score=auto_score,
+            is_correct=is_correct,
+            final_score=auto_score if is_correct is not None else None,
+        )
+        db.add(new_row)
+        if is_subjective(qb.question_type) and bool(getattr(qb, "ai_grading_enabled", True)):
+            has_pending_ai = True
+
+    await db.flush()
+
+    # 主观题 AI 判分挪到后台 worker：避免 LLM 抖动让用户提交接口超时，
+    # 也避免同一连接长时间持锁影响其它写入。挂起的 ai_score=None 由
+    # _recalc_submission 转化为 status='submitted'（待评分），worker
+    # 完成后会再次推算到 'graded'。
+    await _recalc_submission(submission, db)
+    assign.attempt_count = int(submission.attempt_no or 1)
+    await _ensure_assignment_status(assign, db)
+    await db.flush()
+    await db.refresh(submission)
+    response_dto = _submission_to_dto(submission)
+    submission_id_for_notify = int(submission.id)
+    submission_status_for_notify = submission.status
+    await db.commit()
+    if has_pending_ai:
+        # 入队后台判分；worker 自身会再次重算 submission/assignment 状态
+        from .paper_ai_worker import enqueue as enqueue_ai_grading
+        enqueue_ai_grading(submission_id_for_notify)
+    return response_dto, submission_id_for_notify, submission_status_for_notify
+
+
+# ---------------- 用户端：我的考试 ----------------
+
+
+@submit_router.get("/my-assignments", response_model=list[UserAssignmentDTO])
+async def list_my_assignments(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[UserAssignmentDTO]:
+    rows = (
+        await db.execute(
+            select(PaperAssignment)
+            .where(PaperAssignment.user_id == user.id)
+            .order_by(PaperAssignment.id.desc())
+        )
+    ).scalars().all()
+    return await _user_assignment_dtos(rows, db)
+
+
+@submit_router.get("/assignments/{assignment_id}", response_model=UserAssignmentDetail)
+async def get_assignment_for_user(
+    assignment_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UserAssignmentDetail:
+    """学员答题详情：纯读，不写库。
+    没有 in_progress 提交时 started_at/remain_sec 为 None；
+    要真正开始考试请改调 POST /assignments/{id}/start。
+    """
+    return await _get_assignment_for_user_readonly(
+        assignment_id=assignment_id,
+        db=db,
+        user=user,
+    )
+
+
+@submit_router.post("/assignments/{assignment_id}/start", response_model=UserAssignmentDetail)
+async def start_assignment_for_user(
+    assignment_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> UserAssignmentDetail:
+    """显式开始考试：创建（或复用）in_progress 提交。"""
+    return await _start_assignment_for_user(
+        assignment_id=assignment_id,
+        db=db,
+        user=user,
     )
 
 
@@ -1383,8 +1730,15 @@ async def get_my_submission(
     paper = (
         await db.execute(select(Paper).where(Paper.id == sub.paper_id))
     ).scalar_one_or_none()
-    await _retry_pending_ai_grading(sub, paper, db)
-    await db.refresh(sub)
+    # GET 不再触发 LLM；如果还有挂起的主观题 AI 评分，把这条 submission
+    # 重新入队后台 worker，下次轮询/前端 3 秒后重拉时就能看到更新
+    if (
+        sub.status == "submitted"
+        and paper is not None
+        and not bool(paper.manual_review_subjective)
+    ):
+        from .paper_ai_worker import enqueue as enqueue_ai_grading
+        enqueue_ai_grading(int(sub.id))
     show_answer = _should_show_answer(paper, sub)
 
     answer_rows = (
@@ -1452,125 +1806,16 @@ async def submit_paper_for_user(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> SubmissionDTO:
-    """学员提交答卷：写答案 + 自动判分客观题，简答题进入复核。
-
-    复用同一次 GET 时建好的 in_progress 提交（保留 started_at 用于服务端超时校验），
-    没有 in_progress 时再新建。
-    """
-    res = await db.execute(select(PaperAssignment).where(PaperAssignment.id == assignment_id))
-    assign = res.scalar_one_or_none()
-    if not assign:
-        raise HTTPException(status_code=404, detail="考试不存在。")
-    if assign.user_id != user.id:
-        raise HTTPException(status_code=403, detail="无权提交他人试卷。")
-    if _is_assignment_expired(assign):
-        raise HTTPException(status_code=400, detail="已超过考试截止时间。")
-    if assign.attempt_count >= assign.max_attempts:
-        raise HTTPException(status_code=400, detail="已用尽答题次数。")
-
-    paper_res = await db.execute(select(Paper).where(Paper.id == assign.paper_id))
-    paper = paper_res.scalar_one_or_none()
-    if not paper:
-        raise HTTPException(status_code=404, detail="试卷不存在。")
-    if paper.status != "published":
-        raise HTTPException(status_code=400, detail="试卷尚未发布。")
-
-    # 找已有 in_progress 提交，复用之（保留 started_at）
-    submission = (
-        await db.execute(
-            select(PaperSubmission)
-            .where(
-                PaperSubmission.assignment_id == assign.id,
-                PaperSubmission.user_id == user.id,
-                PaperSubmission.status == "in_progress",
-            )
-            .order_by(PaperSubmission.id.desc())
-            .limit(1)
+    async with _assignment_lock(assignment_id):
+        response_dto, submission_id_for_notify, _submission_status_for_notify = await _submit_paper_for_user_locked(
+            assignment_id=assignment_id,
+            payload=payload,
+            db=db,
+            user=user,
         )
-    ).scalar_one_or_none()
-
-    if submission is None:
-        attempt_no = int(assign.attempt_count or 0) + 1
-        submission = PaperSubmission(
-            assignment_id=assign.id,
-            paper_id=assign.paper_id,
-            user_id=user.id,
-            attempt_no=attempt_no,
-            status="submitted",
-            started_at=datetime.now(),
-            submitted_at=datetime.now(),
-        )
-        db.add(submission)
-        await db.flush()
-    else:
-        # 服务端兜底：基于 started_at + duration 校验是否超时
-        if int(paper.duration_minutes or 0) > 0 and submission.started_at:
-            deadline = submission.started_at + timedelta(minutes=int(paper.duration_minutes))
-            # 给 30 秒缓冲，前端倒计时跳变到 0 后立即提交时不会被误拒
-            if datetime.now() > deadline + timedelta(seconds=30):
-                # 已超时；标记为提交并按当前作答自动判分（不抛错，避免学员答案丢失）
-                pass
-        submission.status = "submitted"
-        submission.submitted_at = datetime.now()
-        # 清掉之前可能残留的 PaperAnswer（保险，理论上 in_progress 状态没有 answers）
-        await db.execute(
-            sql_delete(PaperAnswer).where(PaperAnswer.submission_id == submission.id)
-        )
-
-    pq_rows = (
-        await db.execute(
-            select(PaperQuestion, QuestionBank)
-            .join(QuestionBank, QuestionBank.id == PaperQuestion.question_id)
-            .where(PaperQuestion.paper_id == assign.paper_id)
-        )
-    ).all()
-    pq_by_id = {pq.id: (pq, qb) for (pq, qb) in pq_rows}
-
-    answer_map = {a.paper_question_id: a.answer for a in payload.answers}
-    answer_rows: list[PaperAnswer] = []
-    ai_grading_jobs: list[tuple[PaperAnswer, dict[str, Any]]] = []
-    for pq_id, (pq, qb) in pq_by_id.items():
-        user_ans = answer_map.get(pq_id, [])
-        score = float(pq.score_override) if pq.score_override is not None else float(qb.default_score or 0)
-        is_correct, auto_score = score_question(
-            qb.question_type,
-            parse_answer(qb.correct_answer_json),
-            user_ans,
-            score,
-        )
-        new_row = PaperAnswer(
-            submission_id=submission.id,
-            paper_question_id=pq.id,
-            question_id=qb.id,
-            question_type=qb.question_type,
-            answer_json=json.dumps(user_ans, ensure_ascii=False),
-            auto_score=auto_score,
-            is_correct=is_correct,
-            final_score=auto_score if is_correct is not None else None,
-        )
-        db.add(new_row)
-        answer_rows.append(new_row)
-        # 主观题默认走 AI 判分；管理员后续仍可人工覆盖分数与评语。
-        if is_subjective(qb.question_type) and bool(getattr(qb, "ai_grading_enabled", True)):
-            ai_grading_jobs.append(
-                _build_ai_grading_job(
-                    new_row,
-                    qb,
-                    user_answer=parse_answer(user_ans),
-                    full_score=score,
-                )
-            )
-
-    await db.flush()
-
-    # 并发跑 AI 判分。单个失败不影响其它，也不影响整张卷的提交。
-    if ai_grading_jobs:
-        await _run_ai_grading_jobs(ai_grading_jobs)
-        await db.flush()
-
-    await _recalc_submission(submission, db)
-    assign.attempt_count = int(submission.attempt_no or 1)
-    await _ensure_assignment_status(assign, db)
-    await db.flush()
-    await db.refresh(submission)
-    return _submission_to_dto(submission)
+    await safe_dispatch(
+        lambda session: _notify_submission_received_in_session(session, submission_id_for_notify),
+        event="paper_submission_received",
+        business_id=submission_id_for_notify,
+    )
+    return response_dto
