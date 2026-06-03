@@ -3,7 +3,6 @@ import {
   ArrowRightOutlined,
   ArrowUpOutlined,
   BookOutlined,
-  CalendarOutlined,
   DownOutlined,
   DeleteOutlined,
   DownloadOutlined,
@@ -11,15 +10,12 @@ import {
   LockOutlined,
   PlayCircleFilled,
   PlusOutlined,
-  ReadOutlined,
   RightOutlined,
-  UploadOutlined,
 } from "@ant-design/icons";
 import {
   Alert,
   App as AntdApp,
   Button,
-  Calendar,
   Card,
   Empty,
   Form,
@@ -38,104 +34,37 @@ import {
   Table,
   Tabs,
   Tag,
-  Tooltip,
   Typography,
   Upload,
 } from "antd";
 import dayjs from "dayjs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   buildMagicQuizImportTemplateUrl,
   buildMagicVideoStreamUrl,
-  completeMagicVideoUpload,
-  completeMagicVideoReplaceUpload,
-  createMagicVideo,
-  createMagicQuestion,
-  createMagicQuizPoint,
-  createMagicVideoSeries,
   createMagicWatchConfirmLog,
   createMagicWhitelist,
-  createAdminReadingContent,
-  createAdminReadingContentsBatch,
-  createAdminReadingSeries,
-  archiveAdminReadingSeries,
   batchDeleteAdminReadingContents,
-  batchDeleteMagicVideos,
-  batchDisableMagicVideos,
-  batchPublishMagicVideos,
   batchUpdateAdminReadingContentsStatus,
-  deleteMagicQuestion,
-  deleteMagicQuizPoint,
   deleteAdminReadingContent,
-  deleteMagicVideo,
   deleteMagicVideoSeries,
-  deleteMagicWhitelist,
-  deleteMyAudio,
-  disableMagicVideo,
   downloadMagicFile,
-  exportAdminReadingAudioStatistics,
-  failMagicVideoUpload,
-  failMagicVideoReplaceUpload,
   fetchAdminAudioCalendar,
-  fetchAdminReadingAudioStatistics,
-  fetchAdminReadingAudioStatisticUsers,
-  fetchAdminReadingContentDetail,
-  fetchAdminReadingContents,
-  getCoursePushEntries,
-  getCoursePushSummary,
-  getReadingPushEntries,
-  getReadingPushSummary,
-  getAdminReadingContentsImportJob,
-  fetchAdminReadingSeries,
-  fetchAdminReadingSeriesDetail,
   fetchMagicAudioMakeupSetting,
   fetchMagicWatchConfirmSetting,
-  confirmAdminReadingContentsImport,
-  fetchMyReadingContents,
-  fetchMyAudioMakeupOptions,
+  fetchMyAudios,
   fetchMagicVideoAnswers,
   fetchMagicVideoStats,
-  fetchMyAudioCalendar,
-  fetchMyAudios,
   fetchMyMagicVideoDetail,
   fetchMyMagicVideos,
-  getMagicVideoReplaceUploadStatus,
-  getMagicVideoUploadStatus,
-  initMagicVideoUpload,
-  initMagicVideoReplaceUpload,
-  listMagicVideoSeries,
   listMagicQuizPoints,
-  listMagicVideos,
-  listMagicWhitelist,
-  publishMagicVideo,
-  retryCoursePush,
-  retryReadingPush,
-  previewAdminReadingContentsImport,
-  previewAdminReadingContentsImportFromMaterial, // CODEX_MODIFIED
-  reorderMagicVideoSeriesItems,
-  removeMagicVideoSeriesItem,
   saveMyMagicVideoProgress,
   submitMyMagicQuiz,
-  submitMyAudioMakeup,
-  updateMagicVideoSeries,
-  updateAdminReadingContent,
   updateAdminReadingContentStatus,
-  updateAdminReadingSeries,
-  updateMagicAudioMakeupSetting,
   updateMagicWatchConfirmSetting,
-  updateMagicQuestion,
-  updateMagicQuizPoint,
-  updateMagicVideo,
-  uploadMyAudio,
   addMagicVideoSeriesItem,
 } from "../lib/api.magic";
-import {
-  buildOssUploadCheckpointKey,
-  clearOssUploadCheckpoint,
-  loadOssUploadCheckpoint,
-  saveOssUploadCheckpoint,
-} from "../lib/ossUploadCheckpoint";
 import { adminListUsers } from "../lib/api.admin";
 import { fetchOptions } from "../lib/api.options";
 import { getCurrentUser, isAdmin, isSuperAdmin } from "../lib/auth";
@@ -145,51 +74,58 @@ import ResponsiveVideoPlayer from "./magicAcademy/ResponsiveVideoPlayer";
 import VideoDispatchFormModal from "./magicAcademy/VideoDispatchFormModal";
 import MagicAcademyPageModals from "./magicAcademy/MagicAcademyPageModals";
 import { buildReadingAdminTabItems } from "./magicAcademy/MagicAcademyReadingAdminTabs";
+import PushDetailModal from "./magicAcademy/shared/PushDetailModal";
+import MagicAcademyEmptyState from "./magicAcademy/shared/MagicAcademyEmptyState";
+import { buildAdminCoursesTabItems } from "./magicAcademy/admin/courses/AdminCoursesModule";
+import useAdminCoursesTabSupport from "./magicAcademy/admin/courses/useAdminCoursesTabSupport";
+import useCourseAdminSupport from "./magicAcademy/admin/courses/useCourseAdminSupport";
+import useCourseQuizAdmin from "./magicAcademy/admin/courses/useCourseQuizAdmin";
+import useCourseSeriesAdmin from "./magicAcademy/admin/courses/useCourseSeriesAdmin";
+import useCourseVideoUploadAdmin from "./magicAcademy/admin/courses/useCourseVideoUploadAdmin";
+import { useAdminReadingTabItems } from "./magicAcademy/admin/reading/AdminReadingModule";
+import useAudioStatsAdminSupport from "./magicAcademy/admin/reading/useAudioStatsAdminSupport";
+import useReadingContentActions from "./magicAcademy/admin/reading/useReadingContentActions";
+import useReadingContentImportAdmin from "./magicAcademy/admin/reading/useReadingContentImportAdmin";
+import useReadingContentPushAdmin from "./magicAcademy/admin/reading/useReadingContentPushAdmin";
+import useReadingContentsAdmin from "./magicAcademy/admin/reading/useReadingContentsAdmin";
+import MagicAcademyHome from "./magicAcademy/user/MagicAcademyHome";
+import CourseCard from "./magicAcademy/user/CourseCard";
+import CourseListSection from "./magicAcademy/user/CourseListSection";
+import CourseCenterShell from "./magicAcademy/user/CourseCenterShell";
+import ReadingCheckinShell from "./magicAcademy/user/ReadingCheckinShell";
+import useUserCourseLearningSupport from "./magicAcademy/user/useUserCourseLearningSupport";
+import UserReadingCheckinPanel from "./magicAcademy/user/UserReadingCheckinPanel";
+import useUserReadingCheckinSupport from "./magicAcademy/user/useUserReadingCheckinSupport";
 import {
   answerColumns,
-  buildAdminVideoColumns,
-  buildStatsColumns,
-  buildWhitelistColumns,
 } from "./magicAcademy/adminColumns";
 import {
   ADMIN_SECTION_TABS,
-  AUDIO_EXPORT_DEFAULT_COLUMNS,
-  AUDIO_EXPORT_EMPLOYEE_COLUMNS,
-  AUDIO_EXPORT_FIELD_GROUPS,
-  AUDIO_EXPORT_STAT_COLUMNS,
   READING_SERIES_STATUS_FILTER_OPTIONS,
   READING_SERIES_STATUS_META,
 } from "./magicAcademy/magicAcademyPageConfig";
 import {
-  buildSeriesTargetFormValues,
   getDefaultAdminTab,
   getSeriesTargetSummary,
-  isReadingDateOutOfRange,
   isSamePrimitiveArray,
-  normalizeSeriesTargetsFromForm,
 } from "./magicAcademy/magicAcademyPageHelpers";
 import {
   buildAudioCalendarMap,
-  buildSeriesSections,
   buildVideoDispatchFormValues,
   buildVideoTargetsFromDispatch,
   formatFileSize,
   formatTime,
   getAudioDayStatus,
-  getAudioSourceMeta,
   getCurrentMonthText,
-  getReadingTargetSummary,
   getTodayText,
+  getReadingTargetSummary,
   getVideoSourceLabel,
   getVideoStatusMeta,
   logMagicUploadStageError,
-  logOssUploadError,
-  multipartUploadToOss,
   normalizeQuestionType,
   QUESTION_TYPE_LABELS,
   renderAudioStatusTag,
   renderQuestionAnswer,
-  saveBlob,
   targetsToOptions,
   UNASSIGNED_DEPARTMENT_FILTER,
 } from "./magicAcademy/magicAcademyShared";
@@ -225,29 +161,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [whitelist, setWhitelist] = useState([]);
   const [statsRows, setStatsRows] = useState([]);
   const [answerRows, setAnswerRows] = useState([]);
-  const [audioReadingStatsRows, setAudioReadingStatsRows] = useState([]);
-  const [myVideos, setMyVideos] = useState([]);
-  const [myAudios, setMyAudios] = useState([]);
-  const [myVideosLoadError, setMyVideosLoadError] = useState("");
-  const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [selectedAdminVideoId, setSelectedAdminVideoId] = useState(null);
   const [selectedAdminVideoRowKeys, setSelectedAdminVideoRowKeys] = useState([]);
-  const [videoDetail, setVideoDetail] = useState(null);
-  const [videoDetailError, setVideoDetailError] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
   const [videoModal, setVideoModal] = useState(null);
-  const [videoSubmitting, setVideoSubmitting] = useState(false);
-  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
-  const [publishingVideoId, setPublishingVideoId] = useState(null);
-  const [disablingVideoId, setDisablingVideoId] = useState(null);
   const [quizVideoId, setQuizVideoId] = useState(null);
   const [quizPoints, setQuizPoints] = useState([]);
-  const [pointModal, setPointModal] = useState(null);
-  const [questionModal, setQuestionModal] = useState(null);
-  const [seriesModal, setSeriesModal] = useState(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState(null);
-  const [employeeSelectedSeriesId, setEmployeeSelectedSeriesId] = useState(null);
-  const [seriesItemVideoId, setSeriesItemVideoId] = useState(null);
   const [watchConfirmForm] = Form.useForm();
   const [seriesForm] = Form.useForm();
   const [statsVideoId, setStatsVideoId] = useState(null);
@@ -257,72 +176,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const [appliedStatsUserId, setAppliedStatsUserId] = useState([]);
   const [whitelistForm] = Form.useForm();
   const [pointForm] = Form.useForm();
-  const [quizImportState, setQuizImportState] = useState({ open: false, pointId: null, source: "upload" });
   const [quizAnswerState, setQuizAnswerState] = useState({ open: false, point: null, values: {} });
   const [watchConfirmState, setWatchConfirmState] = useState({ open: false, round: 0 });
-  const [audioRemark, setAudioRemark] = useState("");
-  const [audioMakeupSetting, setAudioMakeupSetting] = useState({ enabled: false, make_up_days: 0, description: "" });
-  const [readingContents, setReadingContents] = useState([]);
-  const [readingContentsTotal, setReadingContentsTotal] = useState(0);
-  const [videoPushSummaryMap, setVideoPushSummaryMap] = useState({});
-  const [readingPushSummaryMap, setReadingPushSummaryMap] = useState({});
-  const [pushDetailOpen, setPushDetailOpen] = useState(false);
-  const [pushDetailLoading, setPushDetailLoading] = useState(false);
-  const [pushDetailTitle, setPushDetailTitle] = useState("");
-  const [pushDetailRows, setPushDetailRows] = useState([]);
-  const [retryingVideoId, setRetryingVideoId] = useState(null);
-  const [retryingReadingContentId, setRetryingReadingContentId] = useState(null);
-  const [pushDetailTarget, setPushDetailTarget] = useState(null);
-  const [readingContentModalOpen, setReadingContentModalOpen] = useState(false);
-  const [readingContentModalMode, setReadingContentModalMode] = useState("create");
-  const [readingContentEditing, setReadingContentEditing] = useState(null);
-  const [readingContentPreferredSeriesId, setReadingContentPreferredSeriesId] = useState(null);
-  const [readingContentSubmitting, setReadingContentSubmitting] = useState(false);
-  const [readingContentKeyword, setReadingContentKeyword] = useState("");
   const [readingContentMonth, setReadingContentMonth] = useState(getCurrentMonthText());
-  const [readingContentPage, setReadingContentPage] = useState(1);
-  const [readingContentPageSize, setReadingContentPageSize] = useState(10);
-  const [readingContentSeriesId, setReadingContentSeriesId] = useState(null);
   const [selectedReadingContentRowKeys, setSelectedReadingContentRowKeys] = useState([]);
-  const [readingSeriesRows, setReadingSeriesRows] = useState([]);
-  const [readingSeriesSelectRows, setReadingSeriesSelectRows] = useState([]);
-  const [readingSeriesTotal, setReadingSeriesTotal] = useState(0);
-  const [readingSeriesKeyword, setReadingSeriesKeyword] = useState("");
-  const [readingSeriesStatus, setReadingSeriesStatus] = useState("");
-  const [readingSeriesPage, setReadingSeriesPage] = useState(1);
-  const [readingSeriesModal, setReadingSeriesModal] = useState(null);
-  const [readingSeriesSubmitting, setReadingSeriesSubmitting] = useState(false);
-  const [readingSeriesDetailOpen, setReadingSeriesDetailOpen] = useState(false);
-  const [readingSeriesDetailLoading, setReadingSeriesDetailLoading] = useState(false);
-  const [readingSeriesDetail, setReadingSeriesDetail] = useState(null);
   const [readingSeriesForm] = Form.useForm();
-  const [readingImportPreviewOpen, setReadingImportPreviewOpen] = useState(false);
-  const [readingImportSubmitting, setReadingImportSubmitting] = useState(false);
-  const [readingImportRows, setReadingImportRows] = useState([]);
-  const [readingImportSummary, setReadingImportSummary] = useState({ total: 0, valid: 0, invalid: 0 });
-  const [readingImportToken, setReadingImportToken] = useState("");
-  const [readingImportMaterialPickerOpen, setReadingImportMaterialPickerOpen] = useState(false);
-  const [myReadingContents, setMyReadingContents] = useState([]);
-  const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
-  const [audioMonth, setAudioMonth] = useState(getCurrentMonthText());
-  const [audioDateRange, setAudioDateRange] = useState(null);
-  const [audioReadingContentId, setAudioReadingContentId] = useState(null);
-  const [audioDepartment, setAudioDepartment] = useState("");
-  const [audioUserId, setAudioUserId] = useState(null);
-  const [audioStatusFilter, setAudioStatusFilter] = useState("all");
-  const [audioReadingOptions, setAudioReadingOptions] = useState([]);
-  const [audioLegacyHint, setAudioLegacyHint] = useState("");
-  const [audioExportModalOpen, setAudioExportModalOpen] = useState(false);
-  const [audioExportColumns, setAudioExportColumns] = useState(AUDIO_EXPORT_DEFAULT_COLUMNS);
-  const [audioExportSubmitting, setAudioExportSubmitting] = useState(false);
-  const [audioDetailOpen, setAudioDetailOpen] = useState(false);
-  const [audioDetailLoading, setAudioDetailLoading] = useState(false);
-  const [audioDetailRow, setAudioDetailRow] = useState(null);
-  const [audioDetailRows, setAudioDetailRows] = useState([]);
-  const [audioDetailLegacyHint, setAudioDetailLegacyHint] = useState("");
-  const [myAudioMonth, setMyAudioMonth] = useState(getCurrentMonthText());
-  const [myAudioCalendarDays, setMyAudioCalendarDays] = useState([]);
-  const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(getTodayText());
   const [adminAudioCalendarDays, setAdminAudioCalendarDays] = useState([]);
   const [adminAudioSelectedDate, setAdminAudioSelectedDate] = useState(getTodayText());
   const videoRef = useRef(null);
@@ -335,31 +193,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const watchConfirmAccumulatedRef = useRef(0);
   const watchConfirmLastTimeRef = useRef(null);
   const watchConfirmRoundRef = useRef(0);
-  const answeredPointIds = useMemo(() => new Set(videoDetail?.progress?.answered_point_ids || []), [videoDetail]);
-  const selectedAdminVideo = useMemo(
-    () => videos.find((item) => item.id === selectedAdminVideoId) || null,
-    [selectedAdminVideoId, videos],
-  );
-  const selectedSeries = useMemo(
-    () => videoSeries.find((item) => item.id === selectedSeriesId) || null,
-    [selectedSeriesId, videoSeries],
-  );
-  const availableSeriesVideos = useMemo(() => {
-    const occupied = new Set(
-      videoSeries
-        .flatMap((item) => item.items || [])
-        .filter((item) => item.video_id && selectedSeries?.items?.every((current) => current.video_id !== item.video_id))
-        .map((item) => item.video_id),
-    );
-    return videos.filter((item) => !occupied.has(item.id));
-  }, [selectedSeries, videoSeries, videos]);
-  const myAudioCalendarMap = useMemo(() => buildAudioCalendarMap(myAudioCalendarDays), [myAudioCalendarDays]);
-  const myAudioMakeupMap = useMemo(
-    () => Object.fromEntries((Array.isArray(myAudioMakeupDays) ? myAudioMakeupDays : []).map((item) => [item.reading_content_id, item])),
-    [myAudioMakeupDays],
-  );
   const adminAudioCalendarMap = useMemo(() => buildAudioCalendarMap(adminAudioCalendarDays), [adminAudioCalendarDays]);
-  const selectedMyAudioDay = myAudioCalendarMap[myAudioSelectedDate] || null;
   const selectedAdminAudioDay = adminAudioCalendarMap[adminAudioSelectedDate] || null;
   const employeeUsers = useMemo(
     () => users.filter((item) => item.role === "user"),
@@ -394,48 +228,6 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     )),
     [employeeUsers, statsDepartment],
   );
-  const myRequiredVideos = useMemo(
-    () => myVideos.filter((item) => item.is_required && !item.progress?.is_completed),
-    [myVideos],
-  );
-  const myLearningVideos = useMemo(
-    () => myVideos.filter((item) => !item.progress?.is_completed && (item.progress?.progress_percent || 0) > 0),
-    [myVideos],
-  );
-  const myCompletedVideos = useMemo(
-    () => myVideos.filter((item) => item.progress?.is_completed),
-    [myVideos],
-  );
-  const selectedReadingContents = useMemo(
-    () => Array.isArray(myReadingContents) ? myReadingContents : [],
-    [myReadingContents],
-  );
-  const todayUploadedAudio = useMemo(
-    () => selectedReadingContents.some((item) => item.completed),
-    [selectedReadingContents],
-  );
-  const continueStudyVideo = useMemo(
-    () => myRequiredVideos.find((item) => !item.is_locked)
-      || myLearningVideos.find((item) => !item.is_locked)
-      || myVideos.find((item) => !item.is_locked)
-      || myVideos[0]
-      || null,
-    [myLearningVideos, myRequiredVideos, myVideos],
-  );
-  const myVideoSections = useMemo(() => buildSeriesSections(myVideos), [myVideos]);
-  const selectedEmployeeSeries = useMemo(
-    () => myVideoSections.seriesSections.find((item) => String(item.seriesId) === String(employeeSelectedSeriesId)) || null,
-    [employeeSelectedSeriesId, myVideoSections],
-  );
-  const latestAudioRecord = useMemo(
-    () => (Array.isArray(myAudios) && myAudios.length > 0 ? myAudios[0] : null),
-    [myAudios],
-  );
-  const studyCompletionRate = useMemo(() => {
-    if (!myVideos.length) return 0;
-    return Math.round((myCompletedVideos.length / myVideos.length) * 100);
-  }, [myCompletedVideos.length, myVideos.length]);
-
   useEffect(() => {
     if (!adminMode) return;
     const sectionTabs = ADMIN_SECTION_TABS[adminSection] || ADMIN_SECTION_TABS.courses;
@@ -456,39 +248,23 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     }
   }, [academyView, adminMode, searchParams]);
 
-  useEffect(() => {
-    if (adminMode) return;
-    const nextVideoId = searchParams.get("video");
-    const nextSeriesId = searchParams.get("series");
-    if ((nextSeriesId || null) !== (employeeSelectedSeriesId || null)) {
-      setEmployeeSelectedSeriesId(nextSeriesId || null);
-    }
-    if (searchParams.get("tab") !== "courses") {
-      if (selectedVideoId !== null) setSelectedVideoId(null);
-      return;
-    }
-    if ((nextVideoId || null) !== (selectedVideoId || null)) {
-      setSelectedVideoId(nextVideoId || null);
-    }
-  }, [adminMode, employeeSelectedSeriesId, searchParams, selectedVideoId]);
-
   const openAcademyHome = () => {
-    setSelectedVideoId(null);
-    setVideoDetail(null);
-    setEmployeeSelectedSeriesId(null);
+    userCourseLearningSupport.setSelectedVideoId(null);
+    userCourseLearningSupport.setVideoDetail(null);
+    userCourseLearningSupport.setEmployeeSelectedSeriesId(null);
     setAcademyView("home");
     if (!adminMode) setSearchParams({});
   };
 
   const openCourseCenter = (videoId = null) => {
     setAcademyView("courses");
-    setVideoDetailError(null);
-    setEmployeeSelectedSeriesId(null);
+    userCourseLearningSupport.setVideoDetailError(null);
+    userCourseLearningSupport.setEmployeeSelectedSeriesId(null);
     if (videoId) {
-      setSelectedVideoId(videoId);
+      userCourseLearningSupport.setSelectedVideoId(videoId);
     } else {
-      setSelectedVideoId(null);
-      setVideoDetail(null);
+      userCourseLearningSupport.setSelectedVideoId(null);
+      userCourseLearningSupport.setVideoDetail(null);
     }
     if (!adminMode) {
       setSearchParams(videoId ? { tab: "courses", video: String(videoId) } : { tab: "courses" });
@@ -514,6 +290,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const shouldLoadReadingContents = adminMode && activeTab === "reading_contents";
   const shouldLoadReadingSeries = adminMode && ["reading_contents", "reading_series"].includes(activeTab);
   const shouldLoadAudioStats = adminMode && activeTab === "audio_stats";
+  const audioStatsSupport = useAudioStatsAdminSupport({
+    enabled: shouldLoadAudioStats,
+    users,
+    message,
+    showLoadError,
+  });
   const statsEmployeeOptions = useMemo(
     () => filteredStatsEmployees.map((item) => ({
       value: item.id,
@@ -522,68 +304,208 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     [filteredStatsEmployees],
   );
 
-  const loadVideoPushSummaries = async (items) => {
-    const rows = Array.isArray(items) ? items : [];
-    const summaries = await Promise.all(
-      rows.map(async (item) => {
-        try {
-          const result = await getCoursePushSummary(item.id);
-          return [item.id, result?.item || null];
-        } catch {
-          return [item.id, null];
-        }
-      }),
-    );
-    setVideoPushSummaryMap(Object.fromEntries(summaries));
-  };
+  const readingContentPushSupport = useReadingContentPushAdmin({
+    message,
+  });
 
-  const loadReadingPushSummaries = async (items) => {
-    const rows = Array.isArray(items) ? items : [];
-    const summaries = await Promise.all(
-      rows.map(async (item) => {
-        try {
-          const result = await getReadingPushSummary(item.id);
-          return [item.id, result?.item || null];
-        } catch {
-          return [item.id, null];
-        }
-      }),
-    );
-    setReadingPushSummaryMap(Object.fromEntries(summaries));
-  };
+  const {
+    readingContentKeyword,
+    setReadingContentKeyword,
+    readingContentPage,
+    setReadingContentPage,
+    readingContentPageSize,
+    setReadingContentPageSize,
+    readingContentSeriesId,
+    setReadingContentSeriesId,
+    readingContents,
+    readingContentsTotal,
+    readingContentSeriesFilterRows,
+    readingContentModalOpen,
+    setReadingContentModalOpen,
+    readingContentModalMode,
+    readingContentEditing,
+    setReadingContentEditing,
+    readingContentPreferredSeriesId,
+    setReadingContentPreferredSeriesId,
+    readingContentSubmitting,
+    reloadReadingContents,
+    reloadReadingContentSeriesFilterOptions,
+    openCreateReadingContentModal,
+    openEditReadingContentModal,
+    handleSubmitReadingContent,
+  } = useReadingContentsAdmin({
+    enabled: shouldLoadReadingContents,
+    filterOptionsEnabled: adminMode && adminSection === "reading",
+    month: readingContentMonth,
+    setMonth: setReadingContentMonth,
+    message,
+    showLoadError,
+    onRowsLoaded: async (items) => {
+      setSelectedReadingContentRowKeys([]);
+      await readingContentPushSupport.loadReadingPushSummaries(items);
+    },
+  });
+  const {
+    handleDeleteReadingContent,
+    handleBatchDeleteReadingContents,
+    handleBatchDisableReadingContents,
+    handleToggleReadingContentStatus,
+  } = useReadingContentActions({
+    deleteAdminReadingContent,
+    batchDeleteAdminReadingContents,
+    batchUpdateAdminReadingContentsStatus,
+    updateAdminReadingContentStatus,
+    reloadReadingContents,
+    selectedReadingContentRowKeys,
+    message,
+  });
+  const readingContentImportSupport = useReadingContentImportAdmin({
+    message,
+    reloadReadingContents,
+    setReadingContentPage,
+  });
+  const courseAdminSupport = useCourseAdminSupport({
+    adminMode,
+    superAdminMode,
+    adminVideoPage,
+    setAdminVideoPage,
+    adminVideoPageSize,
+    setAdminVideoPageSize,
+    selectedAdminVideoRowKeys,
+    setSelectedAdminVideoRowKeys,
+    selectedAdminVideoId,
+    setSelectedAdminVideoId,
+    statsVideoId,
+    setStatsVideoId,
+    statsDepartment,
+    setStatsDepartment,
+    statsUserId,
+    setStatsUserId,
+    appliedStatsDepartment,
+    setAppliedStatsDepartment,
+    appliedStatsUserId,
+    setAppliedStatsUserId,
+    quizVideoId,
+    setQuizVideoId,
+    setQuizPoints,
+    selectedSeriesId,
+    setSelectedSeriesId,
+    videos,
+    setVideos,
+    users,
+    setUsers,
+    videoSeries,
+    setVideoSeries,
+    whitelist,
+    setWhitelist,
+    statsRows,
+    setStatsRows,
+    answerRows,
+    setAnswerRows,
+    statsDepartmentOptions,
+    statsEmployeeOptions,
+    setVideoModal,
+    downloadMagicFile,
+    fetchMagicVideoAnswers,
+    fetchMagicVideoStats,
+    getVideoStatusMeta,
+    message,
+    showLoadError,
+    shouldLoadAdminVideoData,
+  });
+  const courseVideoUploadSupport = useCourseVideoUploadAdmin({
+    videoModal,
+    setVideoModal,
+    reloadAdminData: async () => courseAdminSupport.reloadAdminData(),
+    message,
+  });
+  const courseSeriesSupport = useCourseSeriesAdmin({
+    seriesForm,
+    selectedSeriesId,
+    videoSeries,
+    videos: courseAdminSupport.adminVideoState.videos,
+    reloadAdminData: async () => courseAdminSupport.reloadAdminData(),
+    message,
+  });
+  const courseQuizSupport = useCourseQuizAdmin({
+    pointForm,
+    quizVideoId,
+    setQuizPoints,
+    message,
+  });
+  const userReadingCheckinSupport = useUserReadingCheckinSupport({
+    audioStatsSupport,
+    dayjs,
+    message,
+    reloadMyData: async () => reloadMyData(),
+    superAdminMode,
+  });
+  const syncLoadedMaxWatchedPosition = useCallback((value) => {
+    watchedRef.current = value;
+  }, []);
+  const userCourseLearningSupport = useUserCourseLearningSupport({
+    academyView,
+    adminMode,
+    message,
+    setAcademyView,
+    setSearchParams,
+    setWatchConfirmState,
+    setWatchedRef: (value) => {
+      watchedRef.current = value;
+    },
+    setLastSafeTimeRef: (value) => {
+      lastSafeTimeRef.current = value;
+    },
+    resetBlockingSeekRef: () => {
+      blockingSeekRef.current = false;
+    },
+    resetLockedQuizPointIdRef: () => {
+      lockedQuizPointIdRef.current = null;
+    },
+    resetWatchConfirmAccumulatedRef: () => {
+      watchConfirmAccumulatedRef.current = 0;
+    },
+    resetWatchConfirmLastTimeRef: () => {
+      watchConfirmLastTimeRef.current = null;
+    },
+    resetWatchConfirmRoundRef: () => {
+      watchConfirmRoundRef.current = 0;
+    },
+    syncLoadedMaxWatchedPosition,
+  });
+  const {
+    myVideos,
+    myVideosLoadError,
+    selectedVideoId,
+    employeeSelectedSeriesId,
+    videoDetail,
+    videoDetailError,
+    loadingDetail,
+    answeredPointIds,
+    myRequiredVideos,
+    myLearningVideos,
+    myCompletedVideos,
+    continueStudyVideo,
+    myVideoSections,
+    selectedEmployeeSeries,
+    studyCompletionRate,
+  } = userCourseLearningSupport;
 
-  const reloadAdminData = async () => {
-    if (!adminMode) return;
-    const [userData, videoData, pagedVideoData, whitelistData, seriesData] = await Promise.all([
-      adminListUsers(),
-      listMagicVideos(),
-      listMagicVideos({ page: adminVideoPage, page_size: adminVideoPageSize }),
-      superAdminMode ? listMagicWhitelist() : Promise.resolve([]),
-      listMagicVideoSeries(),
-    ]);
-    setUsers(Array.isArray(userData) ? userData : []);
-    setVideos(Array.isArray(videoData) ? videoData : []);
-    const adminVideoList = Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []);
-    setAdminVideoItems(adminVideoList);
-    setAdminVideoTotal(Number(pagedVideoData?.total ?? (Array.isArray(pagedVideoData) ? pagedVideoData.length : 0)));
-    setSelectedAdminVideoRowKeys([]);
-    setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
-    setVideoSeries(Array.isArray(seriesData) ? seriesData : []);
-    await loadVideoPushSummaries(adminVideoList);
-    if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
-    if (!quizVideoId && videoData?.[0]?.id) setQuizVideoId(videoData[0].id);
-    if (!selectedSeriesId && seriesData?.[0]?.id) setSelectedSeriesId(seriesData[0].id);
-  };
-
-  const reloadAdminUsers = async () => {
-    if (!adminMode) return;
-    const [userData, optionData] = await Promise.all([
-      adminListUsers(),
-      fetchOptions(),
-    ]);
-    setUsers(Array.isArray(userData) ? userData : []);
-    setEmploymentStatusOptions(Array.isArray(optionData?.employment_status) ? optionData.employment_status : []);
-  };
+  useEffect(() => {
+    if (adminMode) return;
+    const nextVideoId = searchParams.get("video");
+    const nextSeriesId = searchParams.get("series");
+    if ((nextSeriesId || null) !== (employeeSelectedSeriesId || null)) {
+      userCourseLearningSupport.setEmployeeSelectedSeriesId(nextSeriesId || null);
+    }
+    if (searchParams.get("tab") !== "courses") {
+      if (selectedVideoId !== null) userCourseLearningSupport.setSelectedVideoId(null);
+      return;
+    }
+    if ((nextVideoId || null) !== (selectedVideoId || null)) {
+      userCourseLearningSupport.setSelectedVideoId(nextVideoId || null);
+    }
+  }, [adminMode, employeeSelectedSeriesId, searchParams, selectedVideoId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadMyData = async () => {
     const [videoResult, audioResult] = await Promise.allSettled([
@@ -591,253 +513,33 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       fetchMyAudios(),
     ]);
     if (videoResult.status === "fulfilled") {
-      setMyVideos(Array.isArray(videoResult.value) ? videoResult.value : []);
-      setMyVideosLoadError("");
+      userCourseLearningSupport.setMyVideos(Array.isArray(videoResult.value) ? videoResult.value : []);
+      userCourseLearningSupport.setMyVideosLoadError("");
     } else {
-      setMyVideos([]);
-      setMyVideosLoadError(videoResult.reason?.message || "课程列表加载失败。");
+      userCourseLearningSupport.setMyVideos([]);
+      userCourseLearningSupport.setMyVideosLoadError(videoResult.reason?.message || "课程列表加载失败。");
     }
     if (audioResult.status === "fulfilled") {
-      setMyAudios(Array.isArray(audioResult.value) ? audioResult.value : []);
+      userReadingCheckinSupport.setMyAudios(Array.isArray(audioResult.value) ? audioResult.value : []);
     } else {
-      setMyAudios([]);
-    }
-  };
-
-  const reloadMyAudioCalendar = async (monthText = myAudioMonth) => {
-    const [result, makeup] = await Promise.all([
-      fetchMyAudioCalendar(monthText),
-      fetchMyAudioMakeupOptions(monthText),
-    ]);
-    const days = Array.isArray(result?.days) ? result.days : [];
-    setMyAudioCalendarDays(days);
-    setMyAudioMakeupDays(Array.isArray(makeup?.days) ? makeup.days : []);
-    setAudioMakeupSetting(makeup?.setting || { enabled: false, make_up_days: 0, description: "" });
-    if (!days.some((item) => item.date === myAudioSelectedDate)) {
-      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${monthText}-01`).format("YYYY-MM-DD");
-      setMyAudioSelectedDate(fallback);
+      userReadingCheckinSupport.setMyAudios([]);
     }
   };
 
   const reloadAdminAudioCalendar = async (params = {}) => {
     const result = await fetchAdminAudioCalendar({
-      month: params.month ?? audioMonth,
-      department: params.department ?? audioDepartment,
-      user_id: params.user_id ?? audioUserId,
+      month: params.month ?? audioStatsSupport.audioMonth,
+      department: params.department ?? audioStatsSupport.audioDepartment,
+      user_id: params.user_id ?? audioStatsSupport.audioUserId,
     });
     const days = Array.isArray(result?.days) ? result.days : [];
     setAdminAudioCalendarDays(days);
     if (!days.some((item) => item.date === adminAudioSelectedDate)) {
-      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${(params.month ?? audioMonth)}-01`).format("YYYY-MM-DD");
+      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${(params.month ?? audioStatsSupport.audioMonth)}-01`).format("YYYY-MM-DD");
       setAdminAudioSelectedDate(fallback);
     }
   };
 
-  const reloadAdminReadingContents = async (params = {}) => {
-    const result = await fetchAdminReadingContents({
-      month: params.month ?? readingContentMonth,
-      keyword: params.keyword ?? readingContentKeyword,
-      series_id: params.series_id ?? readingContentSeriesId ?? undefined,
-      page: params.page ?? readingContentPage,
-      page_size: params.page_size ?? readingContentPageSize,
-    });
-    const items = Array.isArray(result?.items) ? result.items : [];
-    setReadingContents(items);
-    setReadingContentsTotal(Number(result?.total || 0));
-    setSelectedReadingContentRowKeys([]);
-    await loadReadingPushSummaries(items);
-  };
-
-  const reloadReadingSeries = async (params = {}) => {
-    const result = await fetchAdminReadingSeries({
-      keyword: params.keyword ?? readingSeriesKeyword,
-      status: params.status ?? readingSeriesStatus,
-      page: params.page ?? readingSeriesPage,
-      page_size: 10,
-    });
-    setReadingSeriesRows(Array.isArray(result?.items) ? result.items : []);
-    setReadingSeriesTotal(Number(result?.total || 0));
-  };
-
-  const reloadReadingSeriesSelectOptions = async () => {
-    const result = await fetchAdminReadingSeries({ page: 1, page_size: 100, only_selectable: true });
-    setReadingSeriesSelectRows(Array.isArray(result?.items) ? result.items : []);
-  };
-
-  const refreshVideoPushSummary = async (videoId) => {
-    try {
-      const result = await getCoursePushSummary(videoId);
-      setVideoPushSummaryMap((prev) => ({ ...prev, [videoId]: result?.item || null }));
-      return result?.item || null;
-    } catch {
-      return null;
-    }
-  };
-
-  const refreshReadingPushSummary = async (contentId) => {
-    try {
-      const result = await getReadingPushSummary(contentId);
-      setReadingPushSummaryMap((prev) => ({ ...prev, [contentId]: result?.item || null }));
-      return result?.item || null;
-    } catch {
-      return null;
-    }
-  };
-
-  const loadPushDetail = async (target) => {
-    try {
-      setPushDetailLoading(true);
-      setPushDetailOpen(true);
-      setPushDetailTarget(target);
-      setPushDetailTitle(target.title);
-      const summary = target.type === "course"
-        ? (videoPushSummaryMap[target.id] || await refreshVideoPushSummary(target.id))
-        : (readingPushSummaryMap[target.id] || await refreshReadingPushSummary(target.id));
-      const batchId = summary?.id;
-      const result = target.type === "course"
-        ? await getCoursePushEntries(target.id, batchId)
-        : await getReadingPushEntries(target.id, batchId);
-      setPushDetailRows(Array.isArray(result?.items) ? result.items : []);
-    } catch (error) {
-      message.error(error?.message || "推送明细加载失败。");
-      setPushDetailOpen(false);
-    } finally {
-      setPushDetailLoading(false);
-    }
-  };
-
-  const handleOpenVideoPushDetail = (row) => {
-    loadPushDetail({ type: "course", id: row.id, title: `${row.title} · 推送明细` });
-  };
-
-  const handleOpenReadingPushDetail = (row) => {
-    loadPushDetail({ type: "reading_content", id: row.id, title: `${row.title} · 推送明细` });
-  };
-
-  const refreshOpenPushDetailIfNeeded = async (type, id) => {
-    if (!pushDetailOpen || !pushDetailTarget || pushDetailTarget.type !== type || pushDetailTarget.id !== id) return;
-    await loadPushDetail(pushDetailTarget);
-  };
-
-  const showRetryConfirm = ({ onOk }) => {
-    Modal.confirm({
-      title: "确认立即补推",
-      content: "本次只会补推历史未成功接收的人和当前新增命中的人，已成功接收的人不会重复推送。确认立即补推吗？",
-      okText: "确认补推",
-      cancelText: "取消",
-      onOk,
-    });
-  };
-
-  const handleRetryVideoPush = (row) => {
-    showRetryConfirm({
-      onOk: async () => {
-        try {
-          setRetryingVideoId(row.id);
-          const result = await retryCoursePush(row.id);
-          if (result?.status === "noop") {
-            message.info("没有可补推对象。");
-          } else {
-            message.success(`补推完成：成功 ${result?.success_count || 0}，失败 ${result?.failed_count || 0}，跳过 ${result?.skipped_count || 0}`);
-          }
-          await refreshVideoPushSummary(row.id);
-          await refreshOpenPushDetailIfNeeded("course", row.id);
-        } catch (error) {
-          if (error?.status === 409) {
-            message.warning("当前存在推送中任务，请稍后再试。");
-          } else {
-            message.error(error?.message || "课程补推失败。");
-          }
-        } finally {
-          setRetryingVideoId(null);
-        }
-      },
-    });
-  };
-
-  const handleRetryReadingPush = (row) => {
-    showRetryConfirm({
-      onOk: async () => {
-        try {
-          setRetryingReadingContentId(row.id);
-          const result = await retryReadingPush(row.id);
-          if (result?.status === "noop") {
-            message.info("没有可补推对象。");
-          } else {
-            message.success(`补推完成：成功 ${result?.success_count || 0}，失败 ${result?.failed_count || 0}，跳过 ${result?.skipped_count || 0}`);
-          }
-          await refreshReadingPushSummary(row.id);
-          await refreshOpenPushDetailIfNeeded("reading_content", row.id);
-        } catch (error) {
-          if (error?.status === 409) {
-            message.warning("当前存在推送中任务，请稍后再试。");
-          } else {
-            message.error(error?.message || "读书补推失败。");
-          }
-        } finally {
-          setRetryingReadingContentId(null);
-        }
-      },
-    });
-  };
-
-  const activeReadingSeriesOptions = useMemo(
-    () => readingSeriesSelectRows
-      .filter((item) => ["active", "draft"].includes(item.status))
-      .map((item) => ({
-        value: item.id,
-        label: item.status === "draft" ? `${item.title}（草稿）` : item.title,
-        series: item,
-      })),
-    [readingSeriesSelectRows],
-  );
-
-  const reloadAudioReadingOptions = async (monthText = audioMonth) => {
-    const result = await fetchAdminReadingContents({
-      month: monthText,
-      page: 1,
-      page_size: 200,
-    });
-    setAudioReadingOptions(Array.isArray(result?.items) ? result.items : []);
-  };
-
-  const reloadAdminReadingAudioStats = async () => {
-    const result = await fetchAdminReadingAudioStatistics({
-      month: audioMonth,
-      start_date: audioDateRange?.[0] ? audioDateRange[0].format("YYYY-MM-DD") : undefined,
-      end_date: audioDateRange?.[1] ? audioDateRange[1].format("YYYY-MM-DD") : undefined,
-      reading_content_id: audioReadingContentId || undefined,
-      department: audioDepartment || undefined,
-      user_id: audioUserId || undefined,
-      status: audioStatusFilter || undefined,
-    });
-    setAudioReadingStatsRows(Array.isArray(result?.items) ? result.items : []);
-    setAudioLegacyHint(result?.legacy_unbound_hint || "");
-  };
-
-  const openAudioDetail = async (row) => {
-    try {
-      setAudioDetailLoading(true);
-      setAudioDetailRow(row);
-      const result = await fetchAdminReadingAudioStatisticUsers(row.reading_content_id, {
-        department: audioDepartment || undefined,
-        user_id: audioUserId || undefined,
-        status: audioStatusFilter || undefined,
-      });
-      setAudioDetailRows(Array.isArray(result?.items) ? result.items : []);
-      setAudioDetailLegacyHint(result?.legacy_unbound_hint || "");
-      setAudioDetailOpen(true);
-    } catch (error) {
-      message.error(error?.message || "读书内容完成明细加载失败。");
-    } finally {
-      setAudioDetailLoading(false);
-    }
-  };
-
-  const reloadMyReadingContents = async (dateText = myAudioSelectedDate) => {
-    const result = await fetchMyReadingContents(dateText);
-    setMyReadingContents(Array.isArray(result) ? result : []);
-  };
 
   useEffect(() => {
     (async () => {
@@ -852,61 +554,20 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   }, [adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!shouldLoadAdminVideoData) return;
-    reloadAdminData().catch((error) => {
-      showLoadError("magic-admin-video-data", error, "视频列表加载失败。");
-    });
+    courseAdminSupport.loadAdminVideoDataIfNeeded();
   }, [adminVideoPage, adminVideoPageSize, shouldLoadAdminVideoData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!adminMode || adminSection !== "reading") return;
-    reloadAdminUsers().catch((error) => {
+    adminListUsers().then(setUsers).catch((error) => {
       showLoadError("magic-reading-users", error, "用户列表加载失败。");
     });
+    fetchOptions().then((optionData) => {
+      setEmploymentStatusOptions(Array.isArray(optionData?.employment_status) ? optionData.employment_status : []);
+    }).catch((error) => {
+      showLoadError("magic-reading-user-options", error, "用户选项加载失败。");
+    });
   }, [adminMode, adminSection]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (academyView !== "courses") {
-      setVideoDetail(null);
-      setVideoDetailError(null);
-      return;
-    }
-    if (!selectedVideoId) {
-      setVideoDetail(null);
-      setVideoDetailError(null);
-      return;
-    }
-    let alive = true;
-    setLoadingDetail(true);
-    setVideoDetailError(null);
-    fetchMyMagicVideoDetail(selectedVideoId)
-      .then((data) => {
-        if (!alive) return;
-        setVideoDetail(data);
-        setVideoDetailError(null);
-        watchedRef.current = Math.max(data?.progress?.max_watched_position || 0, 0);
-      })
-      .catch((error) => {
-        if (!alive) return;
-        const status = Number(error?.status || 0);
-        setVideoDetail(null);
-        setVideoDetailError({
-          status,
-          message: status === 403
-            ? (error?.message || "请先完成上一节视频后再学习本节")
-            : status === 404
-              ? "课程不存在或已被删除"
-              : "课程加载失败，请稍后重试",
-        });
-        message.error(error?.message || "视频详情加载失败。");
-      })
-      .finally(() => {
-        if (alive) setLoadingDetail(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [selectedVideoId, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!quizVideoId || !adminMode || activeTab !== "quiz") return;
@@ -931,21 +592,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
 
   useEffect(() => {
     if (!statsVideoId || !adminMode || activeTab !== "stats") return;
-    Promise.all([
-      fetchMagicVideoStats(statsVideoId, {
-        departments: appliedStatsDepartment,
-        user_ids: appliedStatsUserId,
-      }),
-      fetchMagicVideoAnswers(statsVideoId, {
-        departments: appliedStatsDepartment,
-        user_ids: appliedStatsUserId,
-      }),
-    ])
-      .then(([stats, answers]) => {
-        setStatsRows(Array.isArray(stats) ? stats : []);
-        setAnswerRows(Array.isArray(answers) ? answers : []);
-      })
-      .catch((error) => showLoadError("magic-video-stats", error, "统计加载失败。"));
+    courseAdminSupport.loadAdminStatsIfNeeded();
   }, [statsVideoId, adminMode, activeTab, appliedStatsDepartment, appliedStatsUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -990,30 +637,9 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   }, [selectedSeriesId, videoSeries]);
 
   useEffect(() => {
-    if (!employeeSelectedSeriesId) return;
-    if (!myVideoSections.seriesSections.some((item) => String(item.seriesId) === String(employeeSelectedSeriesId))) {
-      setEmployeeSelectedSeriesId(null);
-    }
-  }, [employeeSelectedSeriesId, myVideoSections]);
-
-  useEffect(() => {
-    if (!shouldLoadAudioStats) return;
-    reloadAudioReadingOptions(audioMonth).catch((error) => {
-      showLoadError("magic-audio-reading-options", error, "读书内容选项加载失败。");
-    });
-  }, [audioMonth, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!shouldLoadAudioStats) return;
-    reloadAdminReadingAudioStats().catch((error) => {
-      showLoadError("magic-audio-reading-stats", error, "读书内容统计加载失败。");
-    });
-  }, [audioMonth, audioDateRange, audioReadingContentId, audioDepartment, audioUserId, audioStatusFilter, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     if (!shouldLoadAudioStats) return;
     fetchMagicAudioMakeupSetting().then((data) => {
-      setAudioMakeupSetting(data || {
+      audioStatsSupport.setAudioMakeupSetting(data || {
         enabled: false,
         make_up_days: 0,
         audio_random_window_minutes: 0,
@@ -1026,46 +652,25 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   }, [shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!shouldLoadReadingContents) return;
-    reloadAdminReadingContents().catch((error) => {
-      showLoadError("magic-reading-contents", error, "读书内容列表加载失败。");
-    });
-  }, [readingContentKeyword, readingContentMonth, readingContentPage, readingContentPageSize, readingContentSeriesId, shouldLoadReadingContents]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!shouldLoadReadingSeries) return;
-    reloadReadingSeries().catch((error) => {
-      showLoadError("magic-reading-series", error, "读书系列列表加载失败。");
-    });
-  }, [readingSeriesKeyword, readingSeriesStatus, readingSeriesPage, shouldLoadReadingSeries]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!adminMode || adminSection !== "reading") return;
-    reloadReadingSeriesSelectOptions().catch((error) => {
-      showLoadError("magic-reading-series-options", error, "读书系列选项加载失败。");
-    });
-  }, [adminMode, adminSection]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     if (adminMode) return;
-    reloadMyAudioCalendar(myAudioMonth).catch((error) => {
+    userReadingCheckinSupport.reloadMyAudioCalendar(userReadingCheckinSupport.myAudioMonth).catch((error) => {
       message.error(error?.message || "录音日历加载失败。");
     });
-  }, [myAudioMonth, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userReadingCheckinSupport.myAudioMonth, adminMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (adminMode) return;
-    reloadMyReadingContents().catch((error) => {
+    userReadingCheckinSupport.reloadMyReadingContents().catch((error) => {
       message.error(error?.message || "读书内容加载失败。");
     });
-  }, [adminMode, myAudioSelectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [adminMode, userReadingCheckinSupport.myAudioSelectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!shouldLoadAudioStats) return;
     reloadAdminAudioCalendar().catch((error) => {
       showLoadError("magic-admin-audio-calendar", error, "录音日历加载失败。");
     });
-  }, [audioMonth, audioDepartment, audioUserId, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [audioStatsSupport.audioMonth, audioStatsSupport.audioDepartment, audioStatsSupport.audioUserId, shouldLoadAudioStats]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveProgress = async (extra = {}) => {
     if (academyView !== "courses") return;
@@ -1083,7 +688,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         page_visible: !document.hidden,
         ...extra,
       });
-      setVideoDetail((prev) => ({ ...prev, progress: data.progress }));
+      userCourseLearningSupport.setVideoDetail((prev) => ({ ...prev, progress: data.progress }));
       if (data?.progress?.is_completed && !videoDetail?.progress?.is_completed) {
         await reloadMyData();
       }
@@ -1240,651 +845,6 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     return () => clearInterval(progressTimerRef.current);
   }, [videoDetail?.id, academyView]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const buildVideoUploadCheckpointKey = (mode, file, targetVideoId = 0) => buildOssUploadCheckpointKey({
-    mode,
-    videoId: targetVideoId,
-    fileName: file?.name || "",
-    fileSize: file?.size || 0,
-    lastModified: file?.lastModified || 0,
-  });
-
-  const mergeUploadedParts = (existingParts = [], nextPart) => (
-    Array.from(new Map([...existingParts, nextPart].map((item) => [Number(item.part_number), item])).values())
-      .sort((a, b) => Number(a.part_number) - Number(b.part_number))
-  );
-
-  const isSameUploadInitPayload = (left, right) => JSON.stringify(left || null) === JSON.stringify(right || null);
-
-  const resolveVideoUploadSession = async ({
-    checkpointKey,
-    file,
-    initPayload,
-    initUpload,
-    fetchUploadStatus,
-    discardUploadSession,
-  }) => {
-    const checkpoint = loadOssUploadCheckpoint(checkpointKey);
-    if (!checkpoint?.upload_id || !checkpoint?.oss_object_key || !checkpoint?.video_id || !Array.isArray(checkpoint?.part_urls) || !checkpoint.part_urls.length) {
-      const initResult = await initUpload();
-      saveOssUploadCheckpoint(checkpointKey, {
-        file_name: file?.name || "",
-        file_size: file?.size || 0,
-        file_last_modified: file?.lastModified || 0,
-        video_id: initResult.video_id,
-        upload_id: initResult.upload_id,
-        oss_object_key: initResult.oss_object_key,
-        part_size: initResult.part_size,
-        part_count: initResult.part_count,
-        part_urls: initResult.part_urls || [],
-        init_payload: initPayload,
-        uploaded_parts: [],
-      });
-      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
-    }
-    if (!isSameUploadInitPayload(checkpoint?.init_payload, initPayload)) {
-      try {
-        await discardUploadSession?.(checkpoint);
-      } catch (error) {
-        logMagicUploadStageError("discard stale upload session", error);
-      }
-      clearOssUploadCheckpoint(checkpointKey);
-      const initResult = await initUpload();
-      saveOssUploadCheckpoint(checkpointKey, {
-        file_name: file?.name || "",
-        file_size: file?.size || 0,
-        file_last_modified: file?.lastModified || 0,
-        video_id: initResult.video_id,
-        upload_id: initResult.upload_id,
-        oss_object_key: initResult.oss_object_key,
-        part_size: initResult.part_size,
-        part_count: initResult.part_count,
-        part_urls: initResult.part_urls || [],
-        init_payload: initPayload,
-        uploaded_parts: [],
-      });
-      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
-    }
-    try {
-      const statusResult = await fetchUploadStatus(checkpoint);
-      const uploadedParts = Array.isArray(statusResult?.uploaded_parts) ? statusResult.uploaded_parts : [];
-      const resumedInitResult = {
-        video_id: checkpoint.video_id,
-        upload_id: checkpoint.upload_id,
-        oss_object_key: checkpoint.oss_object_key,
-        part_size: checkpoint.part_size,
-        part_count: checkpoint.part_count,
-        part_urls: checkpoint.part_urls || [],
-      };
-      saveOssUploadCheckpoint(checkpointKey, { uploaded_parts: uploadedParts });
-      return { uploadInitResult: resumedInitResult, uploadedParts, resumed: uploadedParts.length > 0 };
-    } catch (error) {
-      try {
-        await discardUploadSession?.(checkpoint);
-      } catch (discardError) {
-        logMagicUploadStageError("discard broken upload session", discardError);
-      }
-      clearOssUploadCheckpoint(checkpointKey);
-      const initResult = await initUpload();
-      saveOssUploadCheckpoint(checkpointKey, {
-        file_name: file?.name || "",
-        file_size: file?.size || 0,
-        file_last_modified: file?.lastModified || 0,
-        video_id: initResult.video_id,
-        upload_id: initResult.upload_id,
-        oss_object_key: initResult.oss_object_key,
-        part_size: initResult.part_size,
-        part_count: initResult.part_count,
-        part_urls: initResult.part_urls || [],
-        init_payload: initPayload,
-        uploaded_parts: [],
-      });
-      return { uploadInitResult: initResult, uploadedParts: [], resumed: false };
-    }
-  };
-
-  const submitVideo = async (payload) => {
-    let uploadInitResult = null;
-    let uploadCompleted = false;
-    let uploadCheckpointKey = "";
-    let uploadMode = "";
-    try {
-      setVideoSubmitting(true);
-      setVideoUploadProgress(0);
-      if (!videoModal?.id && payload.video_source === "material") {
-        const metadataPayload = { ...payload };
-        delete metadataPayload.selected_file;
-        await createMagicVideo(metadataPayload);
-        message.success("已从素材库创建课程视频。");
-      } else if (videoModal?.id && !payload.selected_file) {
-        const metadataPayload = { ...payload };
-        delete metadataPayload.selected_file;
-        await updateMagicVideo(videoModal.id, metadataPayload);
-        message.success("视频元数据已更新。");
-      } else if (videoModal?.id && payload.selected_file) {
-        const file = payload.selected_file;
-        try {
-          uploadMode = "replace";
-          uploadCheckpointKey = buildVideoUploadCheckpointKey("replace", file, videoModal.id);
-          const session = await resolveVideoUploadSession({
-            checkpointKey: uploadCheckpointKey,
-            file,
-            initPayload: {
-              original_filename: payload.original_filename,
-              file_size: file.size,
-              mime_type: file.type || payload.mime_type || "video/mp4",
-              duration_seconds: Number(payload.duration_seconds || 0),
-            },
-            initUpload: () => initMagicVideoReplaceUpload(videoModal.id, {
-              original_filename: payload.original_filename,
-              file_size: file.size,
-              mime_type: file.type || payload.mime_type || "video/mp4",
-              duration_seconds: Number(payload.duration_seconds || 0),
-            }),
-            fetchUploadStatus: (checkpoint) => getMagicVideoReplaceUploadStatus(videoModal.id, {
-              video_id: checkpoint.video_id,
-              oss_object_key: checkpoint.oss_object_key,
-              upload_id: checkpoint.upload_id,
-            }),
-            discardUploadSession: async (checkpoint) => {
-              if (!checkpoint?.video_id || !checkpoint?.oss_object_key || !checkpoint?.upload_id) return;
-              await failMagicVideoReplaceUpload(videoModal.id, {
-                oss_object_key: checkpoint.oss_object_key,
-                upload_id: checkpoint.upload_id,
-                reason: "断点续传会话失效，已重新初始化上传。",
-              });
-            },
-          });
-          uploadInitResult = session.uploadInitResult;
-          if (session.resumed) {
-            message.info("已恢复上次未完成的视频替换上传。");
-          }
-        } catch (error) {
-          logMagicUploadStageError("replace init", error);
-          message.error(error?.message || "新视频替换初始化失败。");
-          return;
-        }
-
-        let parts;
-        try {
-          const checkpoint = loadOssUploadCheckpoint(uploadCheckpointKey);
-          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress, {
-            existingParts: checkpoint?.uploaded_parts || [],
-            onPartUploaded: (part) => {
-              const current = loadOssUploadCheckpoint(uploadCheckpointKey);
-              saveOssUploadCheckpoint(uploadCheckpointKey, {
-                uploaded_parts: mergeUploadedParts(current?.uploaded_parts || [], part),
-              });
-            },
-          });
-        } catch (error) {
-          logMagicUploadStageError("replace oss upload", error);
-          logOssUploadError(error);
-          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key && uploadInitResult?.upload_id) {
-            try {
-              await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
-                oss_object_key: uploadInitResult.oss_object_key,
-                upload_id: uploadInitResult.upload_id,
-                reason: error?.message || "OSS 上传失败",
-              });
-            } catch (failError) {
-              logMagicUploadStageError("replace upload fail callback", failError);
-            }
-          }
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          message.error(error?.message || "新视频上传失败，原视频未被替换。");
-          return;
-        }
-
-        try {
-          await completeMagicVideoReplaceUpload(videoModal.id, {
-            oss_object_key: uploadInitResult.oss_object_key,
-            file_size: file.size,
-            upload_id: uploadInitResult.upload_id,
-            parts,
-            title: payload.title,
-            description: payload.description || "",
-            category: payload.category || "",
-            duration_seconds: Number(payload.duration_seconds || 0),
-            is_required: !!payload.is_required,
-            is_newcomer_required: !!payload.is_newcomer_required,
-            status: payload.status,
-            cover_url: payload.cover_url || "",
-            targets: payload.targets || [],
-          });
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          uploadCompleted = true;
-          setVideoUploadProgress(100);
-          message.success("视频已重新上传并覆盖。");
-        } catch (error) {
-          logMagicUploadStageError("replace complete", error);
-          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key && uploadInitResult?.upload_id) {
-            try {
-              await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
-                oss_object_key: uploadInitResult.oss_object_key,
-                upload_id: uploadInitResult.upload_id,
-                reason: error?.message || "完成替换上传失败。",
-              });
-            } catch (failError) {
-              logMagicUploadStageError("replace upload fail callback", failError);
-            }
-          }
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          message.error(error?.message || "新视频上传失败，原视频未被替换。");
-          return;
-        }
-      } else {
-        const file = payload.selected_file;
-        try {
-          uploadMode = "create";
-          uploadCheckpointKey = buildVideoUploadCheckpointKey("create", file, 0);
-          const session = await resolveVideoUploadSession({
-            checkpointKey: uploadCheckpointKey,
-            file,
-            initPayload: {
-              title: payload.title,
-              description: payload.description || "",
-              category: payload.category || "",
-              original_filename: payload.original_filename,
-              file_size: file.size,
-              mime_type: file.type || payload.mime_type || "video/mp4",
-              duration_seconds: Number(payload.duration_seconds || 0),
-              is_required: !!payload.is_required,
-              is_newcomer_required: !!payload.is_newcomer_required,
-              status: payload.status,
-              cover_url: payload.cover_url || "",
-              targets: payload.targets || [],
-            },
-            initUpload: () => initMagicVideoUpload({
-              title: payload.title,
-              description: payload.description || "",
-              category: payload.category || "",
-              original_filename: payload.original_filename,
-              file_size: file.size,
-              mime_type: file.type || payload.mime_type || "video/mp4",
-              duration_seconds: Number(payload.duration_seconds || 0),
-              is_required: !!payload.is_required,
-              is_newcomer_required: !!payload.is_newcomer_required,
-              status: payload.status,
-              cover_url: payload.cover_url || "",
-              targets: payload.targets || [],
-            }),
-            fetchUploadStatus: (checkpoint) => getMagicVideoUploadStatus({
-              video_id: checkpoint.video_id,
-              oss_object_key: checkpoint.oss_object_key,
-              upload_id: checkpoint.upload_id,
-            }),
-            discardUploadSession: async (checkpoint) => {
-              if (!checkpoint?.video_id || !checkpoint?.oss_object_key || !checkpoint?.upload_id) return;
-              await failMagicVideoUpload({
-                video_id: checkpoint.video_id,
-                oss_object_key: checkpoint.oss_object_key,
-                upload_id: checkpoint.upload_id,
-                reason: "断点续传会话失效，已重新初始化上传。",
-              });
-            },
-          });
-          uploadInitResult = session.uploadInitResult;
-          if (session.resumed) {
-            message.info("已恢复上次未完成的视频上传。");
-          }
-        } catch (error) {
-          logMagicUploadStageError("init", error);
-          message.error(error?.message || "上传初始化失败。");
-          return;
-        }
-
-        let parts;
-        try {
-          const checkpoint = loadOssUploadCheckpoint(uploadCheckpointKey);
-          parts = await multipartUploadToOss(file, uploadInitResult, setVideoUploadProgress, {
-            existingParts: checkpoint?.uploaded_parts || [],
-            onPartUploaded: (part) => {
-              const current = loadOssUploadCheckpoint(uploadCheckpointKey);
-              saveOssUploadCheckpoint(uploadCheckpointKey, {
-                uploaded_parts: mergeUploadedParts(current?.uploaded_parts || [], part),
-              });
-            },
-          });
-        } catch (error) {
-          logMagicUploadStageError("oss upload", error);
-          logOssUploadError(error);
-          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key) {
-            try {
-              await failMagicVideoUpload({
-                video_id: uploadInitResult.video_id,
-                oss_object_key: uploadInitResult.oss_object_key,
-                upload_id: uploadInitResult.upload_id,
-                reason: error?.message || "OSS 上传失败",
-              });
-            } catch (failError) {
-              logMagicUploadStageError("upload fail callback", failError);
-            }
-          }
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          message.error(error?.message || "视频文件上传 OSS 失败。");
-          return;
-        }
-
-        try {
-          await completeMagicVideoUpload({
-            video_id: uploadInitResult.video_id,
-            oss_object_key: uploadInitResult.oss_object_key,
-            file_size: file.size,
-            upload_id: uploadInitResult.upload_id,
-            parts,
-          });
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          uploadCompleted = true;
-          setVideoUploadProgress(100);
-          message.success("视频已上传并入库。");
-        } catch (error) {
-          logMagicUploadStageError("complete", error);
-          if (uploadInitResult?.video_id && uploadInitResult?.oss_object_key) {
-            try {
-              await failMagicVideoUpload({
-                video_id: uploadInitResult.video_id,
-                oss_object_key: uploadInitResult.oss_object_key,
-                upload_id: uploadInitResult.upload_id,
-                reason: error?.message || "完成视频上传失败。",
-              });
-            } catch (failError) {
-              logMagicUploadStageError("upload fail callback", failError);
-            }
-          }
-          clearOssUploadCheckpoint(uploadCheckpointKey);
-          message.error(error?.message || "视频上传完成确认失败。");
-          return;
-        }
-      }
-      setVideoModal(null);
-      try {
-        await reloadAdminData();
-      } catch (error) {
-        logMagicUploadStageError("refresh list", error);
-        if (uploadCompleted) {
-          message.warning("视频已上传成功，但列表刷新失败，请手动刷新页面。");
-          return;
-        }
-        throw error;
-      }
-    } catch (error) {
-      logMagicUploadStageError("submit video", error);
-      clearOssUploadCheckpoint(uploadCheckpointKey);
-      if (!uploadCompleted && uploadInitResult?.video_id && uploadInitResult?.oss_object_key) {
-        try {
-          if (uploadMode === "replace") {
-            await failMagicVideoReplaceUpload(uploadInitResult.video_id, {
-              oss_object_key: uploadInitResult.oss_object_key,
-              upload_id: uploadInitResult.upload_id,
-              reason: error?.message || "上传失败",
-            });
-          } else if (uploadMode === "create") {
-            await failMagicVideoUpload({
-              video_id: uploadInitResult.video_id,
-              oss_object_key: uploadInitResult.oss_object_key,
-              upload_id: uploadInitResult.upload_id,
-              reason: error?.message || "上传失败",
-            });
-          }
-        } catch (failError) {
-          logMagicUploadStageError("upload fail callback", failError);
-        }
-      }
-      message.error(error?.message || "保存失败。");
-    } finally {
-      setVideoSubmitting(false);
-      setVideoUploadProgress(0);
-    }
-  };
-
-  const submitPoint = async () => {
-    const values = await pointForm.validateFields();
-    try {
-      if (pointModal?.id) {
-        await updateMagicQuizPoint(pointModal.id, values);
-      } else {
-        await createMagicQuizPoint(quizVideoId, values);
-      }
-      message.success("节点已保存。");
-      setPointModal(null);
-      setQuizPoints(await listMagicQuizPoints(quizVideoId));
-    } catch (error) {
-      message.error(error?.message || "保存节点失败。");
-    }
-  };
-
-  const submitQuestion = async (pointId, payload, editing) => {
-    try {
-      if (editing?.id) await updateMagicQuestion(editing.id, payload);
-      else await createMagicQuestion(pointId, payload);
-      message.success("题目已保存。");
-      setQuestionModal(null);
-      setQuizPoints(await listMagicQuizPoints(quizVideoId));
-    } catch (error) {
-      message.error(error?.message || "保存题目失败。");
-    }
-  };
-
-  const handleQuizImportCommitted = async () => {
-    setQuizImportState({ open: false, pointId: null, source: "upload" });
-    setQuizPoints(await listMagicQuizPoints(quizVideoId));
-  };
-
-  const openEmployeeSeriesDetail = (seriesId) => {
-    setAcademyView("courses");
-    setVideoDetailError(null);
-    setSelectedVideoId(null);
-    setEmployeeSelectedSeriesId(String(seriesId));
-    if (!adminMode) setSearchParams({ tab: "courses", series: String(seriesId) });
-  };
-
-  const closeEmployeeSeriesDetail = () => {
-    setSelectedVideoId(null);
-    setVideoDetail(null);
-    setVideoDetailError(null);
-    setEmployeeSelectedSeriesId(null);
-    if (!adminMode) setSearchParams({ tab: "courses" });
-  };
-
-  const openStudyVideo = (videoOrId) => {
-    const target = typeof videoOrId === "object"
-      ? videoOrId
-      : myVideos.find((item) => item.id === videoOrId) || { id: videoOrId };
-    if (target?.is_locked) {
-      message.warning(target.locked_reason || "请先完成上一节视频后再学习本节");
-      return;
-    }
-    const videoId = target?.id;
-    setAcademyView("courses");
-    setVideoDetailError(null);
-    setEmployeeSelectedSeriesId(target?.series_id ? String(target.series_id) : null);
-    setSelectedVideoId(videoId);
-    if (!adminMode) {
-      const nextParams = { tab: "courses", video: String(videoId) };
-      if (target?.series_id) nextParams.series = String(target.series_id);
-      setSearchParams(nextParams);
-    }
-  };
-
-  const backToStudyList = () => {
-    setVideoDetailError(null);
-    setSelectedVideoId(null);
-    setVideoDetail(null);
-    watchedRef.current = 0;
-    lastSafeTimeRef.current = 0;
-    blockingSeekRef.current = false;
-    lockedQuizPointIdRef.current = null;
-    watchConfirmAccumulatedRef.current = 0;
-    watchConfirmLastTimeRef.current = null;
-    watchConfirmRoundRef.current = 0;
-    setWatchConfirmState({ open: false, round: 0 });
-    if (!adminMode) {
-      setSearchParams(employeeSelectedSeriesId ? { tab: "courses", series: String(employeeSelectedSeriesId) } : { tab: "courses" });
-    }
-  };
-
-  const renderVideoCoverThumb = (item) => (
-    item.cover_url ? (
-      <div className="workspace-line-item__cover-shell">
-        <img
-          src={item.cover_url}
-          alt={item.title}
-          className="workspace-line-item__cover"
-        />
-      </div>
-    ) : null
-  );
-
-  const openAdminVideoDetail = (videoId) => {
-    setSelectedAdminVideoId(videoId);
-    setQuizVideoId(videoId);
-  };
-
-  const backToAdminVideoList = () => {
-    setSelectedAdminVideoId(null);
-    setQuizVideoId(null);
-    setQuizPoints([]);
-  };
-
-  const handlePublishVideo = async (videoId) => {
-    try {
-      setPublishingVideoId(videoId);
-      await publishMagicVideo(videoId);
-      message.success("发布成功");
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "发布视频失败。");
-    } finally {
-      setPublishingVideoId(null);
-    }
-  };
-
-  const handleDisableVideo = async (videoId) => {
-    try {
-      setDisablingVideoId(videoId);
-      await disableMagicVideo(videoId);
-      message.success("已下架");
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "下架视频失败。");
-    } finally {
-      setDisablingVideoId(null);
-    }
-  };
-
-  const handleBatchPublishVideos = async () => {
-    if (!selectedAdminVideoRowKeys.length) {
-      message.warning("请先选择要发布的视频。");
-      return;
-    }
-    try {
-      const result = await batchPublishMagicVideos(selectedAdminVideoRowKeys);
-      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
-      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-      if (updatedCount) {
-        message.success(skippedCount ? `已发布 ${updatedCount} 个，跳过 ${skippedCount} 个。` : `已发布 ${updatedCount} 个视频。`);
-      } else {
-        message.warning(skippedCount ? `没有可发布视频，已跳过 ${skippedCount} 个。` : "没有可发布视频。");
-      }
-      setSelectedAdminVideoRowKeys([]);
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "批量发布视频失败。");
-    }
-  };
-
-  const handleBatchDisableVideos = async () => {
-    if (!selectedAdminVideoRowKeys.length) {
-      message.warning("请先选择要下架的视频。");
-      return;
-    }
-    try {
-      const result = await batchDisableMagicVideos(selectedAdminVideoRowKeys);
-      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
-      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-      if (updatedCount) {
-        message.success(skippedCount ? `已下架 ${updatedCount} 个，跳过 ${skippedCount} 个。` : `已下架 ${updatedCount} 个视频。`);
-      } else {
-        message.warning(skippedCount ? `没有可下架视频，已跳过 ${skippedCount} 个。` : "没有可下架视频。");
-      }
-      setSelectedAdminVideoRowKeys([]);
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "批量下架视频失败。");
-    }
-  };
-
-  const handleBatchDeleteVideos = async () => {
-    if (!selectedAdminVideoRowKeys.length) {
-      message.warning("请先选择要删除的视频。");
-      return;
-    }
-    try {
-      const result = await batchDeleteMagicVideos(selectedAdminVideoRowKeys);
-      const deletedCount = Array.isArray(result?.deleted_ids) ? result.deleted_ids.length : 0;
-      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-      if (deletedCount) {
-        message.success(skippedCount ? `已删除 ${deletedCount} 个，跳过 ${skippedCount} 个。` : `已删除 ${deletedCount} 个视频。`);
-      } else {
-        message.warning(skippedCount ? `没有可删除视频，已跳过 ${skippedCount} 个。` : "没有可删除视频。");
-      }
-      setSelectedAdminVideoRowKeys([]);
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "批量删除视频失败。");
-    }
-  };
-
-  const submitSeries = async () => {
-    const values = await seriesForm.validateFields();
-    try {
-      if (seriesModal?.id) {
-        await updateMagicVideoSeries(seriesModal.id, values);
-        message.success("系列已更新。");
-      } else {
-        await createMagicVideoSeries(values);
-        message.success("系列已创建。");
-      }
-      setSeriesModal(null);
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "系列保存失败。");
-    }
-  };
-
-  const handleAddSeriesItem = async () => {
-    if (!selectedSeriesId || !seriesItemVideoId) {
-      message.warning("请先选择系列和视频。");
-      return;
-    }
-    try {
-      await addMagicVideoSeriesItem(selectedSeriesId, { video_id: seriesItemVideoId });
-      setSeriesItemVideoId(null);
-      await reloadAdminData();
-      message.success("视频已加入系列。");
-    } catch (error) {
-      message.error(error?.message || "添加失败。");
-    }
-  };
-
-  const handleMoveSeriesItem = async (videoId, direction) => {
-    if (!selectedSeries?.items?.length) return;
-    const currentIndex = selectedSeries.items.findIndex((item) => item.video_id === videoId);
-    const nextIndex = currentIndex + direction;
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= selectedSeries.items.length) return;
-    const ordered = [...selectedSeries.items];
-    const [moved] = ordered.splice(currentIndex, 1);
-    ordered.splice(nextIndex, 0, moved);
-    try {
-      await reorderMagicVideoSeriesItems(selectedSeries.id, {
-        video_ids: ordered.map((item) => item.video_id),
-      });
-      await reloadAdminData();
-    } catch (error) {
-      message.error(error?.message || "排序失败。");
-    }
-  };
-
   const handleSaveWatchConfirmSetting = async () => {
     if (!quizVideoId) {
       message.warning("请先选择视频。");
@@ -1893,7 +853,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     try {
       const values = await watchConfirmForm.validateFields();
       await updateMagicWatchConfirmSetting(quizVideoId, values);
-      await reloadAdminData();
+      await courseAdminSupport.reloadAdminData();
       message.success("观看确认配置已保存。");
     } catch (error) {
       message.error(error?.message || "保存失败。");
@@ -1924,7 +884,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       lockedQuizPointIdRef.current = null;
       setQuizAnswerState({ open: false, point: null, values: {} });
       const detail = await fetchMyMagicVideoDetail(videoDetail.id);
-      setVideoDetail(detail);
+      userCourseLearningSupport.setVideoDetail(detail);
       watchedRef.current = Math.max(detail?.progress?.max_watched_position || 0, watchedRef.current);
       lastSafeTimeRef.current = Math.max(lastSafeTimeRef.current, resumeTime);
       if (videoRef.current) {
@@ -1954,578 +914,6 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     }
   };
 
-  const adminVideoColumns = useMemo(
-    () => buildAdminVideoColumns({
-      openAdminVideoDetail,
-      setVideoModal,
-      handlePublishVideo,
-      handleDisableVideo,
-      deleteMagicVideo,
-      reloadAdminData,
-      publishingVideoId,
-      disablingVideoId,
-      videoPushSummaryMap,
-      handleOpenVideoPushDetail,
-      handleRetryVideoPush,
-      retryingVideoId,
-    }),
-    [disablingVideoId, publishingVideoId, retryingVideoId, videoPushSummaryMap],
-  );
-
-  const whitelistColumns = useMemo(
-    () => buildWhitelistColumns({ deleteMagicWhitelist, reloadAdminData }),
-    [],
-  );
-  const statsColumns = useMemo(
-    () => buildStatsColumns(superAdminMode),
-    [superAdminMode],
-  );
-
-  const audioExportPayload = useMemo(() => ({
-    month: audioMonth || undefined,
-    start_date: audioDateRange?.[0] ? audioDateRange[0].format("YYYY-MM-DD") : undefined,
-    end_date: audioDateRange?.[1] ? audioDateRange[1].format("YYYY-MM-DD") : undefined,
-    reading_content_id: audioReadingContentId || undefined,
-    department: audioDepartment || undefined,
-    user_id: audioUserId || undefined,
-    status: audioStatusFilter || undefined,
-  }), [audioDateRange, audioDepartment, audioMonth, audioReadingContentId, audioStatusFilter, audioUserId]);
-
-  const audioReadingOptionMap = useMemo(
-    () => new Map(audioReadingOptions.map((item) => [String(item.reading_content_id || item.id), item])),
-    [audioReadingOptions],
-  );
-  const audioUserOptionMap = useMemo(
-    () => new Map(
-      users
-        .filter((item) => item.role === "user")
-        .map((item) => [String(item.id), `${item.real_name || item.display_name || item.username} (${item.username})`]),
-    ),
-    [users],
-  );
-  const audioExportScopeLines = useMemo(() => {
-    const lines = [];
-    if (audioMonth) lines.push(`月份：${audioMonth}`);
-    if (audioDateRange?.[0] && audioDateRange?.[1]) {
-      lines.push(`日期范围：${audioDateRange[0].format("YYYY-MM-DD")} 至 ${audioDateRange[1].format("YYYY-MM-DD")}`);
-    }
-    const readingOption = audioReadingContentId ? audioReadingOptionMap.get(String(audioReadingContentId)) : null;
-    lines.push(`读书内容：${readingOption ? `${readingOption.reading_date} ${readingOption.title}` : "全部"}`);
-    lines.push(`部门：${audioDepartment || "全部"}`);
-    lines.push(`员工：${audioUserId ? (audioUserOptionMap.get(String(audioUserId)) || `ID ${audioUserId}`) : "全部"}`);
-    lines.push(`完成状态：${({
-      all: "全部",
-      completed: "已完成",
-      pending: "未完成",
-      expired: "已过补卡截止时间",
-      future: "未到推送时间",
-    })[audioStatusFilter] || "全部"}`);
-    return lines.length ? lines : ["按当前列表条件导出"];
-  }, [audioDateRange, audioDepartment, audioMonth, audioReadingContentId, audioReadingOptionMap, audioStatusFilter, audioUserId, audioUserOptionMap]);
-
-  const statsExportPath = useMemo(() => {
-    if (!statsVideoId) return "";
-    const params = new URLSearchParams();
-    for (const item of appliedStatsDepartment) {
-      if (item) params.append("department", item);
-    }
-    for (const item of appliedStatsUserId) {
-      if (item) params.append("user_id", String(item));
-    }
-    const query = params.toString();
-    return `/api/magic-academy/videos/${statsVideoId}/export-progress${query ? `?${query}` : ""}`;
-  }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
-
-  const answerExportPath = useMemo(() => {
-    if (!statsVideoId) return "";
-    const params = new URLSearchParams();
-    for (const item of appliedStatsDepartment) {
-      if (item) params.append("department", item);
-    }
-    for (const item of appliedStatsUserId) {
-      if (item) params.append("user_id", String(item));
-    }
-    const query = params.toString();
-    return `/api/magic-academy/videos/${statsVideoId}/export-answers${query ? `?${query}` : ""}`;
-  }, [statsVideoId, appliedStatsDepartment, appliedStatsUserId]);
-
-  const handleStatsSearch = () => {
-    setAppliedStatsDepartment(statsDepartment);
-    setAppliedStatsUserId(statsUserId);
-  };
-
-  const handleStatsReset = () => {
-    setStatsDepartment([]);
-    setStatsUserId([]);
-    setAppliedStatsDepartment([]);
-    setAppliedStatsUserId([]);
-  };
-
-  const handleExportStats = async (type) => {
-    if (!statsVideoId) {
-      message.warning("请先选择视频。");
-      return;
-    }
-    if (type === "progress" && statsRows.length === 0) {
-      message.warning("当前筛选条件下暂无学习统计数据。");
-      return;
-    }
-    if (type === "answers" && answerRows.length === 0) {
-      message.warning("当前筛选条件下暂无答题详情数据。");
-      return;
-    }
-    const path = type === "progress" ? statsExportPath : answerExportPath;
-    await saveBlob(await downloadMagicFile(path));
-  };
-
-  const handleToggleAudioExportColumn = (columnKey, checked) => {
-    setAudioExportColumns((prev) => {
-      if (checked) {
-        if (prev.includes(columnKey)) return prev;
-        return [...prev, columnKey];
-      }
-      return prev.filter((item) => item !== columnKey);
-    });
-  };
-
-  const handleOpenAudioExportModal = () => {
-    setAudioExportColumns((prev) => (prev.length ? prev : AUDIO_EXPORT_DEFAULT_COLUMNS));
-    setAudioExportModalOpen(true);
-  };
-
-  const handleConfirmAudioExport = async () => {
-    if (!audioExportColumns.length) {
-      message.warning("请至少选择一个导出字段");
-      return;
-    }
-    try {
-      setAudioExportSubmitting(true);
-      await saveBlob(await exportAdminReadingAudioStatistics({
-        ...audioExportPayload,
-        columns: audioExportColumns,
-      }));
-      setAudioExportModalOpen(false);
-    } catch (error) {
-      message.error(error?.message || "读书打卡统计导出失败。");
-    } finally {
-      setAudioExportSubmitting(false);
-    }
-  };
-
-  const handleSaveAudioMakeupSetting = async () => {
-    try {
-      const nextPayload = {
-        enabled: !!audioMakeupSetting.enabled,
-        make_up_days: Number(audioMakeupSetting.make_up_days || 0),
-        audio_random_window_minutes: Number(audioMakeupSetting.audio_random_window_minutes || 0),
-        video_random_window_minutes: Number(audioMakeupSetting.video_random_window_minutes || 0),
-      };
-      const data = await updateMagicAudioMakeupSetting(nextPayload);
-      setAudioMakeupSetting(data || nextPayload);
-      message.success("补卡设置已保存。");
-    } catch (error) {
-      message.error(error?.message || "补卡设置保存失败。");
-    }
-  };
-
-  const openCreateReadingContentModal = () => {
-    setReadingContentModalMode("create");
-    setReadingContentEditing(null);
-    setReadingContentPreferredSeriesId(null);
-    setReadingContentModalOpen(true);
-  };
-
-  const openEditReadingContentModal = async (row) => {
-    try {
-      if (row?.has_checkins || row?.is_locked) {
-        message.warning("该内容已有打卡记录，为保证统计一致性，核心字段不可修改。");
-      }
-      const detail = await fetchAdminReadingContentDetail(row.id);
-      setReadingContentModalMode("edit");
-      setReadingContentEditing(detail);
-      setReadingContentPreferredSeriesId(null);
-      setReadingContentModalOpen(true);
-    } catch (error) {
-      message.error(error?.message || "读书内容详情加载失败。");
-    }
-  };
-
-  const handleSubmitReadingContent = async (modalItems) => {
-    try {
-      setReadingContentSubmitting(true);
-      const items = Array.isArray(modalItems) ? modalItems : [];
-      if (readingContentModalMode === "edit" && readingContentEditing?.id) {
-        const editItem = items[0];
-        const payload = {
-          reading_date: editItem.reading_date,
-          push_time: editItem.push_time,
-          title: editItem.title,
-	          description: editItem.description || "",
-	          image_source: editItem.image_source || "upload",
-	          material_asset_id: editItem.material_asset_id || null,
-	          series_id: editItem.series_id || null,
-	          image_url: editItem.image_source === "upload" && !editItem.image ? (editItem.image_url || "") : "",
-          target_type: editItem.target_type || "user",
-          target_user_ids: editItem.target_user_ids || [],
-          target_department_ids: editItem.target_department_ids || [],
-          target_position_ids: editItem.target_position_ids || [],
-          target_employment_status_ids: editItem.target_employment_status_ids || [],
-          targets: editItem.targets || [],
-          makeup_deadline_at: editItem.makeup_deadline_at || "",
-          image: editItem.image || undefined,
-        };
-        await updateAdminReadingContent(readingContentEditing.id, payload);
-        message.success("读书内容已更新。");
-      } else {
-        const payloadItems = items.map((item) => ({
-          client_key: item.client_key,
-          reading_date: item.reading_date,
-          push_time: item.push_time,
-          title: item.title,
-	          description: item.description || "",
-	          image_source: item.image_source || "upload",
-	          material_asset_id: item.material_asset_id || null,
-	          series_id: item.series_id || null,
-	          image_url: item.image_source === "upload" && !item.image ? (item.image_url || "") : "",
-          target_type: item.target_type || "user",
-          target_user_ids: item.target_user_ids || [],
-          target_department_ids: item.target_department_ids || [],
-          target_position_ids: item.target_position_ids || [],
-          target_employment_status_ids: item.target_employment_status_ids || [],
-          targets: item.targets || [],
-          makeup_deadline_at: item.makeup_deadline_at || "",
-          image: item.image || null,
-        }));
-        if (payloadItems.length === 1) {
-          await createAdminReadingContent(payloadItems[0]);
-        } else {
-          await createAdminReadingContentsBatch({ items: payloadItems });
-        }
-        const firstReadingDate = payloadItems[0]?.reading_date || "";
-        const nextMonth = firstReadingDate ? String(firstReadingDate).slice(0, 7) : "";
-        if (nextMonth) {
-          setReadingContentMonth(nextMonth);
-        }
-        message.success("读书内容已创建。");
-      }
-      setReadingContentModalOpen(false);
-      setReadingContentEditing(null);
-      setReadingContentPreferredSeriesId(null);
-      setReadingContentPage(1);
-      await reloadAdminReadingContents({
-        page: 1,
-        month: readingContentModalMode === "edit"
-          ? readingContentMonth
-          : (items[0]?.reading_date ? String(items[0].reading_date).slice(0, 7) : readingContentMonth),
-      });
-    } catch (error) {
-      message.error(error?.message || "读书内容保存失败。");
-    } finally {
-      setReadingContentSubmitting(false);
-    }
-  };
-
-  const handleDeleteReadingContent = async (row) => {
-    if (row?.has_checkins || row?.is_locked) {
-      message.warning("该内容已有打卡记录，不允许删除，请使用停用。");
-      return;
-    }
-    try {
-      await deleteAdminReadingContent(row.id);
-      message.success("读书内容已删除。");
-      await reloadAdminReadingContents();
-    } catch (error) {
-      message.error(error?.message || "删除读书内容失败。");
-    }
-  };
-
-  const handleToggleReadingContentStatus = async (row) => {
-    try {
-      await updateAdminReadingContentStatus(row.id, row.status === "active" ? "disabled" : "active");
-      message.success(row.status === "active" ? "读书内容已停用。" : "读书内容已启用。");
-      await reloadAdminReadingContents();
-    } catch (error) {
-      message.error(error?.message || "更新读书内容状态失败。");
-    }
-  };
-
-  const handleBatchDeleteReadingContents = async () => {
-    if (!selectedReadingContentRowKeys.length) {
-      message.warning("请先选择要删除的读书内容。");
-      return;
-    }
-    try {
-      const result = await batchDeleteAdminReadingContents(selectedReadingContentRowKeys);
-      const deletedCount = Array.isArray(result?.deleted_ids) ? result.deleted_ids.length : 0;
-      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-      if (deletedCount) {
-        message.success(skippedCount ? `已删除 ${deletedCount} 条，跳过 ${skippedCount} 条。` : `已删除 ${deletedCount} 条读书内容。`);
-      } else {
-        message.warning(skippedCount ? `没有可删除内容，已跳过 ${skippedCount} 条。` : "没有可删除内容。");
-      }
-      await reloadAdminReadingContents();
-    } catch (error) {
-      message.error(error?.message || "批量删除读书内容失败。");
-    }
-  };
-
-  const handleBatchDisableReadingContents = async () => {
-    if (!selectedReadingContentRowKeys.length) {
-      message.warning("请先选择要停用的读书内容。");
-      return;
-    }
-    try {
-      const result = await batchUpdateAdminReadingContentsStatus(selectedReadingContentRowKeys, "disabled");
-      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
-      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-      if (updatedCount) {
-        message.success(skippedCount ? `已停用 ${updatedCount} 条，跳过 ${skippedCount} 条。` : `已停用 ${updatedCount} 条读书内容。`);
-      } else {
-        message.warning(skippedCount ? `没有可停用内容，已跳过 ${skippedCount} 条。` : "没有可停用内容。");
-      }
-      await reloadAdminReadingContents();
-    } catch (error) {
-      message.error(error?.message || "批量停用读书内容失败。");
-    }
-  };
-
-  const openReadingSeriesModal = (row = null) => {
-    readingSeriesForm.resetFields();
-    readingSeriesForm.setFieldsValue({
-      title: row?.title || "",
-      description: row?.description || "",
-      date_range: row?.start_date && row?.end_date ? [dayjs(row.start_date), dayjs(row.end_date)] : null,
-      status: row?.status || "draft",
-      ...buildSeriesTargetFormValues(row?.targets || []),
-    });
-    setReadingSeriesModal(row || {});
-  };
-
-  const handleSubmitReadingSeries = async () => {
-    try {
-      const values = await readingSeriesForm.validateFields();
-      setReadingSeriesSubmitting(true);
-      const payload = {
-        title: values.title,
-        description: values.description || "",
-        start_date: values.date_range?.[0] ? values.date_range[0].format("YYYY-MM-DD") : null,
-        end_date: values.date_range?.[1] ? values.date_range[1].format("YYYY-MM-DD") : null,
-        status: values.status || "draft",
-        targets: normalizeSeriesTargetsFromForm(values),
-      };
-      if (!payload.targets.length) {
-        message.warning("当前系列未设置派发对象，后续新增内容时需要单独选择派发对象。");
-      }
-      if (readingSeriesModal?.id && Number(readingSeriesModal.content_count || 0) > 0) {
-        const detail = await fetchAdminReadingSeriesDetail(readingSeriesModal.id);
-        const outOfRangeCount = (detail?.contents || []).filter((item) => (
-          isReadingDateOutOfRange(item.reading_date, payload.start_date, payload.end_date)
-        )).length;
-        if (outOfRangeCount > 0) {
-          const confirmed = await new Promise((resolve) => {
-            Modal.confirm({
-              title: "计划周期变更确认",
-              content: `该系列下已有 ${outOfRangeCount} 条读书内容超出新的计划周期，保存后这些内容会被标记为超出周期，但不会删除。是否继续？`,
-              okText: "继续保存",
-              cancelText: "取消",
-              onOk: () => resolve(true),
-              onCancel: () => resolve(false),
-            });
-          });
-          if (!confirmed) return;
-        }
-      }
-      if (readingSeriesModal?.id) {
-        await updateAdminReadingSeries(readingSeriesModal.id, payload);
-        message.success("读书系列已更新。");
-      } else {
-        const createdSeries = await createAdminReadingSeries(payload);
-        setReadingContentPreferredSeriesId(createdSeries?.id || null);
-        message.success("读书系列已创建。");
-      }
-      setReadingSeriesModal(null);
-      await reloadReadingSeries();
-      await reloadReadingSeriesSelectOptions();
-    } catch (error) {
-      if (error?.errorFields) return;
-      message.error(error?.message || "读书系列保存失败。");
-    } finally {
-      setReadingSeriesSubmitting(false);
-    }
-  };
-
-  const handleArchiveReadingSeries = async (row) => {
-    try {
-      await archiveAdminReadingSeries(row.id);
-      message.success("读书系列已归档。");
-      await reloadReadingSeries();
-      await reloadReadingSeriesSelectOptions();
-    } catch (error) {
-      message.error(error?.message || "归档读书系列失败。");
-    }
-  };
-
-  const handleToggleReadingSeriesStatus = async (row) => {
-    const nextStatus = row.status === "active" ? "paused" : "active";
-    if (nextStatus === "paused") {
-      const confirmed = await new Promise((resolve) => {
-        Modal.confirm({
-          title: "暂停读书系列",
-          content: "暂停后该系列不会默认用于新增读书内容，但历史内容和员工端已创建任务不受影响。是否继续？",
-          okText: "继续暂停",
-          cancelText: "取消",
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
-      });
-      if (!confirmed) return;
-    }
-    try {
-      await updateAdminReadingSeries(row.id, {
-        title: row.title,
-        description: row.description || "",
-        start_date: row.start_date || null,
-        end_date: row.end_date || null,
-        status: nextStatus,
-        targets: row.targets || [],
-      });
-      message.success(nextStatus === "active" ? "读书系列已启用。" : "读书系列已暂停。");
-      await reloadReadingSeries();
-      await reloadReadingSeriesSelectOptions();
-    } catch (error) {
-      message.error(error?.message || "更新读书系列状态失败。");
-    }
-  };
-
-  const openReadingSeriesDetail = async (row) => {
-    try {
-      setReadingSeriesDetailLoading(true);
-      setReadingSeriesDetailOpen(true);
-      const detail = await fetchAdminReadingSeriesDetail(row.id);
-      setReadingSeriesDetail(detail);
-    } catch (error) {
-      message.error(error?.message || "读书系列详情加载失败。");
-    } finally {
-      setReadingSeriesDetailLoading(false);
-    }
-  };
-
-  const handlePreviewReadingImport = async (file) => {
-    try {
-      setReadingImportSubmitting(true);
-      const result = await previewAdminReadingContentsImport(file);
-      setReadingImportToken(result?.import_token || "");
-      setReadingImportRows(Array.isArray(result?.rows) ? result.rows : []);
-      setReadingImportSummary(result?.summary || { total: 0, valid: 0, invalid: 0 });
-      setReadingImportPreviewOpen(true);
-    } catch (error) {
-      message.error(error?.message || "读书内容导入预览失败。");
-    } finally {
-      setReadingImportSubmitting(false);
-    }
-    return false;
-  };
-
-  const openReadingImportMaterialPicker = () => {
-    if (readingImportSubmitting) return;
-    setReadingImportMaterialPickerOpen(true);
-  };
-
-  const handlePreviewReadingImportFromMaterialAsset = async (assetId) => { // CODEX_MODIFIED
-    try { // CODEX_MODIFIED
-      setReadingImportSubmitting(true); // CODEX_MODIFIED
-      const result = await previewAdminReadingContentsImportFromMaterial(assetId); // CODEX_MODIFIED
-      setReadingImportToken(result?.import_token || ""); // CODEX_MODIFIED
-      setReadingImportRows(Array.isArray(result?.rows) ? result.rows : []); // CODEX_MODIFIED
-      setReadingImportSummary(result?.summary || { total: 0, valid: 0, invalid: 0 }); // CODEX_MODIFIED
-      setReadingImportPreviewOpen(true); // CODEX_MODIFIED
-    } catch (error) { // CODEX_MODIFIED
-      message.error(error?.message || "读书内容导入预览失败。"); // CODEX_MODIFIED
-    } finally { // CODEX_MODIFIED
-      setReadingImportSubmitting(false); // CODEX_MODIFIED
-    } // CODEX_MODIFIED
-  }; // CODEX_MODIFIED
-
-  const handlePickReadingImportMaterial = async (asset) => {
-    setReadingImportMaterialPickerOpen(false);
-    await handlePreviewReadingImportFromMaterialAsset(asset.id); // CODEX_MODIFIED
-  };
-
-  const handleConfirmReadingImport = async () => {
-    try {
-      const validCount = readingImportRows.filter((item) => item.can_import).length;
-      if (!validCount) {
-        message.warning("没有可导入的有效数据。");
-        return;
-      }
-      if (!readingImportToken) {
-        message.warning("导入预览已失效，请重新上传 Excel。");
-        return;
-      }
-      setReadingImportSubmitting(true);
-      const job = await confirmAdminReadingContentsImport(readingImportToken);
-      const messageKey = `reading-import-${job?.job_id || "pending"}`;
-      let current = job;
-      message.open({
-        key: messageKey,
-        type: "loading",
-        duration: 0,
-        content: `正在导入读书内容 0/${job?.total || validCount}`,
-      });
-      while (current?.status === "pending" || current?.status === "running") {
-        await new Promise((resolve) => window.setTimeout(resolve, 800));
-        current = await getAdminReadingContentsImportJob(job.job_id);
-        message.open({
-          key: messageKey,
-          type: "loading",
-          duration: 0,
-          content: `正在导入读书内容 ${current?.processed || 0}/${current?.total || validCount}`,
-        });
-      }
-      if (current?.status === "completed" || current?.status === "completed_with_errors") {
-        if (current?.failure_count) {
-          message.open({
-            key: messageKey,
-            type: "warning",
-            content: `导入完成，成功 ${current?.success_count || 0} 条，失败 ${current?.failure_count || 0} 条。`,
-          });
-        } else {
-          message.open({
-            key: messageKey,
-            type: "success",
-            content: `已导入 ${current?.success_count || 0} 条读书内容。`,
-          });
-        }
-      } else {
-        throw new Error(current?.error || "读书内容导入失败。");
-      }
-      setReadingImportPreviewOpen(false);
-      setReadingImportToken("");
-      setReadingImportRows([]);
-      setReadingImportSummary({ total: 0, valid: 0, invalid: 0 });
-      await reloadAdminReadingContents({ page: 1 });
-      setReadingContentPage(1);
-    } catch (error) {
-      message.error(error?.message || "读书内容导入失败。");
-    } finally {
-      setReadingImportSubmitting(false);
-    }
-  };
-
-  const renderEmployeeAudioCell = (value) => {
-    const dateText = value.format("YYYY-MM-DD");
-    const dayData = myAudioCalendarMap[dateText];
-    const makeupData = myAudioMakeupMap[dateText];
-    let status = getAudioDayStatus(dateText, dayData);
-    if (!dayData?.uploaded && makeupData?.can_makeup) status = "makeup_available";
-    else if (!dayData?.uploaded && makeupData?.is_expired) status = "makeup_expired";
-    return (
-      <div className={`magic-audio-calendar-cell ${status === "future" ? "is-future" : ""}`}>
-        {renderAudioStatusTag(status, dayData?.count || 0, 0)}
-      </div>
-    );
-  };
-
   const renderAdminAudioCell = (value) => {
     const dateText = value.format("YYYY-MM-DD");
     const dayData = adminAudioCalendarMap[dateText];
@@ -2537,75 +925,17 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     );
   };
 
-  const renderAudioRecordList = (records, showUser = false) => (
-    <List
-      dataSource={records}
-      locale={{ emptyText: "当天暂无录音上传" }}
-      renderItem={(item) => {
-        const sourceMeta = getAudioSourceMeta(item.source, superAdminMode);
-        const isWhitelistAutoRecord = item.source === "whitelist_auto";
-        const displayFileName = !superAdminMode && isWhitelistAutoRecord
-          ? "录音打卡.m4a"
-          : (item.file_name || "未命名录音");
-        return (
-          <List.Item>
-            <List.Item.Meta
-              title={(
-                <Space wrap>
-                  <Text strong>{displayFileName}</Text>
-                  <Tag color={sourceMeta.color}>
-                    {superAdminMode ? (item.source_label || sourceMeta.label) : sourceMeta.label}
-                  </Tag>
-                  {showUser && item.user_name ? <Tag>{item.user_name}</Tag> : null}
-                  {showUser && item.department ? <Tag color="blue">{item.department}</Tag> : null}
-                </Space>
-              )}
-              description={(
-                <Text type="secondary">上传时间：{item.uploaded_time?.replace("T", " ").slice(0, 19) || "—"}</Text>
-              )}
-            />
-          </List.Item>
-        );
-      }}
-    />
-  );
-
-  const handleSubmitAudioMakeup = async (readingItem) => {
-    try {
-      const makeupOption = myAudioMakeupMap[readingItem?.id];
-      if (!makeupOption?.can_makeup) {
-        message.warning(makeupOption?.reason || "当前内容不可补卡。");
-        return;
-      }
-      await submitMyAudioMakeup({
-        reading_content_id: readingItem.id,
-        makeup_date: readingItem.reading_date,
-        file_name: "makeup-checkin.m4a",
-        file_size: 0,
-        mime_type: "audio/m4a",
-        remark: audioRemark,
-      });
-      setAudioRemark("");
-      message.success("补卡成功。");
-      await reloadMyData();
-      await reloadMyAudioCalendar();
-    } catch (error) {
-      message.error(error?.message || "补卡失败。");
-    }
-  };
-
   const studyTabContent = selectedVideoId ? (
     <div className="magic-academy-detail">
       {videoDetailError ? (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        <MagicAcademyEmptyState
           description={videoDetailError.message}
-        >
-          <Button onClick={backToStudyList}>返回课程列表</Button>
-        </Empty>
+          actionText="返回课程列表"
+          onAction={userCourseLearningSupport.backToStudyList}
+        />
       ) : !videoDetail ? (
         <div className="workspace-panel">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loadingDetail ? "视频详情加载中" : "暂未选择课程"} />
+          <MagicAcademyEmptyState description={loadingDetail ? "视频详情加载中" : "暂未选择课程"} />
         </div>
       ) : (
         <div className="workspace-dual workspace-dual--lined">
@@ -2700,7 +1030,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                   <strong>{continueStudyVideo.title}</strong>
                   <p>建议优先处理待学必修和未完成课程，把节奏连起来。</p>
                   <div className="workspace-note-block__actions">
-                    <Button type="primary" block onClick={() => openStudyVideo(continueStudyVideo.id)}>
+                    <Button type="primary" block onClick={() => userCourseLearningSupport.openStudyVideo(continueStudyVideo.id)}>
                       切到推荐课程
                     </Button>
                   </div>
@@ -2746,15 +1076,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
           const statusLabel = isCompleted ? "已完成" : isLocked ? "待解锁" : progressPercent > 0 ? "学习中" : "可学习";
           const actionLabel = isCompleted ? "重新学习" : isLocked ? "待解锁" : progressPercent > 0 ? "继续学习" : "开始学习";
           return (
-            <div
+            <CourseCard
               key={item.id}
-              className="workspace-line-item workspace-line-item--stack fade-in-up"
-              style={{ "--fade-delay": `${idx * 60}ms` }}
-            >
-              {renderVideoCoverThumb(item)}
-              <div className="workspace-line-item__content">
-                <Space size={[8, 8]} wrap>
-                  <strong>{`第 ${item.series_order} 节 · ${item.title}`}</strong>
+              cover={userCourseLearningSupport.renderVideoCoverThumb(item)}
+              title={`第 ${item.series_order} 节 · ${item.title}`}
+              badges={(
+                <>
                   {isCompleted ? (
                     <Tag bordered={false} color="success">已完成</Tag>
                   ) : isLocked ? (
@@ -2763,18 +1090,15 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                     <Tag bordered={false} color="processing">{statusLabel}</Tag>
                   )}
                   {getVideoSourceLabel(item, superAdminMode) ? <Tag bordered={false} color="purple">{getVideoSourceLabel(item, superAdminMode)}</Tag> : null}
-                </Space>
-                <span>
-                  {item.category || "未分类课程"}
-                  {isLocked ? ` · ${item.locked_reason || "请先完成上一节"}` : item.description ? ` · ${item.description.slice(0, 40)}` : ""}
-                </span>
-                <Progress percent={progressPercent} size="small" showInfo={false} />
-              </div>
-              <Button type="link" disabled={isLocked} onClick={() => openStudyVideo(item)}>
-                {actionLabel}
-                <ArrowRightOutlined />
-              </Button>
-            </div>
+                </>
+              )}
+              metaText={`${item.category || "未分类课程"}${isLocked ? ` · ${item.locked_reason || "请先完成上一节"}` : item.description ? ` · ${item.description.slice(0, 40)}` : ""}`}
+              progressPercent={progressPercent}
+              actionLabel={actionLabel}
+              onAction={() => userCourseLearningSupport.openStudyVideo(item)}
+              disabled={isLocked}
+              delayMs={idx * 60}
+            />
           );
         })}
       </div>
@@ -2791,13 +1115,12 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       </div>
     ) : myVideos.length === 0 ? (
       <div className="workspace-panel">
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无学习视频" />
+        <MagicAcademyEmptyState description="暂无学习视频" />
       </div>
     ) : (
       <Space direction="vertical" style={{ width: "100%" }} size={16}>
         {myVideoSections.seriesSections.length > 0 ? (
-          <Space direction="vertical" style={{ width: "100%" }} size={16}>
-            <Text strong>系列课程</Text>
+          <CourseListSection title="系列课程">
             {myVideoSections.seriesSections.map((section) => (
               <Card
                 key={section.key}
@@ -2817,996 +1140,201 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
                     size="small"
                     showInfo={false}
                   />
-                  <Button type="primary" onClick={() => openEmployeeSeriesDetail(section.seriesId)}>
+                  <Button type="primary" onClick={() => userCourseLearningSupport.openEmployeeSeriesDetail(section.seriesId)}>
                     {section.items.some((item) => !item.progress?.is_completed && !item.is_locked) ? "进入学习" : "查看系列"}
                   </Button>
                 </Space>
               </Card>
             ))}
-          </Space>
+          </CourseListSection>
         ) : null}
         {myVideoSections.standalone.length > 0 ? (
-          <Space direction="vertical" style={{ width: "100%" }} size={16}>
-            <Text strong>普通课程</Text>
+          <CourseListSection title="普通课程">
             <div className="workspace-line-list">
               {myVideoSections.standalone.map((item, idx) => {
                 const progressPercent = Math.round(item.progress?.progress_percent || 0);
                 const actionLabel = item.progress?.is_completed ? "重新学习" : progressPercent > 0 ? "继续学习" : "开始学习";
                 return (
-                  <div
+                  <CourseCard
                     key={item.id}
-                    className="workspace-line-item workspace-line-item--stack fade-in-up"
-                    style={{ "--fade-delay": `${idx * 60}ms` }}
-                  >
-                    {renderVideoCoverThumb(item)}
-                    <div className="workspace-line-item__content">
-                      <Space size={[8, 8]} wrap>
-                        <strong>{item.title}</strong>
+                    cover={userCourseLearningSupport.renderVideoCoverThumb(item)}
+                    title={item.title}
+                    badges={(
+                      <>
                         {item.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
                         {superAdminMode && item.is_whitelisted ? <Tag bordered={false} color="purple">白名单</Tag> : null}
                         {currentUser?.is_newcomer && item.is_newcomer_required ? <Tag bordered={false} color="gold">新人必看</Tag> : null}
                         <Tag bordered={false} color={item.progress?.is_completed ? "success" : "processing"}>
                           {item.progress?.is_completed ? "已完成" : progressPercent > 0 ? "学习中" : "未开始"}
                         </Tag>
-                      </Space>
-                      <span>{item.category || "未分类课程"}{item.description ? ` · ${item.description.slice(0, 40)}` : ""}</span>
-                      <Progress percent={progressPercent} size="small" showInfo={false} />
-                    </div>
-                    <Button type="link" onClick={() => openStudyVideo(item)}>
-                      {actionLabel}
-                      <ArrowRightOutlined />
-                    </Button>
-                  </div>
+                      </>
+                    )}
+                    metaText={`${item.category || "未分类课程"}${item.description ? ` · ${item.description.slice(0, 40)}` : ""}`}
+                    progressPercent={progressPercent}
+                    actionLabel={actionLabel}
+                    onAction={() => userCourseLearningSupport.openStudyVideo(item)}
+                    delayMs={idx * 60}
+                  />
                 );
               })}
             </div>
-          </Space>
+          </CourseListSection>
         ) : null}
       </Space>
     )
   );
 
-  const audioTabContent = (
-    <div className="workspace-dual workspace-dual--lined">
-      <div className="workspace-panel">
-        <div className="workspace-panel" style={{ marginBottom: 16 }}>
-          <div className="workspace-panel__head">
-            <Space>
-              <ReadOutlined />
-              <strong>{myAudioSelectedDate === getTodayText() ? "今日读书内容" : `${myAudioSelectedDate} 读书内容`}</strong>
-            </Space>
-          </div>
-          {selectedReadingContents.length > 0 ? (
-            <Space direction="vertical" size={16} style={{ width: "100%" }}>
-              {selectedReadingContents.map((item) => (
-                <Card key={item.id} size="small">
-                  <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                    <Space wrap>
-                      <Text strong>{item.title}</Text>
-                      <Tag bordered={false} color="blue">{item.reading_date}</Tag>
-                      <Tag bordered={false} color={item.current_status === "已完成" ? "success" : item.current_status === "已过补卡时间" ? "default" : "processing"}>
-                        {item.current_status || "未完成"}
-                      </Tag>
-                    </Space>
-                    {item.description ? <Paragraph style={{ marginBottom: 0 }}>{item.description}</Paragraph> : null}
-                    <Space wrap>
-                      <Text type="secondary">推送时间：{item.push_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
-                      <Text type="secondary">补卡截止：{item.makeup_deadline_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
-                    </Space>
-                    {item.image_url ? (
-                      <Image
-                        src={item.image_url}
-                        alt={item.title}
-                        style={{ maxWidth: 420, borderRadius: 12 }}
-                        preview={{ src: item.image_url }}
-                      />
-                    ) : null}
-                    <Space wrap>
-                      <Upload
-                        showUploadList={false}
-                        customRequest={async ({ file, onSuccess, onError }) => {
-                          try {
-                            await uploadMyAudio({
-                              reading_content_id: item.id,
-                              file_name: file?.name || "",
-                              file_size: Number(file?.size || 0),
-                              mime_type: file?.type || "",
-                              remark: audioRemark,
-                            });
-                            setAudioRemark("");
-                            message.success("打卡记录已提交。");
-                            await reloadMyData();
-                            await reloadMyAudioCalendar();
-                            await reloadMyReadingContents();
-                            onSuccess?.({});
-                          } catch (error) {
-                            onError?.(error);
-                            message.error(error?.message || "上传失败。");
-                          }
-                        }}
-                      >
-                        <Button type="primary" icon={<UploadOutlined />} disabled={!item.can_submit}>
-                          {item.completed ? "已完成" : "提交本条打卡"}
-                        </Button>
-                      </Upload>
-                      {!item.completed && myAudioMakeupMap[item.id]?.can_makeup ? (
-                        <Button onClick={() => handleSubmitAudioMakeup(item)}>补交本条</Button>
-                      ) : null}
-                      {!item.can_submit && item.submit_disabled_reason ? (
-                        <Text type="secondary">{item.submit_disabled_reason}</Text>
-                      ) : null}
-                      {!item.completed && !item.can_submit && !item.submit_disabled_reason && myAudioMakeupMap[item.id]?.reason ? (
-                        <Text type="secondary">{myAudioMakeupMap[item.id]?.reason}</Text>
-                      ) : null}
-                    </Space>
-                  </Space>
-                </Card>
-              ))}
-            </Space>
-          ) : (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={myAudioSelectedDate === getTodayText() ? "今日暂无读书内容" : "该日期暂无读书内容"}
-            />
-          )}
-        </div>
+  const handleCreateWhitelist = async (values) => {
+    try {
+      await createMagicWhitelist(values);
+      whitelistForm.resetFields();
+      await courseAdminSupport.reloadAdminData();
+      message.success("已加入白名单。");
+    } catch (error) {
+      message.error(error?.message || "添加失败。");
+    }
+  };
 
-        <div className="workspace-panel__head">
-          <Space>
-            <UploadOutlined />
-            <strong>本页打卡备注</strong>
-          </Space>
-          <Tag bordered={false} color={todayUploadedAudio ? "success" : "default"}>
-            {todayUploadedAudio ? "已有内容完成" : "待完成"}
-          </Tag>
-        </div>
-        <Space direction="vertical" size={12} style={{ width: "100%" }}>
-          <Input.TextArea
-            rows={2}
-            placeholder="备注（选填）"
-            value={audioRemark}
-            onChange={(e) => setAudioRemark(e.target.value)}
-          />
-          <Text type="secondary">在每条读书内容卡片里单独提交。支持 mp3、m4a、wav、aac、amr、webm、ogg；单文件不超过 50MB。</Text>
-        </Space>
+  const handleReadingSeriesChanged = async () => {
+    await reloadReadingContentSeriesFilterOptions();
+  };
 
-        <div className="workspace-panel" style={{ marginTop: 16 }}>
-          <div className="workspace-panel__head">
-            <Space>
-              <CalendarOutlined />
-              <strong>我的上传记录</strong>
-            </Space>
-          </div>
-          <Table
-            rowKey="id"
-            size="middle"
-            dataSource={myAudios}
-            pagination={{ pageSize: 8 }}
-            columns={[
-              { title: "文件名", dataIndex: "file_name" },
-              { title: "备注", dataIndex: "remark", render: (v) => v || "—" },
-              { title: "状态", dataIndex: "status", render: (v) => <Tag bordered={false} color="success">{v || "已上传"}</Tag> },
-              { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "—" },
-              {
-                title: "操作",
-                render: (_, row) => (
-                  <Popconfirm title="确认删除这条录音记录？" onConfirm={async () => {
-                    await deleteMyAudio(row.id);
-                    await reloadMyData();
-                    await reloadMyAudioCalendar();
-                  }}>
-                    <Button size="small" danger>删除</Button>
-                  </Popconfirm>
-                ),
-              },
-            ]}
-          />
-        </div>
-      </div>
+  const adminCoursesTabSupport = useAdminCoursesTabSupport({
+    courseAdminSupport,
+    courseSeriesSupport,
+    courseQuizSupport,
+    quizVideoId,
+    quizPoints,
+    videoSeries,
+    selectedSeriesId,
+    handleSaveWatchConfirmSetting,
+    handleCreateWhitelist,
+    watchConfirmForm,
+    whitelistForm,
+    pointForm,
+    answerColumns,
+    normalizeQuestionType,
+    QUESTION_TYPE_LABELS,
+    formatTime,
+    formatFileSize,
+    ResponsiveVideoPlayer,
+    buildMagicVideoStreamUrl,
+    setSelectedSeriesId,
+  });
 
-      <aside className="workspace-panel workspace-panel--aside">
-        <div className="workspace-panel">
-          <div className="workspace-panel__head">
-            <Space>
-              <CalendarOutlined />
-              <strong>上传日历</strong>
-            </Space>
-          </div>
-          <Calendar
-            fullscreen={false}
-            value={dayjs(myAudioSelectedDate)}
-            onSelect={(value) => setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
-            onPanelChange={(value) => {
-              setMyAudioMonth(value.format("YYYY-MM"));
-              setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));
-            }}
-            cellRender={renderEmployeeAudioCell}
-          />
-        </div>
-
-        <div className="workspace-panel">
-          <div className="workspace-panel__head">
-            <Space>
-              <BookOutlined />
-              <strong>{myAudioSelectedDate || "选中日期"} 的记录</strong>
-            </Space>
-            {renderAudioStatusTag(
-              getAudioDayStatus(myAudioSelectedDate, selectedMyAudioDay),
-              selectedMyAudioDay?.count || 0,
-              0,
-            )}
-          </div>
-          <div className="workspace-note-block" style={{ marginBottom: 12 }}>
-            <strong>补卡说明</strong>
-            <p>{audioMakeupSetting.description || "当前未开启补卡"}</p>
-            <Text type="secondary">补卡按单条读书内容判断，请在左侧对应内容卡片上操作。</Text>
-          </div>
-          {renderAudioRecordList(selectedMyAudioDay?.records || [])}
-        </div>
-      </aside>
-    </div>
-  );
-
-  const adminTabs = (adminMode ? [
-    {
-      key: "video_manage",
-      label: "视频管理",
-      children: selectedAdminVideo ? (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <button type="button" className="magic-academy-crumb__back" onClick={backToAdminVideoList}>
-            <ArrowLeftOutlined />
-            <span>返回视频列表</span>
-          </button>
-          <Card>
-            <Space direction="vertical" size={16} style={{ width: "100%" }}>
-              <div className="magic-video-detail-shell">
-                <Space direction="vertical" size={16} style={{ width: "100%" }}>
-                  <Space wrap style={{ justifyContent: "space-between", width: "100%" }}>
-                    <Title level={4} style={{ margin: 0 }}>{selectedAdminVideo.title}</Title>
-                    <Space wrap>
-                      <Tag bordered={false} color={getVideoStatusMeta(selectedAdminVideo).color}>{getVideoStatusMeta(selectedAdminVideo).label}</Tag>
-                      <Tag bordered={false} color={selectedAdminVideo.upload_status === "completed" ? "success" : selectedAdminVideo.upload_status === "failed" ? "error" : "processing"}>
-                        上传 {selectedAdminVideo.upload_status || "completed"}
-                      </Tag>
-                      {selectedAdminVideo.is_required ? <Tag bordered={false} color="gold">必修</Tag> : null}
-                    </Space>
-                  </Space>
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>{selectedAdminVideo.description || "暂无简介"}</Paragraph>
-                  <ResponsiveVideoPlayer src={buildMagicVideoStreamUrl(selectedAdminVideo.id)} poster={selectedAdminVideo.cover_url || ""} />
-                  {selectedAdminVideo.cover_url ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <Text type="secondary">视频封面</Text>
-                      <img
-                        src={selectedAdminVideo.cover_url}
-                        alt={`${selectedAdminVideo.title} 封面`}
-                        style={{ width: 220, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 12, border: "1px solid #f0f0f0" }}
-                      />
-                    </div>
-                  ) : null}
-                  <Space wrap>
-                    <Text>分类：{selectedAdminVideo.category || "未分类"}</Text>
-                    <Text>时长：{formatTime(selectedAdminVideo.duration_seconds || 0)}</Text>
-                    <Text>文件大小：{formatFileSize(selectedAdminVideo.file_size || 0)}</Text>
-                  </Space>
-                  <Space wrap>
-                    {selectedAdminVideo.status !== "published" ? (
-                      <Button
-                        type="primary"
-                        loading={publishingVideoId === selectedAdminVideo.id}
-                        disabled={!selectedAdminVideo.can_publish || disablingVideoId === selectedAdminVideo.id}
-                        onClick={() => handlePublishVideo(selectedAdminVideo.id)}
-                      >
-                        发布
-                      </Button>
-                    ) : (
-                      <Button
-                        loading={disablingVideoId === selectedAdminVideo.id}
-                        disabled={publishingVideoId === selectedAdminVideo.id}
-                        onClick={() => handleDisableVideo(selectedAdminVideo.id)}
-                      >
-                        下架
-                      </Button>
-                    )}
-                    <Button icon={<EditOutlined />} onClick={() => setVideoModal(selectedAdminVideo)}>编辑视频</Button>
-                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setPointModal({})}>新增节点</Button>
-                  </Space>
-                </Space>
-              </div>
-            </Space>
-          </Card>
-          <List
-            grid={{ gutter: 16, xs: 1, md: 2 }}
-            dataSource={quizPoints}
-            locale={{ emptyText: "当前视频还没有配置答题节点" }}
-            renderItem={(point) => (
-              <List.Item>
-                <Card
-                  title={`节点 ${formatTime(point.trigger_second)}`}
-                  extra={(
-                    <Space>
-                      <Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button>
-                      <Button size="small" onClick={() => window.open(buildMagicQuizImportTemplateUrl("xlsx"), "_blank", "noopener,noreferrer")}>下载模板</Button>
-                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "upload" })}>Excel导入</Button>
-                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "material" })}>从素材库导入</Button>
-                      <Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button>
-                    </Space>
-                  )}
-                >
-                  <Space wrap style={{ marginBottom: 12 }}>
-                    <Tag>题目数 {point.question_count}</Tag>
-                    <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
-                    <Tag color="blue">需全部答对</Tag>
-                  </Space>
-                  <List
-                    dataSource={point.questions || []}
-                    renderItem={(question) => (
-                      <List.Item
-                        actions={[
-                          <Button key="edit" size="small" onClick={() => setQuestionModal({ ...question, pointId: point.id })}>编辑</Button>,
-                          <Popconfirm key="del" title="删除题目？" onConfirm={async () => { await deleteMagicQuestion(question.id); setQuizPoints(await listMagicQuizPoints(selectedAdminVideo.id)); }}>
-                            <Button size="small" danger>删除</Button>
-                          </Popconfirm>,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={`${QUESTION_TYPE_LABELS[normalizeQuestionType(question.question_type)] || question.question_type} · ${question.stem}`}
-                          description={`答案：${(question.correct_answers || []).join(" / ") || "无"}`}
-                        />
-                      </List.Item>
-                    )}
-                  />
-                  <div style={{ marginTop: 12 }}>
-                    <Popconfirm title="删除整个答题节点？" onConfirm={async () => { await deleteMagicQuizPoint(point.id); setQuizPoints(await listMagicQuizPoints(selectedAdminVideo.id)); }}>
-                      <Button danger size="small">删除节点</Button>
-                    </Popconfirm>
-                  </div>
-                </Card>
-              </List.Item>
-            )}
-          />
-        </Space>
-      ) : (
-        <>
-          <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Space wrap>
-              <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
-              <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchPublishVideos}>批量发布</Button>
-              <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchDisableVideos}>批量下架</Button>
-              <Popconfirm
-                title="确认批量删除选中的视频？"
-                onConfirm={handleBatchDeleteVideos}
-                okText="确认删除"
-                cancelText="取消"
-                disabled={!selectedAdminVideoRowKeys.length}
-              >
-                <Button danger disabled={!selectedAdminVideoRowKeys.length}>批量删除</Button>
-              </Popconfirm>
-            </Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setVideoModal({})}>新增视频</Button>
-          </div>
-          <Table
-            rowKey="id"
-            dataSource={adminVideoItems}
-            columns={adminVideoColumns}
-            rowSelection={{
-              selectedRowKeys: selectedAdminVideoRowKeys,
-              onChange: setSelectedAdminVideoRowKeys,
-            }}
-            pagination={{
-              current: adminVideoPage,
-              pageSize: adminVideoPageSize,
-              total: adminVideoTotal,
-              showSizeChanger: true,
-              pageSizeOptions: ["8", "16", "32", "64"],
-              onChange: (pageValue, sizeValue) => {
-                setAdminVideoPage(pageValue);
-                setAdminVideoPageSize(sizeValue);
-              },
-            }}
-          />
-        </>
-      ),
-    },
-    {
-      key: "quiz",
-      label: "视频答题配置",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card className="magic-quiz-header-card">
-            <div className="magic-quiz-header">
-              <div className="magic-quiz-header__left">
-                <Text>选择视频：</Text>
-                <Select
-                  style={{ minWidth: 320 }}
-                  value={quizVideoId}
-                  onChange={setQuizVideoId}
-                  options={videos.map((item) => ({ value: item.id, label: item.title }))}
-                />
-              </div>
-              <Button type="primary" onClick={() => { pointForm.resetFields(); setPointModal({}); }}>新增节点</Button>
-            </div>
-          </Card>
-          <Card className="magic-quiz-watch-card">
-            <div className="magic-quiz-watch-card__head">
-              <div>
-                <div className="magic-quiz-watch-card__title">观看确认弹窗</div>
-                <div className="magic-quiz-watch-card__desc">该配置按视频生效，对当前选中的整条视频统一应用。</div>
-              </div>
-              <Button type="primary" size="small" onClick={handleSaveWatchConfirmSetting}>保存配置</Button>
-            </div>
-            <Form
-              form={watchConfirmForm}
-              layout="vertical"
-              preserve={false}
-              initialValues={{
-                enabled: false,
-                interval_seconds: 300,
-                message: "请确认你正在观看视频",
-                button_text: "继续学习",
-              }}
-            >
-              <div className="magic-quiz-watch-card__grid">
-                <Form.Item label="启用确认弹窗" name="enabled" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-                <Form.Item label="弹窗间隔（秒）" name="interval_seconds" rules={[{ required: true, message: "请输入间隔秒数" }]}>
-                  <InputNumber min={30} max={86400} style={{ width: "100%" }} />
-                </Form.Item>
-                <Form.Item label="弹窗文案" name="message" rules={[{ required: true, message: "请输入弹窗文案" }]}>
-                  <Input placeholder="请确认你正在观看视频" />
-                </Form.Item>
-                <Form.Item label="按钮文案" name="button_text" rules={[{ required: true, message: "请输入按钮文案" }]}>
-                  <Input placeholder="继续学习" />
-                </Form.Item>
-              </div>
-            </Form>
-          </Card>
-          <List
-            grid={{ gutter: 16, xs: 1, md: 1, xl: 2 }}
-            dataSource={quizPoints}
-            renderItem={(point) => (
-              <List.Item>
-                <Card
-                  className="magic-quiz-point-card"
-                  title={`节点 ${formatTime(point.trigger_second)}`}
-                  extra={(
-                    <Space wrap>
-                      <Button size="small" onClick={() => { pointForm.setFieldsValue(point); setPointModal(point); }}>编辑节点</Button>
-                      <Button size="small" onClick={() => window.open(buildMagicQuizImportTemplateUrl("xlsx"), "_blank", "noopener,noreferrer")}>下载模板</Button>
-                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "upload" })}>Excel导入</Button>
-                      <Button size="small" onClick={() => setQuizImportState({ open: true, pointId: point.id, source: "material" })}>从素材库导入</Button>
-                      <Button size="small" onClick={() => setQuestionModal({ pointId: point.id })}>新增题目</Button>
-                    </Space>
-                  )}
-                >
-                  <div className="magic-quiz-point-card__meta">
-                    <Tag>题目数 {point.question_count}</Tag>
-                    <Tag color={point.enabled ? "success" : "default"}>{point.enabled ? "启用" : "停用"}</Tag>
-                    <Tag color="blue">需全部答对</Tag>
-                  </div>
-                  <List
-                    className="magic-quiz-question-list"
-                    dataSource={point.questions || []}
-                    renderItem={(question) => (
-                      <List.Item
-                        actions={[
-                          <Button key="edit" size="small" onClick={() => setQuestionModal({ ...question, pointId: point.id })}>编辑</Button>,
-                          <Popconfirm key="del" title="删除题目？" onConfirm={async () => { await deleteMagicQuestion(question.id); setQuizPoints(await listMagicQuizPoints(quizVideoId)); }}>
-                            <Button size="small" danger>删除</Button>
-                          </Popconfirm>,
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={`${QUESTION_TYPE_LABELS[normalizeQuestionType(question.question_type)] || question.question_type} · ${question.stem}`}
-                          description={`答案：${(question.correct_answers || []).join(" / ") || "无"}`}
-                        />
-                      </List.Item>
-                    )}
-                  />
-                  <div style={{ marginTop: 12 }}>
-                    <Popconfirm title="删除整个答题节点？" onConfirm={async () => { await deleteMagicQuizPoint(point.id); setQuizPoints(await listMagicQuizPoints(quizVideoId)); }}>
-                      <Button danger size="small">删除节点</Button>
-                    </Popconfirm>
-                  </div>
-                </Card>
-              </List.Item>
-            )}
-          />
-        </Space>
-      ),
-    },
-    {
-      key: "series",
-      label: "视频系列管理",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card
-            title="系列列表"
-            extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => {
-              seriesForm.resetFields();
-              seriesForm.setFieldsValue({ enabled: true, sequential_unlock_enabled: true, description: "" });
-              setSeriesModal({});
-            }}>新增系列</Button>}
-          >
-            <Table
-              rowKey="id"
-              dataSource={videoSeries}
-              pagination={false}
-              rowSelection={{
-                type: "radio",
-                selectedRowKeys: selectedSeriesId ? [selectedSeriesId] : [],
-                onChange: (keys) => setSelectedSeriesId(keys[0] || null),
-              }}
-              columns={[
-                { title: "系列名称", dataIndex: "title" },
-                { title: "描述", dataIndex: "description", render: (value) => value || "—" },
-                { title: "视频数", render: (_, row) => row.items?.length || 0 },
-                { title: "顺序解锁", dataIndex: "sequential_unlock_enabled", render: (value) => value ? "开启" : "关闭" },
-                { title: "状态", dataIndex: "enabled", render: (value) => value ? <Tag color="success">启用</Tag> : <Tag>停用</Tag> },
-                {
-                  title: "操作",
-                  render: (_, row) => (
-                    <Space>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          seriesForm.setFieldsValue(row);
-                          setSeriesModal(row);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                      <Popconfirm title="删除该系列？系列下视频只会解除关系，不会删除视频。" onConfirm={async () => {
-                        await deleteMagicVideoSeries(row.id);
-                        await reloadAdminData();
-                        message.success("系列已删除。");
-                      }}>
-                        <Button size="small" danger>删除</Button>
-                      </Popconfirm>
-                    </Space>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-          {selectedSeries ? (
-            <Card title={`系列视频 · ${selectedSeries.title}`}>
-              <Space wrap style={{ marginBottom: 16 }}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  style={{ width: 320 }}
-                  placeholder="选择要加入系列的视频"
-                  value={seriesItemVideoId || undefined}
-                  onChange={(value) => setSeriesItemVideoId(value || null)}
-                  options={availableSeriesVideos.map((item) => ({ value: item.id, label: item.title }))}
-                />
-                <Button type="primary" onClick={handleAddSeriesItem}>加入系列</Button>
-              </Space>
-              <Table
-                rowKey="video_id"
-                dataSource={selectedSeries.items || []}
-                pagination={false}
-                columns={[
-                  { title: "顺序", dataIndex: "sort_order", width: 90 },
-                  { title: "视频", dataIndex: "title" },
-                  { title: "分类", dataIndex: "category", render: (value) => value || "—" },
-                  {
-                    title: "操作",
-                    render: (_, row, index) => (
-                      <Space>
-                        <Button size="small" disabled={index === 0} icon={<ArrowUpOutlined />} onClick={() => handleMoveSeriesItem(row.video_id, -1)} />
-                        <Button size="small" disabled={index === (selectedSeries.items?.length || 0) - 1} icon={<DownOutlined />} onClick={() => handleMoveSeriesItem(row.video_id, 1)} />
-                        <Popconfirm title="确认移出该系列？" onConfirm={async () => {
-                          await removeMagicVideoSeriesItem(selectedSeries.id, row.video_id);
-                          await reloadAdminData();
-                        }}>
-                          <Button size="small" danger>移除</Button>
-                        </Popconfirm>
-                      </Space>
-                    ),
-                  },
-                ]}
-              />
-            </Card>
-          ) : null}
-        </Space>
-      ),
-    },
-    {
-      key: "stats",
-      label: "视频学习统计",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card>
-            <Space wrap>
-              <Text>选择视频：</Text>
-              <Select style={{ minWidth: 260 }} value={statsVideoId} onChange={setStatsVideoId} options={videos.map((item) => ({ value: item.id, label: item.title }))} />
-              <Select
-                mode="multiple"
-                allowClear
-                style={{ width: 180 }}
-                placeholder="选择部门"
-                value={statsDepartment}
-                onChange={(value) => setStatsDepartment(value || [])}
-                options={statsDepartmentOptions}
-                maxTagCount="responsive"
-              />
-              <Select
-                mode="multiple"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 280 }}
-                placeholder="选择员工"
-                value={statsUserId}
-                onChange={(value) => setStatsUserId(value || [])}
-                options={statsEmployeeOptions}
-                maxTagCount="responsive"
-              />
-              <Button type="primary" onClick={handleStatsSearch}>查询</Button>
-              <Button onClick={handleStatsReset}>重置</Button>
-              <Button icon={<DownloadOutlined />} disabled={!statsVideoId} onClick={() => handleExportStats("progress")}>导出学习统计</Button>
-              <Button icon={<DownloadOutlined />} disabled={!statsVideoId} onClick={() => handleExportStats("answers")}>导出答题详情</Button>
-            </Space>
-          </Card>
-          <Card title="学习统计">
-            <Table rowKey="user_id" dataSource={statsRows} columns={statsColumns} pagination={{ pageSize: 8 }} />
-          </Card>
-          <Card title="答题详情">
-            <Table rowKey={(row) => `${row.name}-${row.submitted_at}-${row.question}`} dataSource={answerRows} columns={answerColumns} pagination={{ pageSize: 8 }} />
-          </Card>
-        </Space>
-      ),
-    },
-    superAdminMode ? {
-      key: "whitelist",
-      label: "视频限制白名单",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card title="添加白名单">
-            <Form form={whitelistForm} layout="inline" onFinish={async (values) => {
-              try {
-                await createMagicWhitelist(values);
-                whitelistForm.resetFields();
-                await reloadAdminData();
-                message.success("已加入白名单。");
-              } catch (error) {
-                message.error(error?.message || "添加失败。");
-              }
-            }}>
-              <Form.Item name="video_id" rules={[{ required: true, message: "请选择视频" }]}>
-                <Select style={{ width: 240 }} placeholder="选择视频" options={videos.map((item) => ({ value: item.id, label: item.title }))} />
-              </Form.Item>
-              <Form.Item name="user_id" rules={[{ required: true, message: "请选择用户" }]}>
-                <Select style={{ width: 240 }} placeholder="选择用户" options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))} />
-              </Form.Item>
-              <Form.Item name="note">
-                <Input style={{ width: 220 }} placeholder="备注（选填）" />
-              </Form.Item>
-              <Form.Item>
-                <Button type="primary" htmlType="submit">添加</Button>
-              </Form.Item>
-            </Form>
-          </Card>
-          <Card>
-            <Table rowKey="id" dataSource={whitelist} columns={whitelistColumns} pagination={{ pageSize: 8 }} />
-          </Card>
-        </Space>
-      ),
-    } : null,
-    ...buildReadingAdminTabItems({
+  const { tabItems: readingAdminTabItems, readingSeriesSupport } = useAdminReadingTabItems({
+    readingAdminState: {
       readingContentMonth,
-      setReadingContentMonth,
       readingContentKeyword,
-      setReadingContentKeyword,
-      setReadingContentPage,
-      readingContentPageSize,
-      setReadingContentPageSize,
-      readingContentSeriesId,
-      setReadingContentSeriesId,
-      readingSeriesRows,
-      downloadMagicFile,
-      handlePreviewReadingImport,
-      openReadingImportMaterialPicker,
-      readingImportSubmitting,
-      openCreateReadingContentModal,
-      readingContents,
       readingContentPage,
+      readingContentPageSize,
+      readingContentSeriesId,
+      readingContentSeriesFilterRows,
+      readingContents,
       readingContentsTotal,
       selectedReadingContentRowKeys,
+      readingPushSummaryMap: readingContentPushSupport.readingPushSummaryMap,
+      retryingReadingContentId: readingContentPushSupport.retryingReadingContentId,
+      readingImportSubmitting: readingContentImportSupport.readingImportSubmitting,
+      ...audioStatsSupport.adminReadingState,
+    },
+    readingAdminActions: {
+      setReadingContentMonth,
+      setReadingContentKeyword,
+      setReadingContentPage,
+      setReadingContentPageSize,
+      setReadingContentSeriesId,
       setSelectedReadingContentRowKeys,
+      handlePreviewReadingImport: readingContentImportSupport.handlePreviewReadingImport,
+      openReadingImportMaterialPicker: readingContentImportSupport.openReadingImportMaterialPicker,
+      openCreateReadingContentModal,
       openEditReadingContentModal,
       handleToggleReadingContentStatus,
       handleDeleteReadingContent,
       handleBatchDeleteReadingContents,
       handleBatchDisableReadingContents,
-      readingPushSummaryMap,
-      handleOpenReadingPushDetail,
-      handleRetryReadingPush,
-      retryingReadingContentId,
-      readingSeriesKeyword,
-      setReadingSeriesKeyword,
-      readingSeriesPage,
-      setReadingSeriesPage,
-      readingSeriesTotal,
-      readingSeriesStatus,
-      setReadingSeriesStatus,
-      openReadingSeriesModal,
-      openReadingSeriesDetail,
-      handleToggleReadingSeriesStatus,
-      handleArchiveReadingSeries,
-    }),
-    {
-      key: "audio_stats",
-      label: "打卡统计",
-      children: (
-        <Space direction="vertical" style={{ width: "100%" }} size={16}>
-          <Card title="补卡设置">
-            <Space wrap align="center">
-              <Text>开启补卡</Text>
-              <Switch
-                checked={!!audioMakeupSetting.enabled}
-                onChange={(checked) => setAudioMakeupSetting((prev) => ({ ...prev, enabled: checked }))}
-              />
-              <Text>允许补卡天数</Text>
-              <InputNumber
-                min={0}
-                max={365}
-                value={Number(audioMakeupSetting.make_up_days || 0)}
-                onChange={(value) => setAudioMakeupSetting((prev) => ({ ...prev, make_up_days: Number(value || 0) }))}
-              />
-              <Button type="primary" onClick={handleSaveAudioMakeupSetting}>保存设置</Button>
-              <Text type="secondary">{audioMakeupSetting.description || "当前未开启补卡"}</Text>
-            </Space>
-          </Card>
-          <Card>
-            <Space wrap>
-              <Input style={{ width: 160 }} placeholder="YYYY-MM" value={audioMonth} onChange={(e) => setAudioMonth(e.target.value)} />
-              <RangePicker value={audioDateRange} onChange={setAudioDateRange} />
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 320 }}
-                placeholder="选择读书内容"
-                value={audioReadingContentId || undefined}
-                onChange={(value) => setAudioReadingContentId(value || null)}
-                options={audioReadingOptions.map((item) => ({
-                  value: item.reading_content_id || item.id,
-                  label: `${item.reading_date} ${(item.push_at || "").replace("T", " ").slice(11, 16)} ${item.title}`,
-                }))}
-              />
-              <Select
-                allowClear
-                style={{ width: 180 }}
-                placeholder="按部门筛选"
-                value={audioDepartment || undefined}
-                onChange={(value) => setAudioDepartment(value || "")}
-                options={Array.from(new Set(users.map((item) => item.department).filter(Boolean))).map((item) => ({ value: item, label: item }))}
-              />
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 220 }}
-                placeholder="按员工筛选"
-                value={audioUserId || undefined}
-                onChange={(value) => setAudioUserId(value || null)}
-                options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))}
-              />
-              <Select
-                style={{ width: 180 }}
-                value={audioStatusFilter}
-                onChange={setAudioStatusFilter}
-                options={[
-                  { value: "all", label: "全部状态" },
-                  { value: "completed", label: "已完成" },
-                  { value: "pending", label: "未完成" },
-                  { value: "expired", label: "已过补卡截止时间" },
-                  { value: "future", label: "未到推送时间" },
-                ]}
-              />
-              <Button type="primary" onClick={() => reloadAdminReadingAudioStats().catch((error) => message.error(error?.message || "读书内容统计加载失败。"))}>
-                查询
-              </Button>
-              <Button icon={<DownloadOutlined />} onClick={handleOpenAudioExportModal}>导出 Excel</Button>
-            </Space>
-          </Card>
-          <Card>
-            <Space direction="vertical" size={12} style={{ width: "100%" }}>
-              {audioLegacyHint ? <Alert type="info" showIcon message={audioLegacyHint} /> : null}
-              <Table
-                rowKey="reading_content_id"
-                dataSource={audioReadingStatsRows}
-                pagination={{ pageSize: 10 }}
-                columns={[
-                  { title: "日期", dataIndex: "reading_date", width: 110 },
-                  { title: "推送时间", dataIndex: "push_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-                  { title: "标题", dataIndex: "title" },
-                  { title: "推送对象", dataIndex: "target_summary", width: 180, render: (value) => value || "—" },
-                  { title: "应完成人数", dataIndex: "expected_count", width: 100 },
-                  { title: "已完成", dataIndex: "completed_count", width: 90 },
-                  { title: "未完成", dataIndex: "pending_count", width: 90 },
-                  { title: "完成率", dataIndex: "completion_rate", width: 100, render: (value) => `${value || 0}%` },
-                  { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-                  { title: "已过截止", dataIndex: "is_deadline_passed", width: 90, render: (value) => value ? <Tag bordered={false} color="default">是</Tag> : "否" },
-                  { title: "已有打卡", dataIndex: "has_checkins", width: 90, render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
-                  { title: "操作", width: 100, render: (_, row) => <Button size="small" onClick={() => openAudioDetail(row)}>查看明细</Button> },
-                ]}
-              />
-            </Space>
-          </Card>
-        </Space>
-      ),
+      handleOpenReadingPushDetail: readingContentPushSupport.openReadingContentPushDetail,
+      handleRetryReadingPush: readingContentPushSupport.handleRetryReadingPush,
+      onReadingSeriesChanged: handleReadingSeriesChanged,
+      ...audioStatsSupport.adminReadingActions,
     },
+    readingAdminDeps: {
+      downloadMagicFile,
+      buildReadingAdminTabItems,
+      message,
+      RangePicker,
+      shouldLoadReadingSeries,
+      readingSeriesOptionsEnabled: adminMode && adminSection === "reading",
+      readingSeriesForm,
+      reloadReadingContentSeriesFilterOptions,
+      setReadingContentPreferredSeriesId,
+      showLoadError,
+    },
+  });
+
+  const activeReadingSeriesOptions = useMemo(
+    () => readingSeriesSupport.readingSeriesSelectRows
+      .filter((item) => ["active", "draft"].includes(item.status))
+      .map((item) => ({
+        value: item.id,
+        label: item.status === "draft" ? `${item.title}（草稿）` : item.title,
+        series: item,
+      })),
+    [readingSeriesSupport.readingSeriesSelectRows],
+  );
+
+  const adminTabs = (adminMode ? [
+    ...buildAdminCoursesTabItems({
+      courseAdminState: adminCoursesTabSupport.courseAdminState,
+      courseAdminActions: adminCoursesTabSupport.courseAdminActions,
+      courseAdminForms: adminCoursesTabSupport.courseAdminForms,
+      courseAdminDeps: adminCoursesTabSupport.courseAdminDeps,
+    }),
+    ...readingAdminTabItems,
   ].filter(Boolean) : []);
   const visibleAdminTabs = adminMode
     ? adminTabs.filter((item) => (ADMIN_SECTION_TABS[adminSection] || ADMIN_SECTION_TABS.courses).includes(item.key))
     : [];
 
-  const renderMagicHome = () => (
-    <>
-      <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
-        <div className="showcase-section__header">
-          <span className="showcase-eyebrow">Modules</span>
-          <Title level={2} className="showcase-title">两条主线</Title>
-          <p className="showcase-lead">课程学习与读书打卡分开管理，路径更短、信息不混。</p>
-        </div>
-
-        <div className="entry-grid entry-grid--two">
-          <button
-            type="button"
-            className="entry-card entry-card--feature fade-in-up"
-            style={{ "--fade-delay": "180ms" }}
-            onClick={() => openCourseCenter()}
-          >
-            <div className="entry-card__top">
-              <span className="entry-card__num">01</span>
-              <span className="entry-card__tag">VIDEO COURSES</span>
-            </div>
-            <span className="entry-card__divider" />
-            <div>
-              <h3 className="entry-card__title">课程学习</h3>
-              <p className="entry-card__subtitle">视频 · 节点答题 · 学习进度</p>
-            </div>
-            <p className="entry-card__desc">
-              {continueStudyVideo
-                ? `推荐继续：${continueStudyVideo.title}`
-                : "进入课程列表，按推荐顺序逐个完成。"}
-            </p>
-            <span className="entry-card__cta">
-              {continueStudyVideo ? "继续学习" : "浏览课程"}
-              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
-            </span>
-            <span className="entry-card__bg" />
-          </button>
-
-          <button
-            type="button"
-            className="entry-card fade-in-up"
-            style={{ "--fade-delay": "260ms" }}
-            onClick={openReadingCenter}
-          >
-            <div className="entry-card__top">
-              <span className="entry-card__num">02</span>
-              <span className="entry-card__tag">DAILY READING</span>
-            </div>
-            <span className="entry-card__divider" />
-            <div>
-              <h3 className="entry-card__title">读书打卡</h3>
-              <p className="entry-card__subtitle">每日上传 · 月度统计</p>
-            </div>
-            <p className="entry-card__desc">
-              {todayUploadedAudio
-                ? "今天已经完成打卡，可以继续保持节奏。"
-                : "今天还没有上传录音，建议学习结束后顺手完成。"}
-            </p>
-            <span className="entry-card__cta">
-              {todayUploadedAudio ? "查看打卡记录" : "去完成打卡"}
-              <span className="entry-card__cta-arrow"><ArrowRightOutlined /></span>
-            </span>
-            <span className="entry-card__bg" />
-          </button>
-        </div>
-      </section>
-
-      <section className="showcase-section">
-        <div className="stats-row fade-in-up">
-          <div className="stats-row__item">
-            <span className="stats-row__value">{myRequiredVideos.length}</span>
-            <span className="stats-row__label">待学必修</span>
-          </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
-            <span className="stats-row__value">{myLearningVideos.length}</span>
-            <span className="stats-row__label">进行中</span>
-          </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
-            <span className="stats-row__value">{myCompletedVideos.length}</span>
-            <span className="stats-row__label">已完成</span>
-          </div>
-          <span className="stats-row__sep">/</span>
-          <div className="stats-row__item">
-            <span className="stats-row__value">{todayUploadedAudio ? "✓" : "—"}</span>
-            <span className="stats-row__label">今日打卡</span>
-          </div>
-        </div>
-      </section>
-
-      {latestAudioRecord ? (
-        <section className="showcase-section">
-          <div className="workspace-panel">
-            <div className="workspace-panel__head">
-              <Space>
-                <BookOutlined />
-                <strong>最近上传</strong>
-              </Space>
-              <Button type="link" icon={<RightOutlined />} onClick={openReadingCenter}>打卡中心</Button>
-            </div>
-            <div className="workspace-note-block">
-              <strong>{latestAudioRecord.file_name || "未命名录音"}</strong>
-              <p>{latestAudioRecord.remark || "暂无备注"}</p>
-              <span className="workspace-note-block__meta">
-                {latestAudioRecord.uploaded_time?.replace("T", " ").slice(0, 19) || "-"}
-              </span>
-            </div>
-          </div>
-        </section>
-      ) : null}
-    </>
-  );
-
-  const renderBreadcrumb = ({ title, subtitle, onBack, backText = "返回课程管理" }) => (
-    <div className="magic-academy-crumb fade-in-up">
-      <button type="button" className="magic-academy-crumb__back" onClick={onBack}>
-        <ArrowLeftOutlined />
-        <span>{backText}</span>
-      </button>
-      <div className="magic-academy-crumb__title">
-        <Title level={2} className="showcase-title" style={{ margin: 0, fontSize: 26 }}>{title}</Title>
-        {subtitle ? <p className="showcase-lead" style={{ margin: 0 }}>{subtitle}</p> : null}
-      </div>
-    </div>
-  );
-
   const renderCourseCenter = () => (
-    <>
-      {selectedVideoId
-        ? renderBreadcrumb({
-            title: videoDetail?.title || "课程详情",
-            subtitle: "按节点答题完成视频学习",
-            onBack: backToStudyList,
-            backText: selectedEmployeeSeries ? "返回系列详情" : "返回课程列表",
-          })
+    <CourseCenterShell
+      title={selectedVideoId
+        ? (videoDetail?.title || "课程详情")
         : selectedEmployeeSeries
-          ? renderBreadcrumb({
-              title: selectedEmployeeSeries.title,
-              subtitle: "系列课程按顺序解锁，完成上一节后自动进入下一节。",
-              onBack: closeEmployeeSeriesDetail,
-              backText: "返回课程学习",
-            })
-        : renderBreadcrumb({
-            title: "课程学习",
-            subtitle: "按推荐顺序学习视频，节点答题需全部答对方可继续。",
-            onBack: () => navigate("/workspace/magic"),
-            backText: "返回学习工作台",
-          })}
+          ? selectedEmployeeSeries.title
+          : "课程学习"}
+      subtitle={selectedVideoId
+        ? "按节点答题完成视频学习"
+        : selectedEmployeeSeries
+          ? "系列课程按顺序解锁，完成上一节后自动进入下一节。"
+          : "按推荐顺序学习视频，节点答题需全部答对方可继续。"}
+      onBack={selectedVideoId
+        ? userCourseLearningSupport.backToStudyList
+        : selectedEmployeeSeries
+          ? userCourseLearningSupport.closeEmployeeSeriesDetail
+          : () => navigate("/workspace/magic")}
+      backText={selectedVideoId
+        ? (selectedEmployeeSeries ? "返回系列详情" : "返回课程列表")
+        : selectedEmployeeSeries
+          ? "返回课程学习"
+          : "返回学习工作台"}
+    >
       {studyTabContent}
-    </>
+    </CourseCenterShell>
   );
 
   const renderReadingCheckin = () => (
-    <>
-      {renderBreadcrumb({
-        title: "读书打卡",
-        subtitle: "录音上传、上传日历与历史记录，集中在这里。",
-        onBack: openAcademyHome,
-        backText: "返回课程管理",
-      })}
-      {audioTabContent}
-    </>
+    <ReadingCheckinShell
+      title="读书打卡"
+      subtitle="录音上传、上传日历与历史记录，集中在这里。"
+      onBack={openAcademyHome}
+      backText="返回课程管理"
+    >
+      <UserReadingCheckinPanel
+        support={userReadingCheckinSupport}
+        makeupSetting={audioStatsSupport.audioMakeupSetting}
+      />
+    </ReadingCheckinShell>
   );
 
   const userViewContent = !adminMode
@@ -3814,77 +1342,32 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         ? renderCourseCenter()
         : academyView === "reading"
           ? renderReadingCheckin()
-          : renderMagicHome())
+          : (
+            <MagicAcademyHome
+              continueStudyVideo={continueStudyVideo}
+              todayUploadedAudio={userReadingCheckinSupport.todayUploadedAudio}
+              myRequiredVideosCount={myRequiredVideos.length}
+              myLearningVideosCount={myLearningVideos.length}
+              myCompletedVideosCount={myCompletedVideos.length}
+              latestAudioRecord={userReadingCheckinSupport.latestAudioRecord}
+              onOpenCourseCenter={openCourseCenter}
+              onOpenReadingCenter={openReadingCenter}
+            />
+          ))
     : null;
-
-  const yearMark = "魔";
+  const activePushDetailOpen = readingContentPushSupport.pushDetailOpen || courseAdminSupport.pushDetailSupport.coursePushDetailOpen;
+  const activePushDetailLoading = readingContentPushSupport.pushDetailOpen
+    ? readingContentPushSupport.pushDetailLoading
+    : courseAdminSupport.pushDetailSupport.coursePushDetailLoading;
+  const activePushDetailTitle = readingContentPushSupport.pushDetailOpen
+    ? readingContentPushSupport.pushDetailTitle
+    : courseAdminSupport.pushDetailSupport.coursePushDetailTitle;
+  const activePushDetailRows = readingContentPushSupport.pushDetailOpen
+    ? readingContentPushSupport.pushDetailRows
+    : courseAdminSupport.pushDetailSupport.coursePushDetailRows;
 
   return (
     <div className={adminMode ? undefined : "workspace-shell workspace-shell--editorial workspace-shell--minimal"}>
-      {!adminMode && academyView === "home" ? (
-        <section className="showcase-hero">
-          <span className="showcase-hero__year" aria-hidden="true">{yearMark}</span>
-          <div className="showcase-hero__inner">
-            <div className="showcase-hero__intro">
-              <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>
-                Magic Academy
-              </span>
-              <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
-                课程 · 答题 · 打卡
-              </Title>
-              <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
-                KEEP LEARNING · KEEP GROWING
-              </p>
-              <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
-                视频课程帮你建立知识框架，节点答题确认理解深度，
-                读书打卡让每天的学习沉淀下来。
-              </Paragraph>
-              <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
-                <button
-                  type="button"
-                  className="cta-arrow-btn"
-                  onClick={() => openCourseCenter()}
-                >
-                  <ReadOutlined />
-                  <span>{continueStudyVideo ? "继续学习" : "进入课程"}</span>
-                  <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-                </button>
-                <button
-                  type="button"
-                  className="cta-arrow-btn cta-arrow-btn--ghost"
-                  onClick={openReadingCenter}
-                >
-                  <CalendarOutlined />
-                  <span>{todayUploadedAudio ? "查看打卡" : "今日打卡"}</span>
-                  <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-                </button>
-              </div>
-            </div>
-            <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
-              <span className="showcase-hero__side-eyebrow">Learning at a glance</span>
-              <ul className="showcase-hero__side-list">
-                <li className="showcase-hero__side-item">
-                  <span>待学必修</span>
-                  <strong>{myRequiredVideos.length}</strong>
-                </li>
-                <li className="showcase-hero__side-item">
-                  <span>进行中</span>
-                  <strong>{myLearningVideos.length}</strong>
-                </li>
-                <li className="showcase-hero__side-item">
-                  <span>已完成</span>
-                  <strong>{myCompletedVideos.length}</strong>
-                </li>
-                <li className="showcase-hero__side-item">
-                  <span>今日打卡</span>
-                  <strong>{todayUploadedAudio ? "已完成" : "待完成"}</strong>
-                </li>
-              </ul>
-            </aside>
-          </div>
-        </section>
-      ) : null}
-
       {adminMode ? (
           <Tabs
             activeKey={activeTab}
@@ -3895,67 +1378,28 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         userViewContent
       )}
 
-      <Modal
-        open={pushDetailOpen}
-        title={pushDetailTitle || "推送明细"}
-        footer={null}
-        width={960}
+      <PushDetailModal
+        open={activePushDetailOpen}
+        title={activePushDetailTitle}
+        loading={activePushDetailLoading}
+        rows={activePushDetailRows}
         onCancel={() => {
-          setPushDetailOpen(false);
-          setPushDetailRows([]);
+          if (readingContentPushSupport.pushDetailOpen) {
+            readingContentPushSupport.closeReadingContentPushDetail();
+            return;
+          }
+          courseAdminSupport.pushDetailSupport.closeCoursePushDetail();
         }}
-      >
-        <Table
-          rowKey="id"
-          loading={pushDetailLoading}
-          dataSource={pushDetailRows}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 900 }}
-          columns={[
-            { title: "用户姓名", dataIndex: "recipient_name", render: (value) => value || "—" },
-            { title: "部门", dataIndex: "department", render: (value) => value || "—" },
-            {
-              title: "企微账号",
-              dataIndex: "recipient_wecom_userid",
-              render: (value) => value || "未绑定",
-            },
-            {
-              title: "状态",
-              dataIndex: "status",
-              render: (value) => {
-                if (value === "sent") return <Tag color="success">已发送</Tag>;
-                if (value === "failed") return <Tag color="error">发送失败</Tag>;
-                if (value === "skipped") return <Tag color="default">未发送</Tag>;
-                return <Tag color="processing">待发送</Tag>;
-              },
-            },
-            {
-              title: "跳过原因",
-              dataIndex: "skip_reason",
-              render: (value) => {
-                if (value === "missing_wecom_userid") return "缺少企微绑定";
-                if (value === "already_sent_in_previous_batch") return "历史已成功推送";
-                return value || "—";
-              },
-            },
-            { title: "失败原因", dataIndex: "error", render: (value) => value || "—" },
-            {
-              title: "推送时间",
-              dataIndex: "sent_at",
-              render: (value) => value?.replace("T", " ").slice(0, 19) || "—",
-            },
-          ]}
-        />
-      </Modal>
+      />
 
       <MagicAcademyPageModals
         videoDetail={videoDetail}
         videoModal={videoModal}
         users={users}
-        videoSubmitting={videoSubmitting}
-        videoUploadProgress={videoUploadProgress}
+        videoSubmitting={courseVideoUploadSupport.videoSubmitting}
+        videoUploadProgress={courseVideoUploadSupport.videoUploadProgress}
         setVideoModal={setVideoModal}
-        submitVideo={submitVideo}
+        submitVideo={courseVideoUploadSupport.submitVideo}
         VideoDispatchFormModal={VideoDispatchFormModal}
         readingContentModalOpen={readingContentModalOpen}
         readingContentModalMode={readingContentModalMode}
@@ -3967,70 +1411,51 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         employeeDepartmentOptions={employeeDepartmentOptions}
         employeePositionOptions={employeePositionOptions}
         employmentStatusOptions={employmentStatusOptions}
-        openReadingSeriesModal={openReadingSeriesModal}
+        openReadingSeriesModal={readingSeriesSupport.openReadingSeriesModal}
         setReadingContentModalOpen={setReadingContentModalOpen}
         setReadingContentEditing={setReadingContentEditing}
         handleSubmitReadingContent={handleSubmitReadingContent}
-        readingSeriesModal={readingSeriesModal}
-        readingSeriesSubmitting={readingSeriesSubmitting}
-        setReadingSeriesModal={setReadingSeriesModal}
-        handleSubmitReadingSeries={handleSubmitReadingSeries}
+        readingSeriesSupport={readingSeriesSupport}
         readingSeriesForm={readingSeriesForm}
-        readingSeriesDetailOpen={readingSeriesDetailOpen}
-        readingSeriesDetail={readingSeriesDetail}
-        readingSeriesDetailLoading={readingSeriesDetailLoading}
-        setReadingSeriesDetailOpen={setReadingSeriesDetailOpen}
-        readingImportPreviewOpen={readingImportPreviewOpen}
-        readingImportSubmitting={readingImportSubmitting}
-        setReadingImportPreviewOpen={setReadingImportPreviewOpen}
-        handleConfirmReadingImport={handleConfirmReadingImport}
-        readingImportRows={readingImportRows}
-        readingImportSummary={readingImportSummary}
-        audioDetailOpen={audioDetailOpen}
-        audioDetailRow={audioDetailRow}
-        setAudioDetailOpen={setAudioDetailOpen}
-        audioDetailLegacyHint={audioDetailLegacyHint}
-        audioDetailLoading={audioDetailLoading}
-        audioDetailRows={audioDetailRows}
-        audioExportModalOpen={audioExportModalOpen}
-        audioExportSubmitting={audioExportSubmitting}
-        setAudioExportModalOpen={setAudioExportModalOpen}
-        handleConfirmAudioExport={handleConfirmAudioExport}
-        audioExportColumns={audioExportColumns}
-        setAudioExportColumns={setAudioExportColumns}
-        audioExportScopeLines={audioExportScopeLines}
-        handleToggleAudioExportColumn={handleToggleAudioExportColumn}
+        readingSeriesDetailOpen={readingSeriesSupport.readingSeriesDetailOpen}
+        readingSeriesDetail={readingSeriesSupport.readingSeriesDetail}
+        readingSeriesDetailLoading={readingSeriesSupport.readingSeriesDetailLoading}
+        setReadingSeriesDetailOpen={readingSeriesSupport.setReadingSeriesDetailOpen}
+        readingImportPreviewOpen={readingContentImportSupport.readingImportPreviewOpen}
+        readingImportSubmitting={readingContentImportSupport.readingImportSubmitting}
+        setReadingImportPreviewOpen={readingContentImportSupport.setReadingImportPreviewOpen}
+        handleConfirmReadingImport={readingContentImportSupport.handleConfirmReadingImport}
+        readingImportRows={readingContentImportSupport.readingImportRows}
+        readingImportSummary={readingContentImportSupport.readingImportSummary}
+        {...audioStatsSupport.modalProps}
         watchConfirmState={watchConfirmState}
         handleWatchConfirmContinue={handleWatchConfirmContinue}
-        seriesModal={seriesModal}
+        seriesModal={courseSeriesSupport.seriesModal}
         seriesForm={seriesForm}
-        setSeriesModal={setSeriesModal}
-        submitSeries={submitSeries}
-        pointModal={pointModal}
+        setSeriesModal={courseSeriesSupport.setSeriesModal}
+        submitSeries={courseSeriesSupport.submitSeries}
+        pointModal={courseQuizSupport.pointModal}
         pointForm={pointForm}
-        setPointModal={setPointModal}
-        submitPoint={submitPoint}
-        questionModal={questionModal}
-        setQuestionModal={setQuestionModal}
-        submitQuestion={submitQuestion}
+        setPointModal={courseQuizSupport.setPointModal}
+        submitPoint={courseQuizSupport.submitPoint}
+        questionModal={courseQuizSupport.questionModal}
+        setQuestionModal={courseQuizSupport.setQuestionModal}
+        submitQuestion={courseQuizSupport.submitQuestion}
         quizAnswerState={quizAnswerState}
         setQuizAnswerState={setQuizAnswerState}
         handleQuizSubmit={handleQuizSubmit}
       />
       <QuizImportModal
-        open={quizImportState.open}
-        pointId={quizImportState.pointId}
-        source={quizImportState.source}
-        onClose={() => setQuizImportState({ open: false, pointId: null, source: "upload" })}
-        onCommitted={handleQuizImportCommitted}
+        open={courseQuizSupport.quizImportState.open}
+        pointId={courseQuizSupport.quizImportState.pointId}
+        source={courseQuizSupport.quizImportState.source}
+        onClose={() => courseQuizSupport.setQuizImportState({ open: false, pointId: null, source: "upload" })}
+        onCommitted={courseQuizSupport.handleQuizImportCommitted}
       />
       <MaterialAssetPickerModal
-        open={readingImportMaterialPickerOpen}
-        onCancel={() => {
-          if (readingImportSubmitting) return;
-          setReadingImportMaterialPickerOpen(false);
-        }}
-        onPick={handlePickReadingImportMaterial}
+        open={readingContentImportSupport.readingImportMaterialPickerOpen}
+        onCancel={readingContentImportSupport.closeReadingImportMaterialPicker}
+        onPick={readingContentImportSupport.handlePickReadingImportMaterial}
         title="从素材库选择读书导入文件"
         assetType="document"
         acceptExtensions={["xlsx"]}
