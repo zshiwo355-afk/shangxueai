@@ -572,6 +572,9 @@ async def build_employee_sync_preview(
             summary["local_unbound"] += 1
             continue
 
+        # Protected statuses only guard local accounts that are absent from the source list.
+        # Once the employee appears in the third-party data, the earlier matching branches
+        # bind/update the account normally and refresh its employment status from HR data.
         should_mark_left = (
             (not initial_mode)
             and _settings.wecom_sync_disabled_users

@@ -285,6 +285,7 @@ export default function HomePage() {
   );
 
   const yearText = dayjs().format("YYYY");
+  const openTodos = () => navigate("/todo");
   const openTodoPapers = () => navigate("/papers?filter=todo");
   const openTodoChallenges = () => {
     const exam = todoChallenges[0]?.exam;
@@ -326,6 +327,15 @@ export default function HomePage() {
               >
                 <RocketOutlined />
                 <span>开启销售对练</span>
+                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
+              </button>
+              <button
+                type="button"
+                className="cta-arrow-btn cta-arrow-btn--ghost"
+                onClick={openTodos}
+              >
+                <CalendarOutlined />
+                <span>查看我的待办</span>
                 <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
               </button>
               <button

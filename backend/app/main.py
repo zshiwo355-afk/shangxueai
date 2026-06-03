@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import ensure_builtin_super_admin, router as auth_router
 from .config import get_settings
 from .db import session_scope
+from .deadline_reminder_worker import deadline_reminder_worker
 from .employee_open_client import EmployeeOpenClient
 from .magic_auto_actions import auto_action_worker
 from .exams_api import (
@@ -25,6 +26,7 @@ from .magic_academy_api import magic_video_router, router as magic_academy_route
 from .magic_push_service import reading_push_worker
 from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
+from .notifications_api import router as notifications_router
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
 from .paper_ai_worker import paper_ai_worker
 from .paper_assignments_api import (
@@ -40,7 +42,6 @@ from .training_api import build_router as build_training_router
 from .training_records_api import router as training_records_router, admin_router as training_records_admin_router
 from .users_api import router as users_admin_router
 from .wecom_client import WecomClient
-from .wecom_sync import wecom_daily_sync_worker
 from .whitelist_api import router as whitelist_router
 
 logger = logging.getLogger(__name__)
@@ -52,12 +53,12 @@ maxkb_client = MaxKBClient(settings)
 rule_loader = RuleLoader(maxkb_client, settings)
 _auto_action_stop_event = asyncio.Event()
 _auto_action_task: asyncio.Task | None = None
-_wecom_sync_stop_event = asyncio.Event()
-_wecom_sync_task: asyncio.Task | None = None
 _paper_ai_stop_event = asyncio.Event()
 _paper_ai_task: asyncio.Task | None = None
 _reading_push_stop_event = asyncio.Event()
 _reading_push_task: asyncio.Task | None = None
+_deadline_reminder_stop_event = asyncio.Event()
+_deadline_reminder_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -105,13 +106,15 @@ app.include_router(papers_router)
 app.include_router(paper_assignments_router)
 app.include_router(question_imports_router)
 app.include_router(paper_submit_router)
+# 推送监控
+app.include_router(notifications_router)
 # 规则重载
 app.include_router(build_rules_router(rule_loader=rule_loader))
 
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
-    global _auto_action_task, _wecom_sync_task, _paper_ai_task, _reading_push_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -125,24 +128,24 @@ async def _preload_rules() -> None:
     if _auto_action_task is None or _auto_action_task.done():
         _auto_action_stop_event.clear()
         _auto_action_task = asyncio.create_task(auto_action_worker(_auto_action_stop_event))
-    if _wecom_sync_task is None or _wecom_sync_task.done():
-        _wecom_sync_stop_event.clear()
-        _wecom_sync_task = asyncio.create_task(wecom_daily_sync_worker(_wecom_sync_stop_event))
     if _paper_ai_task is None or _paper_ai_task.done():
         _paper_ai_stop_event.clear()
         _paper_ai_task = asyncio.create_task(paper_ai_worker(_paper_ai_stop_event))
     if _reading_push_task is None or _reading_push_task.done():
         _reading_push_stop_event.clear()
         _reading_push_task = asyncio.create_task(reading_push_worker(_reading_push_stop_event))
+    if _deadline_reminder_task is None or _deadline_reminder_task.done():
+        _deadline_reminder_stop_event.clear()
+        _deadline_reminder_task = asyncio.create_task(deadline_reminder_worker(_deadline_reminder_stop_event))
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
-    global _auto_action_task, _wecom_sync_task, _paper_ai_task, _reading_push_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
     _auto_action_stop_event.set()
-    _wecom_sync_stop_event.set()
     _paper_ai_stop_event.set()
     _reading_push_stop_event.set()
+    _deadline_reminder_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -152,15 +155,6 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("auto action worker stopped with error")
         finally:
             _auto_action_task = None
-    if _wecom_sync_task is None:
-        pass
-    else:
-        try:
-            await _wecom_sync_task
-        except Exception:  # noqa: BLE001
-            logger.exception("WeCom sync worker stopped with error")
-        finally:
-            _wecom_sync_task = None
     if _paper_ai_task is None:
         pass
     else:
@@ -179,6 +173,15 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("reading push worker stopped with error")
         finally:
             _reading_push_task = None
+    if _deadline_reminder_task is None:
+        pass
+    else:
+        try:
+            await _deadline_reminder_task
+        except Exception:  # noqa: BLE001
+            logger.exception("deadline reminder worker stopped with error")
+        finally:
+            _deadline_reminder_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

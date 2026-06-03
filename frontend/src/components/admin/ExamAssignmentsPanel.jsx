@@ -1,15 +1,17 @@
-import { DeleteOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Badge, Button, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
+import { DeleteOutlined, EyeOutlined, PlusOutlined, RedoOutlined } from "@ant-design/icons";
+import { Alert, Badge, Button, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
   adminBatchCreateExams,
+  adminBulkDeleteExams,
   adminCreateExam,
   adminDeleteExam,
   adminGetExamDetail,
   adminListExams,
   adminListPendingReview,
   adminListUsers,
+  adminPushExamWecom,
   adminSubmitReview,
 } from "../../lib/api.admin";
 import { adminListOptions } from "../../lib/api.options";
@@ -43,7 +45,10 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const [detail, setDetail] = useState(null);
   const [reviewingAttempt, setReviewingAttempt] = useState(null); // {attempt, exam}
   const [createForm] = Form.useForm();
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [pushingId, setPushingId] = useState(null);
 
   const reload = async () => {
     setLoading(true);
@@ -92,6 +97,9 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       pass_score: Number(values.pass_score) || 60,
       max_attempts: Number(values.max_attempts) || 2,
     };
+    if (values.deadline_at) {
+      payload.deadline_at = values.deadline_at.toISOString();
+    }
     if (values.fixed_training_type && values.fixed_training_type !== RANDOM_SENTINEL) {
       payload.fixed_training_type = values.fixed_training_type;
     }
@@ -122,6 +130,70 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       reload();
     } catch (err) {
       message.error(err?.message || "删除失败。");
+    }
+  };
+
+  const pushOne = async (exam) => {
+    setPushingId(exam.id);
+    try {
+      const res = await adminPushExamWecom(exam.id);
+      const sent = Number(res?.sent || 0);
+      const failed = Number(res?.failed || 0);
+      const skipped = Number(res?.skipped || 0);
+      if (sent > 0) {
+        message.success(`已推送 ${sent} 条。${failed ? `失败 ${failed}。` : ""}`);
+      } else if (failed > 0) {
+        message.error(`推送失败 ${failed} 条，请前往「推送监控」查看原因。`);
+      } else {
+        message.warning(skipped ? "推送被跳过：接收人未绑定企业微信或被禁用。" : "未触发推送。");
+      }
+    } catch (err) {
+      message.error(err?.message || "推送失败。");
+    } finally {
+      setPushingId(null);
+    }
+  };
+
+  const performBulkDelete = async (force) => {
+    setBulkBusy(true);
+    try {
+      const res = await adminBulkDeleteExams(selectedIds, force);
+      const deleted = Number(res?.deleted || 0);
+      const skipped = Number(res?.skipped_count || 0);
+      const deletedAttempts = Number(res?.deleted_attempts || 0);
+      if (skipped > 0 && !force) {
+        modal.confirm({
+          title: `${skipped} 条通关已有尝试记录`,
+          content: `已删除 ${deleted} 条；剩下 ${skipped} 条带有尝试记录，强制删除会同时清掉这些尝试与对应的会话。是否继续？`,
+          okText: "强制删除",
+          okButtonProps: { danger: true },
+          cancelText: "取消",
+          onOk: async () => {
+            try {
+              const r2 = await adminBulkDeleteExams(res.skipped, true);
+              const d2 = Number(r2?.deleted || 0);
+              const da2 = Number(r2?.deleted_attempts || 0);
+              message.success(`再删除 ${d2} 条通关（连同 ${da2} 条尝试记录）。`);
+              setSelectedIds([]);
+              reload();
+            } catch (err) {
+              message.error(err?.message || "强制删除失败。");
+            }
+          },
+        });
+      } else if (deleted > 0) {
+        message.success(force && deletedAttempts > 0
+          ? `已删除 ${deleted} 条通关（连同 ${deletedAttempts} 条尝试记录）。`
+          : `已删除 ${deleted} 条通关。`);
+      } else {
+        message.warning("没有可删除的通关。");
+      }
+      setSelectedIds([]);
+      reload();
+    } catch (err) {
+      message.error(err?.message || "批量删除失败。");
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -302,12 +374,21 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—",
     },
     {
+      title: "截止时间",
+      dataIndex: "deadline_at",
+      width: 150,
+      render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : <Typography.Text type="secondary">不限</Typography.Text>,
+    },
+    {
       title: "操作",
       key: "action",
-      width: 200,
+      width: 280,
       render: (_, row) => (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)}>详情</Button>
+          <Popconfirm title="确认向该用户推送企业微信通知？" onConfirm={() => pushOne(row)} okText="推送" cancelText="取消">
+            <Button size="small" icon={<RedoOutlined />} loading={pushingId === row.id}>推送</Button>
+          </Popconfirm>
           <Popconfirm title="确认删除该通关？" onConfirm={() => remove(row)} okText="删除" cancelText="取消">
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
@@ -330,6 +411,11 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         loading={loading}
         dataSource={exams}
         columns={columns}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys.map((k) => Number(k))),
+          preserveSelectedRowKeys: true,
+        }}
         pagination={{
           defaultPageSize: 10,
           showSizeChanger: true,
@@ -338,6 +424,27 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         }}
         scroll={{ x: 1100 }}
       />
+
+      {selectedIds.length > 0 ? (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar__count">
+            已选 <strong>{selectedIds.length}</strong> 条通关
+          </span>
+          <div className="bulk-action-bar__actions">
+            <Button onClick={() => setSelectedIds([])} disabled={bulkBusy}>取消选择</Button>
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 条通关？`}
+              description="带尝试记录的通关会被跳过，可二次确认强制删除。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={() => performBulkDelete(false)}
+            >
+              <Button danger icon={<DeleteOutlined />} loading={bulkBusy}>批量删除</Button>
+            </Popconfirm>
+          </div>
+        </div>
+      ) : null}
 
       {/* 派发通关弹窗 */}
       <Modal
@@ -488,6 +595,18 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
               <InputNumber min={1} max={10} step={1} style={{ width: "100%" }} placeholder="例如 2" />
             </Form.Item>
           </Space>
+          <Form.Item
+            label="截止时间（不填则不限）"
+            name="deadline_at"
+            extra="到达截止前 24 小时时，未完成的学员会自动收到企业微信提醒。"
+          >
+            <DatePicker
+              showTime={{ format: "HH:mm" }}
+              format="YYYY-MM-DD HH:mm"
+              style={{ width: "100%" }}
+              placeholder="选择截止时间"
+            />
+          </Form.Item>
           <Form.Item
             label={
               <Space>

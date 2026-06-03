@@ -19,6 +19,7 @@ const MagicAcademyPage = lazy(() => import("./components/MagicAcademyPage"));
 const TrainingWorkspacePage = lazy(() => import("./components/TrainingWorkspacePage"));
 const MagicWorkspacePage = lazy(() => import("./components/MagicWorkspacePage"));
 const ChallengeHistoryPage = lazy(() => import("./components/ChallengeHistoryPage"));
+const UserTodosPage = lazy(() => import("./components/UserTodosPage"));
 const UserPapersListPage = lazy(() => import("./components/user/papers/UserPapersListPage"));
 const UserPaperTakePage = lazy(() => import("./components/user/papers/UserPaperTakePage"));
 const UserPaperResultPage = lazy(() => import("./components/user/papers/UserPaperResultPage"));
@@ -102,6 +103,7 @@ export default function App() {
           element={<RequireAuth><UserLayout /></RequireAuth>}
         >
           <Route path="/home" element={<HomePage />} />
+          <Route path="/todo" element={<UserTodosPage />} />
           <Route path="/workspace/training" element={<TrainingWorkspacePage />} />
           <Route path="/training/challenges" element={<ChallengeHistoryPage />} />
           <Route path="/workspace/magic" element={<MagicWorkspacePage />} />

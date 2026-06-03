@@ -1,4 +1,4 @@
-import { LogoutOutlined, AppstoreOutlined, BookOutlined, FormOutlined, SolutionOutlined, TeamOutlined, ReadOutlined, SafetyCertificateOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import { LogoutOutlined, AppstoreOutlined, BookOutlined, FormOutlined, SolutionOutlined, TeamOutlined, ReadOutlined, SafetyCertificateOutlined, FolderOpenOutlined, BellOutlined } from "@ant-design/icons";
 import { Button, Layout, Menu, Spin, Typography } from "antd";
 import { lazy, Suspense, useMemo } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -12,6 +12,7 @@ const PapersAdminPage = lazy(() => import("./admin/papers/PapersAdminPage"));
 const WhitelistTab = lazy(() => import("./admin/WhitelistTab"));
 const MagicAcademyPage = lazy(() => import("./MagicAcademyPage"));
 const MaterialLibraryPage = lazy(() => import("./admin/MaterialLibraryPage"));
+const NotificationsTab = lazy(() => import("./admin/NotificationsTab"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -23,6 +24,7 @@ const MENU_ITEMS = [
   { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理", path: "/admin/magic-academy/courses" },
   { key: "magic-reading", icon: <BookOutlined />, label: "读书打卡管理", path: "/admin/magic-academy/reading" },
   { key: "materials", icon: <FolderOpenOutlined />, label: "素材库管理" },
+  { key: "notifications", icon: <BellOutlined />, label: "推送监控" },
   { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true },
 ];
 
@@ -46,6 +48,7 @@ export default function AdminLayout() {
   const activeKey = useMemo(() => {
     if (location.pathname.startsWith("/admin/whitelist")) return "whitelist";
     if (location.pathname.startsWith("/admin/materials")) return "materials";
+    if (location.pathname.startsWith("/admin/notifications")) return "notifications";
     if (location.pathname.startsWith("/admin/magic-academy/reading")) return "magic-reading";
     if (location.pathname.startsWith("/admin/magic-academy")) return "magic-academy";
     if (location.pathname.startsWith("/admin/papers")) return "papers";
@@ -148,6 +151,7 @@ export default function AdminLayout() {
               <Route path="magic-academy/courses" element={<MagicAcademyPage embedded adminSection="courses" />} />
               <Route path="magic-academy/reading" element={<MagicAcademyPage embedded adminSection="reading" />} />
               <Route path="materials" element={<MaterialLibraryPage />} />
+              <Route path="notifications" element={<NotificationsTab />} />
               <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
               <Route path="*" element={<Navigate to="users" replace />} />
             </Routes>

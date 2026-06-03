@@ -95,13 +95,9 @@ class Settings(BaseSettings):
     wecom_admin_userids: str = Field("", alias="WECOM_ADMIN_USERIDS")
     wecom_token_cache_seconds: int = Field(7000, alias="WECOM_TOKEN_CACHE_SECONDS")
     wecom_request_timeout_seconds: int = Field(10, alias="WECOM_REQUEST_TIMEOUT_SECONDS")
-    wecom_auto_create_user: bool = Field(False, alias="WECOM_AUTO_CREATE_USER")
     wecom_sync_disabled_users: bool = Field(True, alias="WECOM_SYNC_DISABLED_USERS")
     wecom_auto_redirect_in_client: bool = Field(True, alias="WECOM_AUTO_REDIRECT_IN_CLIENT")
     wecom_state_ttl_seconds: int = Field(600, alias="WECOM_STATE_TTL_SECONDS")
-    wecom_daily_sync_enabled: bool = Field(True, alias="WECOM_DAILY_SYNC_ENABLED")
-    wecom_daily_sync_hour: int = Field(8, alias="WECOM_DAILY_SYNC_HOUR")
-    wecom_daily_sync_minute: int = Field(0, alias="WECOM_DAILY_SYNC_MINUTE")
     wecom_sync_protected_statuses: str = Field("试岗,离职", alias="WECOM_SYNC_PROTECTED_STATUSES")
 
     # ---- 第三方员工通讯录同步 ----

@@ -73,6 +73,8 @@ const EMPLOYEE_SYNC_SUMMARY_LABELS = {
 };
 
 const USER_SYNC_ISSUE_LABELS = {
+  sync_ok: "同步成功",
+  mark_left: "已同步离职",
   conflict: "冲突待处理",
   local_unbound: "待确认",
   update_by_name: "改号未完成",
@@ -80,10 +82,24 @@ const USER_SYNC_ISSUE_LABELS = {
 };
 
 const USER_SYNC_ISSUE_COLORS = {
+  sync_ok: "success",
+  mark_left: "orange",
   conflict: "red",
   local_unbound: "orange",
   update_by_name: "gold",
   pending_create: "blue",
+};
+
+const USER_SYNC_DISPLAY_LABELS = {
+  ...USER_SYNC_ISSUE_LABELS,
+  sync_ok: "同步成功",
+  mark_left: "已同步离职",
+};
+
+const USER_SYNC_DISPLAY_COLORS = {
+  ...USER_SYNC_ISSUE_COLORS,
+  sync_ok: "success",
+  mark_left: "orange",
 };
 
 export default function UsersTab() {

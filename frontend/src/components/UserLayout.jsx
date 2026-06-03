@@ -3,22 +3,29 @@ import {
   FormOutlined,
   HomeOutlined,
   LogoutOutlined,
+  MenuOutlined,
   RocketOutlined,
+  ScheduleOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Space, Tag } from "antd";
+import { Avatar, Button, Drawer, Space, Tag } from "antd";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 
 const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
+  { key: "todo", label: "我的待办", path: "/todo", icon: <ScheduleOutlined /> },
   { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
   { key: "magic", label: "课程管理", path: "/workspace/magic", icon: <BookOutlined /> },
   { key: "papers", label: "考试中心", path: "/papers", icon: <FormOutlined /> },
 ];
 
 function resolveSection(pathname) {
+  if (pathname.startsWith("/todo")) {
+    return "我的待办";
+  }
   if (
     pathname.startsWith("/workspace/training")
     || pathname.startsWith("/train")
@@ -44,6 +51,12 @@ export default function UserLayout() {
   const user = getCurrentUser();
   const currentSection = resolveSection(location.pathname);
   const showAdminEntry = isAdmin();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Close drawer on every route change so menu doesn't linger after navigation.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -53,6 +66,11 @@ export default function UserLayout() {
     }
     clearAuth();
     navigate("/login", { replace: true });
+  };
+
+  const goTo = (path) => {
+    setDrawerOpen(false);
+    navigate(path);
   };
 
   return (
@@ -112,8 +130,70 @@ export default function UserLayout() {
               退出
             </Button>
           </div>
+
+          <button
+            type="button"
+            className="user-layout__menu-trigger"
+            aria-label="打开菜单"
+            onClick={() => setDrawerOpen(true)}
+          >
+            <MenuOutlined />
+          </button>
         </div>
       </header>
+
+      <Drawer
+        className="user-layout-drawer"
+        placement="right"
+        width={300}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={(
+          <div className="user-layout-drawer__user">
+            <Avatar className="user-layout__avatar">
+              {(user?.display_name || user?.username || "U").slice(0, 1).toUpperCase()}
+            </Avatar>
+            <div>
+              <strong>{user?.display_name || user?.username || "学员"}</strong>
+              <div className="user-layout-drawer__user-meta">
+                {user?.department ? <Tag bordered={false}>{user.department}</Tag> : null}
+                <span>{user?.position || "学习中"}</span>
+              </div>
+            </div>
+          </div>
+        )}
+        styles={{ body: { padding: 0 } }}
+      >
+        <nav className="user-layout-drawer__nav" aria-label="移动端导航">
+          {NAV_ITEMS.map((item) => {
+            const active = location.pathname === item.path
+              || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
+              || (item.key === "magic" && resolveSection(location.pathname) === "课程管理")
+              || (item.key === "papers" && resolveSection(location.pathname) === "考试中心");
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={`user-layout-drawer__nav-item${active ? " is-active" : ""}`}
+                onClick={() => goTo(item.path)}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="user-layout-drawer__footer">
+          {showAdminEntry ? (
+            <Button block icon={<SettingOutlined />} onClick={() => goTo("/admin")}>
+              管理后台
+            </Button>
+          ) : null}
+          <Button block icon={<LogoutOutlined />} onClick={handleLogout}>
+            退出登录
+          </Button>
+        </div>
+      </Drawer>
 
       <main className="user-layout__content">
         <Outlet />

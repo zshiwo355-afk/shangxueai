@@ -135,6 +135,13 @@ class MagicPushEntry(Base):
 
 
 class WecomSyncBatch(Base):
+    """员工同步批次。
+
+    历史命名带 ``wecom`` 前缀，但当前实际是 HR 第三方通讯录同步在写
+    （见 ``employee_sync.py``），保留旧表名是为了兼容历史数据，没有再单独
+    跑企业微信通讯录的定时同步。
+    """
+
     __tablename__ = "wecom_sync_batches"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -160,6 +167,8 @@ class WecomSyncBatch(Base):
 
 
 class WecomSyncEntry(Base):
+    """员工同步明细行。表名带 ``wecom`` 是历史命名，参见 :class:`WecomSyncBatch`。"""
+
     __tablename__ = "wecom_sync_entries"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -374,6 +383,7 @@ class Exam(Base):
     fixed_difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     fixed_customer_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_weight: Mapped[float] = mapped_column(Float, default=0.5)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

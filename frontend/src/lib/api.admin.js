@@ -100,9 +100,6 @@ export async function adminSearchExternalEmployees(params = {}) {
   );
 }
 
-export const adminPreviewWecomSync = adminPreviewEmployeeSync;
-export const adminExecuteWecomSync = adminExecuteEmployeeSync;
-
 // ---- 白名单 ----
 export async function adminListWhitelist() {
   return getJson("/api/whitelist", "白名单列表加载失败。");
@@ -132,6 +129,12 @@ export async function adminGetExamDetail(id) {
 }
 export async function adminDeleteExam(id) {
   return deleteJson(`/api/admin/exams/${id}`, "删除通关失败。");
+}
+export async function adminBulkDeleteExams(ids, force = false) {
+  return postJson("/api/admin/exams/bulk-delete", { ids, force }, "批量删除通关失败。");
+}
+export async function adminPushExamWecom(id) {
+  return postJson(`/api/admin/exams/${id}/wecom-push`, {}, "推送通关任务失败。");
 }
 export async function adminListPendingReview() {
   return getJson("/api/admin/exams/pending-review", "待复核列表加载失败。");

@@ -198,8 +198,8 @@ def _to_dto(user: User) -> UserDTO:
         disabled=bool(user.disabled),
         wecom_userid=user.wecom_userid or "",
         wecom_synced_at=user.wecom_synced_at.isoformat() if user.wecom_synced_at else None,
-        sync_issue_action="",
-        sync_issue_reason="",
+        sync_issue_action="sync_ok",
+        sync_issue_reason="最近一次同步成功",
         created_at=user.created_at.isoformat() if user.created_at else "",
         updated_at=user.updated_at.isoformat() if user.updated_at else "",
     )
@@ -227,9 +227,15 @@ async def _attach_sync_issue_info(db: AsyncSession, users: list[UserDTO]) -> lis
         latest = latest_by_user_id.get(int(user.id))
         if latest is None:
             continue
-        if (latest.status or "").strip() in {"applied", "created"}:
+        latest_status = (latest.status or "").strip()
+        latest_action = (latest.action or "").strip()
+        if latest_action == "mark_left":
+            user.sync_issue_action = "mark_left"
+            user.sync_issue_reason = latest.reason or "该账号已在同步中置为离职并禁用。"
             continue
-        user.sync_issue_action = latest.action or ""
+        if latest_status in {"applied", "created"}:
+            continue
+        user.sync_issue_action = latest_action or "sync_ok"
         user.sync_issue_reason = latest.reason or ""
     return users
 
@@ -253,7 +259,12 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[UserDTO]:
-    stmt = select(User).order_by(User.id.asc())
+    """派发面板用的全量列表：默认排除离职 / 禁用员工。
+
+    这些员工已不参与任何业务（派发、推送、提醒），不应出现在选人弹窗里。
+    需要查全量（含离职）的入口请走 /users/search?include_disabled=true。
+    """
+    stmt = select(User).where(User.disabled.is_(False)).order_by(User.id.asc())
     if not is_super_admin(admin):
         stmt = stmt.where(User.role != "super_admin")
     result = await db.execute(stmt)
@@ -268,6 +279,10 @@ async def search_users(
     department: str | None = Query(None, description="按部门精确筛选"),
     role: str | None = Query(None, description="可选：admin / user"),
     employment_status: str | None = Query(None, description="按在职状态精确筛选"),
+    include_disabled: bool = Query(
+        True,
+        description="是否包含已禁用 / 离职员工。用户管理页保持 True，派发选人弹窗传 False。",
+    ),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> UserPageResponse:
@@ -276,6 +291,11 @@ async def search_users(
     if not is_super_admin(admin):
         stmt = stmt.where(User.role != "super_admin")
         count_stmt = count_stmt.where(User.role != "super_admin")
+
+    if not include_disabled:
+        # 派发 / 选人场景：离职（disabled=True）的员工不参与任何业务，不出现在选项里。
+        stmt = stmt.where(User.disabled.is_(False))
+        count_stmt = count_stmt.where(User.disabled.is_(False))
 
     if keyword:
         kw = f"%{keyword.strip()}%"
@@ -328,7 +348,7 @@ async def list_departments(
 
 _USER_TEMPLATE_HEADERS = [
     "用户名*", "密码*", "真实姓名", "显示名",
-    "部门", "岗位", "角色", "是否新人",
+    "部门", "岗位", "角色", "是否新人", "在职状态",
 ]
 
 
@@ -350,9 +370,9 @@ def _build_user_template() -> bytes:
         ws.column_dimensions[get_column_letter(col_idx)].width = 16
 
     samples = [
-        ["zhangsan", "123456", "张三", "三哥", "销售一部", "招商主管", "普通用户", "否"],
-        ["lisi",     "123456", "李四", "",     "销售一部", "招商专员", "普通用户", "是"],
-        ["wangwu",   "abcd1234", "王五", "",   "运营部",   "运营经理", "管理员",   "否"],
+        ["zhangsan", "123456", "张三", "三哥", "销售一部", "招商主管", "普通用户", "否", "转正"],
+        ["lisi",     "123456", "李四", "",     "销售一部", "招商专员", "普通用户", "是", "试岗"],
+        ["wangwu",   "abcd1234", "王五", "",   "运营部",   "运营经理", "管理员",   "否", "试用"],
     ]
     for r, row in enumerate(samples, start=2):
         for c, value in enumerate(row, start=1):
@@ -364,8 +384,9 @@ def _build_user_template() -> bytes:
         "1) 用户名 / 密码必填，用户名重复将自动跳过。",
         "2) 角色：普通用户 / 管理员（也可写英文 user / admin），默认普通用户。",
         "3) 是否新人：是 / 否（默认 否）。",
-        "4) 部门 / 岗位 / 显示名 可空；显示名为空时会取真实姓名或用户名。",
-        "5) 密码以明文写入，后端会做 md5 后入库。",
+        "4) 在职状态可填写：试岗 / 试用 / 转正 / 离职；为空则不设置。",
+        "5) 部门 / 岗位 / 显示名 可空；显示名为空时会取真实姓名或用户名。",
+        "6) 密码以明文写入，后端会做 md5 后入库。",
     ]
     for i, line in enumerate(notes, start=len(samples) + 3):
         cell = ws.cell(row=i, column=1, value=line)
@@ -401,6 +422,17 @@ _ROLE_ALIASES = {
     "普通用户": "user", "user": "user", "员工": "user", "学员": "user",
 }
 _BOOL_TRUE = {"是", "y", "yes", "true", "1", "新人"}
+_EMPLOYMENT_STATUS_ALIASES = {
+    "试岗": "试岗",
+    "试岗期": "试岗",
+    "试用": "试用",
+    "试用期": "试用",
+    "转正": "转正",
+    "正式": "转正",
+    "在职": "转正",
+    "离职": "离职",
+    "禁用": "离职",
+}
 
 
 def _norm_role(raw: Any) -> str:
@@ -411,6 +443,11 @@ def _norm_role(raw: Any) -> str:
 def _norm_bool(raw: Any) -> bool:
     text = str(raw or "").strip().lower()
     return text in _BOOL_TRUE
+
+
+def _norm_employment_status(raw: Any) -> str:
+    text = str(raw or "").strip()
+    return _EMPLOYMENT_STATUS_ALIASES.get(text, text)
 
 
 async def _read_upload_with_limit(file: UploadFile, *, limit: int = 20 * 1024 * 1024) -> bytes:
@@ -470,7 +507,7 @@ async def bulk_import_users(
             continue
         summary.total += 1
         cells = list(row) + [None] * max(0, len(_USER_TEMPLATE_HEADERS) - len(row))
-        username, password, real_name, display_name, department, position, role_raw, newcomer_raw = cells[:8]
+        username, password, real_name, display_name, department, position, role_raw, newcomer_raw, employment_status = cells[:9]
 
         username = str(username or "").strip()
         password = str(password or "").strip()
@@ -494,6 +531,7 @@ async def bulk_import_users(
         position = str(position or "").strip()
         role = _norm_role(role_raw)
         is_newcomer = _norm_bool(newcomer_raw)
+        employment_status = _norm_employment_status(employment_status)
 
         # 每行用 savepoint 保护：单行 IntegrityError 只回滚这一行，
         # 之前 add 但还未 commit 的行仍留在主事务里，最后一次 commit 落盘。
@@ -508,6 +546,7 @@ async def bulk_import_users(
                     position=position,
                     role=role,
                     is_newcomer=is_newcomer,
+                    employment_status=employment_status,
                     status="active",
                     disabled=False,
                 )
@@ -556,7 +595,6 @@ async def bulk_delete_users(
 
 
 @router.post("/employee-sync/preview", response_model=EmployeeSyncPreviewResponse)
-@router.post("/wecom-sync/preview", response_model=EmployeeSyncPreviewResponse)
 async def preview_employee_sync(
     payload: EmployeeSyncPreviewRequest,
     db: AsyncSession = Depends(get_db),
@@ -600,7 +638,6 @@ async def preview_employee_sync(
 
 
 @router.post("/employee-sync/execute", response_model=EmployeeSyncExecuteResponse)
-@router.post("/wecom-sync/execute", response_model=EmployeeSyncExecuteResponse)
 async def run_employee_sync(
     payload: EmployeeSyncExecuteRequest,
     db: AsyncSession = Depends(get_db),

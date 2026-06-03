@@ -255,23 +255,6 @@ body {
   box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.10);
 }
 
-
-
-.prepare-cta .ant-btn-primary {
-  min-width: 240px;
-  height: 48px !important;
-  border-radius: 12px !important;
-  font-size: 15px;
-  font-weight: 500;
-  background: linear-gradient(135deg, #1677ff 0%, #4096ff 100%) !important;
-  border: none !important;
-  box-shadow: 0 6px 20px rgba(22, 119, 255, 0.30) !important;
-}
-
-.prepare-cta .ant-btn-primary:hover {
-  filter: brightness(1.04);
-}
-
 /* ============ 聊天页：ChatGPT 风 ============ */
 
 .chat-screen {
@@ -1174,48 +1157,6 @@ body {
 .portal-home--minimal {
   gap: 30px;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-.portal-editorial-strip--lined,
-.portal-editorial-overview--lined,
-.portal-editorial-traces--lined,
 .portal-editorial-footer--lined,
 .workspace-action-strip--lined,
 .workspace-dual--lined,
@@ -1423,149 +1364,6 @@ body {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-.portal-metric .ant-card-body,
-.workspace-metric .ant-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-.workspace-card .ant-card-body {
-  padding: 24px !important;
 }
 
 
@@ -1828,13 +1626,7 @@ body {
 }
 
 @media (max-width: 1080px) {
-  .portal-editorial-hero,
-  .portal-editorial-overview,
-  .portal-editorial-columns,
-  .portal-editorial-footer__grid,
-  .portal-editorial-hero__meta,
   .portal-editorial-traces__surface,
-  .workspace-refined-grid,
   .workspace-stage,
   .workspace-dual {
     grid-template-columns: 1fr;
@@ -1853,33 +1645,10 @@ body {
   
 }
 
-@media (max-width: 920px) {
-  .user-layout__header-inner {
-    flex-wrap: wrap;
-  }
-
-  .user-layout__nav {
-    order: 3;
-    width: 100%;
-    overflow-x: visible;
-    flex-wrap: wrap;
-    padding-bottom: 4px;
-  }
-
-  .user-layout__actions {
-    margin-left: 0;
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  
-}
-
 @media (max-width: 768px) {
   .portal-editorial-next__item,
   .portal-editorial-trace,
-  .portal-editorial-footer__bottom,
-  .portal-home--refined .portal-footer__bottom {
+  .portal-editorial-footer__bottom{
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
@@ -2228,34 +1997,6 @@ body {
 
 
 
-.magic-user-summary__card .ant-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-
-
-
-
-.magic-user-tabs .ant-tabs-nav {
-  margin-bottom: 18px !important;
-}
-
-.magic-user-tabs .ant-tabs-tab {
-  padding-inline: 6px !important;
-}
-
-.magic-user-tabs--external .ant-tabs-content-holder {
-  display: none;
-}
-
-
-
-
-
-
-
 
 
 
@@ -2417,12 +2158,6 @@ body {
   .prepare-workspace__hero,
   .prepare-workspace__content,
   .history-card-list,
-  .magic-user-summary,
-  .magic-study-layout,
-  .magic-audio-layout,
-  .magic-study-detail-layout,
-  .magic-user-workspace,
-  .magic-user-task-strip__items,
   .exam-metric-grid {
     grid-template-columns: 1fr;
   }
@@ -2442,8 +2177,6 @@ body {
   }
 
   .history-record-card__top,
-  .workspace-card__header,
-  .workspace-record-card__footer,
   .journey-actions--spread {
     flex-direction: column;
     align-items: flex-start;
@@ -2465,8 +2198,7 @@ body {
   }
 
   .chat-session-header,
-  .chat-session-header__main,
-  .magic-user-task-strip__header {
+  .chat-session-header__main{
     flex-direction: column;
     align-items: flex-start;
   }
@@ -2754,67 +2486,9 @@ body {
   border-top: 1px solid var(--line);
 }
 
-
-
-
-
-
-
-.magic-study-main-card .ant-card-head,
-.magic-study-detail-card .ant-card-head,
-.magic-study-side-card .ant-card-head,
-.magic-user-workspace__main .ant-card-head,
-.magic-user-workspace__side-card .ant-card-head,
-.magic-user-task-strip .ant-card-head {
-  min-height: 52px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.magic-study-main-card .ant-card-head-title,
-.magic-study-detail-card .ant-card-head-title,
-.magic-study-side-card .ant-card-head-title,
-.magic-user-workspace__main .ant-card-head-title,
-.magic-user-workspace__side-card .ant-card-head-title,
-.magic-user-task-strip .ant-card-head-title {
-  padding: 14px 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.magic-study-main-card .ant-card-body,
-.magic-study-detail-card .ant-card-body,
-.magic-study-side-card .ant-card-body,
-.magic-user-workspace__main .ant-card-body,
-.magic-user-workspace__side-card .ant-card-body,
-.magic-user-task-strip .ant-card-body,
-.magic-course-card .ant-card-body {
-  padding: 22px 24px !important;
-}
-
-
-
-
-
-
-
-.magic-course-card .ant-card-actions {
-  border-top: 1px solid var(--line-soft);
-  background: transparent;
-}
-
-.magic-course-card .ant-card-actions > li {
-  margin: 8px 0;
-}
-
 .magic-video-detail-shell {
   border-top: 1px solid var(--line-soft);
   padding-top: 18px;
-}
-
-.magic-audio-layout > .ant-space,
-.magic-study-detail-layout > .ant-space {
-  gap: 16px !important;
 }
 
 .magic-audio-calendar-cell {
@@ -2823,20 +2497,6 @@ body {
 
 .magic-audio-calendar-cell .ant-tag {
   border-radius: 999px;
-}
-
-.magic-user-summary__card,
-.magic-study-side-card .ant-btn,
-.magic-user-workspace__side-card .ant-btn {
-  border-radius: 10px !important;
-}
-
-.magic-study-side-card .ant-typography-secondary,
-.magic-user-workspace__side-card .ant-typography-secondary,
-.magic-user-workspace__main .ant-typography-secondary,
-.magic-study-detail-card .ant-typography-secondary,
-.magic-study-main-card .ant-typography-secondary {
-  line-height: 1.7;
 }
 
 .prepare-brief-card--minimal,
@@ -3053,54 +2713,7 @@ body {
   margin-top: 8px;
 }
 
-.magic-study-main-card .ant-list-item,
-.magic-study-detail-card .ant-list-item,
-.magic-user-workspace__main .ant-list-item,
-.magic-user-workspace__side-card .ant-list-item {
-  border-block-end: 1px solid var(--line-soft) !important;
-}
-
-.magic-study-main-card .ant-list-item:last-child,
-.magic-study-detail-card .ant-list-item:last-child,
-.magic-user-workspace__main .ant-list-item:last-child,
-.magic-user-workspace__side-card .ant-list-item:last-child {
-  border-block-end: none !important;
-}
-
-.magic-audio-layout .ant-table-wrapper,
-.magic-audio-layout .ant-picker-calendar,
-.magic-audio-layout .ant-card,
-.magic-study-detail-card .ant-card.ant-card-small {
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.magic-audio-layout .ant-card,
-.magic-study-detail-card .ant-card.ant-card-small {
-  border: 1px solid var(--line-soft) !important;
-}
-
-.magic-audio-layout .ant-table-thead > tr > th,
-.magic-audio-layout .ant-table-tbody > tr > td {
-  border-color: var(--line-soft) !important;
-}
-
-.magic-audio-layout .ant-table-thead > tr > th {
-  background: #fafaf8 !important;
-  font-weight: 600;
-}
-
-.magic-audio-layout .ant-picker-calendar-mini {
-  border: 1px solid var(--line-soft);
-}
-
-.magic-audio-layout .ant-picker-calendar-date-content {
-  min-height: 48px;
-}
-
-.magic-video-detail-shell > .ant-space,
-.magic-study-sidebar > .ant-space,
-.magic-user-workspace__side-card > .ant-space {
+.magic-video-detail-shell > .ant-space{
   width: 100%;
 }
 
@@ -4163,50 +3776,6 @@ body {
 
 
 
-
-
-
-
-
-.magic-academy-shell .workspace-stage__actions .ant-btn {
-  border-radius: 12px;
-}
-
-
-
-.magic-academy-shell .workspace-note-block strong {
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-.magic-academy-shell .workspace-note-block p {
-  margin: 0;
-  color: var(--text-mute);
-  line-height: 1.85;
-}
-
-.magic-admin-tabs.ant-tabs > .ant-tabs-nav {
-  margin-bottom: 18px;
-}
-
-.magic-admin-tabs.ant-tabs .ant-tabs-tab {
-  padding: 10px 4px;
-  font-size: 14px;
-}
-
-.magic-admin-tabs.ant-tabs .ant-tabs-tab + .ant-tabs-tab {
-  margin-left: 28px;
-}
-
-.magic-admin-tabs.ant-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
-  color: var(--accent-deep);
-  font-weight: 600;
-}
-
-.magic-admin-tabs.ant-tabs .ant-tabs-ink-bar {
-  background: var(--accent);
-}
-
 /* ========== 通用：批量操作浮动条 ========== */
 
 .bulk-action-bar {
@@ -4636,10 +4205,8 @@ body {
 
 /* ========== User papers refresh ========== */
 .paper-assignment-card,
-.paper-feedback-card,
 .paper-empty-card,
-.paper-answer-card,
-.paper-header-card {
+.paper-answer-card{
   border-radius: 18px !important;
   border: 1px solid var(--line-soft) !important;
   box-shadow: none !important;
@@ -4664,54 +4231,15 @@ body {
 }
 
 .paper-summary__card span,
-.paper-assignment-card__metric span,
 .paper-answer-card__label {
   font-size: 12px;
   color: var(--text-mute);
 }
 
-.paper-summary__card strong,
-.paper-assignment-card__metric strong {
+.paper-summary__card strong{
   font-size: 26px;
   line-height: 1.1;
   color: var(--text-base);
-}
-
-.paper-section-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 26px;
-}
-
-.paper-section {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.paper-section__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.paper-section__head h3 {
-  margin: 0 0 4px;
-  font-size: 22px;
-  line-height: 1.2;
-}
-
-.paper-card-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.paper-section__pager {
-  display: flex;
-  justify-content: center;
-  padding-top: 8px;
 }
 
 .paper-assignment-card {
@@ -4720,85 +4248,6 @@ body {
 
 .paper-assignment-card .ant-card-body {
   padding: 22px 24px !important;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.paper-assignment-card__head,
-.paper-assignment-card__foot,
-.paper-answer-card__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.paper-assignment-card__title {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-}
-
-.paper-assignment-card__icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(66, 111, 159, 0.12);
-  color: var(--accent-deep, #426f9f);
-  font-size: 18px;
-}
-
-.paper-assignment-card__title h4,
-.paper-answer-card__title {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.15;
-  color: var(--text-base);
-}
-
-.paper-assignment-card__desc {
-  margin-bottom: 0 !important;
-  color: var(--text-mute);
-  line-height: 1.8;
-}
-
-.paper-assignment-card__metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.paper-assignment-card__metric {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 88px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.8);
-  border: 1px solid var(--line-soft);
-}
-
-.paper-assignment-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.paper-header-card .ant-card-body,
-.paper-feedback-card .ant-card-body {
-  padding: 18px 20px !important;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.paper-answer-stack {
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -4813,22 +4262,6 @@ body {
   flex-direction: column;
   gap: 16px;
   padding: 20px !important;
-}
-
-.paper-answer-card__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  padding-top: 4px;
-}
-
-.paper-answer-card__stem {
-  margin: 0 !important;
-  white-space: pre-wrap;
-  color: var(--text-base) !important;
-  line-height: 1.85 !important;
-  font-size: 16px !important;
 }
 
 .paper-answer-card__options {
@@ -4998,7 +4431,6 @@ body {
 
 @media (max-width: 1080px) {
   .paper-summary,
-  .paper-assignment-card__metrics,
   .paper-summary--compact {
     grid-template-columns: 1fr;
   }
@@ -5006,8 +4438,6 @@ body {
 
 @media (max-width: 880px) {
   .paper-assignment-card .ant-card-body,
-  .paper-header-card .ant-card-body,
-  .paper-feedback-card .ant-card-body,
   .paper-answer-card .ant-card-body,
   .paper-take__qcard.ant-card .ant-card-body {
     padding: 20px 18px !important;
@@ -5033,19 +4463,13 @@ body {
 }
 
 @media (max-width: 640px) {
-  .paper-summary,
-  .paper-assignment-card__metrics {
+  .paper-summary{
     grid-template-columns: 1fr;
   }
 
   .paper-take__bar-main {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .paper-assignment-card__title h4,
-  .paper-answer-card__title {
-    font-size: 18px;
   }
 
   .paper-answer-card__option,
@@ -5232,11 +4656,6 @@ body {
   gap: 6px;
   width: 100%;
   min-width: 0;
-}
-
-.material-folder-tree__title--asset .material-folder-tree__name {
-  color: #475569;
-  font-weight: 500;
 }
 
 .material-folder-tree__name {
@@ -5514,3 +4933,931 @@ body {
     flex-direction: column;
   }
 }
+
+/* ============================================================
+ * Mobile P0 Base — 用户端顶栏 + 全局移动端基线
+ * 仅作用 <=768px。桌面端样式不受影响。
+ * ============================================================ */
+
+/* 默认隐藏移动端汉堡按钮，仅在窄屏出现 */
+.user-layout__menu-trigger {
+  display: none;
+  border: none;
+  background: transparent;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--text-base);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.user-layout__menu-trigger:hover,
+.user-layout__menu-trigger:focus-visible {
+  background: rgba(0, 0, 0, 0.04);
+  outline: none;
+}
+
+/* 抽屉内导航 */
+.user-layout-drawer__user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-layout-drawer__user strong {
+  font-size: 15px;
+  display: block;
+  line-height: 1.3;
+}
+
+.user-layout-drawer__user-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-top: 2px;
+}
+
+.user-layout-drawer__nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.user-layout-drawer__nav-item {
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  font-size: 15px;
+  color: var(--text-base);
+  cursor: pointer;
+  text-align: left;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.user-layout-drawer__nav-item .anticon {
+  font-size: 18px;
+  color: var(--text-mute);
+}
+
+.user-layout-drawer__nav-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.user-layout-drawer__nav-item.is-active {
+  background: rgba(88, 139, 200, 0.08);
+  color: var(--accent-deep);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.user-layout-drawer__nav-item.is-active .anticon {
+  color: var(--accent-deep);
+}
+
+.user-layout-drawer__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line-soft);
+}
+
+@media (max-width: 768px) {
+  /* 顶栏：紧凑高度，只剩品牌 + 汉堡 */
+  .user-layout__header-inner {
+    padding: 10px 14px;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+
+  .user-layout__brand {
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .user-layout__brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .user-layout__brand-copy strong {
+    font-size: 14px;
+  }
+
+  .user-layout__brand-copy span {
+    font-size: 11px;
+  }
+
+  /* 隐藏桌面横向 nav 与右侧用户卡片/操作 */
+  .user-layout__nav,
+  .user-layout__actions {
+    display: none !important;
+  }
+
+  /* 显示汉堡 */
+  .user-layout__menu-trigger {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 480px) {
+  .user-layout__content {
+    padding: 16px 12px 48px;
+  }
+
+  /* 品牌副标题在最窄屏隐藏，避免标题区拥挤 */
+  .user-layout__brand-copy span {
+    display: none;
+  }
+}
+
+/* iOS 安全区：底部固定栏可用变量 */
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 全局：窄屏 Drawer / Modal 全宽，避免左右挤压 */
+@media (max-width: 640px) {
+  .ant-drawer.ant-drawer-right .ant-drawer-content-wrapper,
+  .ant-drawer.ant-drawer-left .ant-drawer-content-wrapper {
+    width: min(86vw, 360px) !important;
+    max-width: 100vw;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+    top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .ant-modal-content {
+    border-radius: 14px !important;
+  }
+}
+
+/* 防止 flex/grid 子项在窄屏溢出整屏 */
+html, body {
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+/* ============================================================
+ * Mobile P1 — 首页 + 我的待办 + 入口卡 / 统计行 窄屏适配
+ * ============================================================ */
+
+@media (max-width: 768px) {
+  /* HomePage Hero：装饰减负、主区紧凑 */
+  .showcase-hero {
+    padding: 28px 0 24px;
+    margin-bottom: 4px;
+  }
+
+  .showcase-hero__year {
+    display: none; /* 大字"学"在窄屏遮挡严重，直接隐藏 */
+  }
+
+  .showcase-hero__inner {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .showcase-hero__intro {
+    gap: 14px;
+    padding-top: 4px;
+  }
+
+  .showcase-hero__title {
+    font-size: 30px !important;
+    line-height: 1.15 !important;
+    margin: 4px 0 6px !important;
+    letter-spacing: -0.02em;
+  }
+
+  .showcase-hero__english {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+
+  .showcase-hero__desc {
+    font-size: 14px;
+    line-height: 1.75;
+    /* 在很窄屏裁到 3 行避免占满首屏 */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* CTA 全宽堆叠，方便单手点击 */
+  .showcase-hero__actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .showcase-hero__actions .cta-arrow-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: space-between;
+  }
+
+  /* 实时时钟简化 */
+  .live-clock {
+    margin-top: 14px;
+    gap: 8px;
+  }
+
+  .live-clock__bar,
+  .live-clock__meta {
+    display: none;
+  }
+
+  /* "Today at a glance" 落到 hero 下方，改成横向 chips 滑动 */
+  .showcase-hero__side {
+    width: 100%;
+    padding: 14px 14px 12px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--line-soft);
+  }
+
+  .showcase-hero__side-eyebrow {
+    margin-bottom: 6px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+  }
+
+  .showcase-hero__side-list {
+    flex-direction: row;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .showcase-hero__side-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .showcase-hero__side-item {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 14px;
+    min-width: 110px;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    background: #fff;
+  }
+
+  .showcase-hero__side-item span {
+    font-size: 12px;
+    color: var(--text-mute);
+  }
+
+  .showcase-hero__side-item strong {
+    font-size: 18px;
+    color: var(--text-strong);
+  }
+
+  /* Modules Section 收紧 */
+  .showcase-section {
+    padding: 28px 0;
+    gap: 18px;
+  }
+
+  .entry-grid,
+  .entry-grid--two {
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+  }
+
+  .entry-card {
+    min-height: 0;
+    padding: 22px 18px 20px;
+    gap: 14px;
+  }
+
+  .entry-card__num {
+    font-size: 26px;
+  }
+
+  .entry-card__title {
+    font-size: 20px;
+  }
+
+  .entry-card__subtitle {
+    font-size: 13px;
+  }
+
+  .entry-card__desc {
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  /* 统计行：3 列堆成 2x2 网格，文字更可读 */
+  .stats-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px;
+  }
+
+  .stats-row__item {
+    padding: 14px 14px 12px !important;
+    gap: 8px;
+  }
+
+  .stats-row__value {
+    font-size: 22px !important;
+  }
+
+  .stats-row__icon {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 14px !important;
+  }
+
+  .stats-row__label {
+    font-size: 12px;
+  }
+
+  /* 两两之间分隔符在网格里没意义 */
+  .stats-row__sep {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .showcase-hero {
+    padding: 22px 0 20px;
+  }
+
+  .showcase-hero__title {
+    font-size: 26px !important;
+  }
+
+  .showcase-hero__english {
+    font-size: 10.5px;
+  }
+
+  .showcase-hero__desc {
+    -webkit-line-clamp: 2;
+  }
+
+  .showcase-hero__side-item {
+    min-width: 96px;
+    padding: 8px 12px;
+  }
+
+  .entry-card {
+    padding: 20px 16px 18px;
+  }
+
+  .entry-card__num {
+    font-size: 22px;
+  }
+
+  .entry-card__title {
+    font-size: 18px;
+  }
+}
+
+/* ===== /todo 页 移动适配 ===== */
+
+@media (max-width: 768px) {
+  .user-todos {
+    padding: 16px 12px 48px !important;
+    max-width: none !important;
+  }
+
+  .user-todos__header {
+    margin-bottom: 14px !important;
+  }
+
+  .user-todos__bucket {
+    margin-bottom: 12px !important;
+    border-radius: 14px !important;
+  }
+
+  .user-todos__bucket .ant-card-head {
+    padding: 0 14px !important;
+    min-height: 44px;
+  }
+
+  .user-todos__bucket .ant-card-head-title {
+    padding: 8px 0 !important;
+  }
+
+  .user-todos__bucket .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .user-todos__bucket-desc {
+    font-size: 11px !important;
+    margin-inline-end: 0 !important;
+  }
+
+  .user-todos__bucket .ant-card-extra {
+    padding: 4px 0 8px !important;
+    margin-inline-start: 0;
+    width: 100%;
+  }
+
+  .user-todos__bucket .ant-card-body {
+    padding: 12px !important;
+  }
+
+  /* 列表项改为两行：上行 Kind + 标题，下行 副标题 + 全宽按钮 */
+  .user-todo-item {
+    display: grid !important;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "kind title"
+      "meta meta"
+      "action action";
+    align-items: center !important;
+    row-gap: 8px;
+    column-gap: 10px;
+    padding: 12px !important;
+    border-radius: 12px !important;
+  }
+
+  .user-todo-item__kind {
+    grid-area: kind;
+  }
+
+  .user-todo-item__main {
+    display: contents;
+  }
+
+  .user-todo-item__title {
+    grid-area: title;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+
+  .user-todo-item__meta {
+    grid-area: meta;
+    font-size: 12px !important;
+  }
+
+  .user-todo-item__action {
+    grid-area: action;
+    width: 100% !important;
+    height: 36px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .user-todos__bucket .ant-card-head {
+    padding: 0 12px !important;
+  }
+
+  .user-todo-item {
+    padding: 10px !important;
+  }
+}
+
+/* ============================================================
+ * Mobile P2 — 业务深页面窄屏适配
+ *   2.1 试卷答题 paper-take
+ *   2.2 试卷结果 paper-summary / paper-answer-card
+ *   2.3 聊天/通关 chat-screen
+ *   2.4 MagicAcademyPage
+ *   2.5 Prepare / ExamIntro / ExamResult
+ * ============================================================ */
+
+/* ===== 2.1 试卷答题 ===== */
+
+@media (max-width: 768px) {
+  /* 顶栏：去掉 Affix 在窄屏的横向溢出感，让 inner 可以软换行 */
+  .paper-take__bar {
+    border-radius: 0;
+  }
+
+  .paper-take__bar-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px !important;
+  }
+
+  .paper-take__bar-main {
+    width: 100%;
+    align-items: center;
+  }
+
+  .paper-take__bar-copy strong {
+    font-size: 14px;
+  }
+
+  /* tag/timer/提交按钮 改为横滑或换行的 wrap，避免被截断 */
+  .paper-take__bar-inner .ant-space {
+    width: 100%;
+    flex-wrap: wrap;
+    row-gap: 6px !important;
+  }
+
+  /* 介绍文案在窄屏吃空间，做紧 */
+  .paper-take__intro {
+    padding: 14px 12px !important;
+  }
+
+  .paper-take__intro h2 {
+    font-size: 18px !important;
+  }
+
+  /* sidebar 落到内容流上方，背景化为浅卡片 */
+  .paper-take__body {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    padding: 0 4px;
+  }
+
+  .paper-take__sidebar {
+    position: relative !important;
+    top: 0 !important;
+    padding: 12px !important;
+    border-radius: 12px;
+  }
+
+  .paper-take__sidebar-head {
+    margin-bottom: 8px;
+  }
+
+  /* 题号宫格：6 列 + 触控更大 */
+  .paper-take__palette {
+    grid-template-columns: repeat(6, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .paper-take__chip {
+    min-height: 38px;
+    font-size: 14px;
+  }
+
+  /* 题卡 padding 收紧 */
+  .paper-take__qcard.ant-card .ant-card-body {
+    padding: 18px 14px !important;
+  }
+
+  .paper-take__qhead {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .paper-take__qnum {
+    font-size: 16px !important;
+  }
+
+  .paper-take__stem {
+    font-size: 15px !important;
+    line-height: 1.7 !important;
+  }
+
+  .paper-take__option {
+    padding: 12px 12px !important;
+  }
+
+  /* 底部 nav：固定到屏底，方便单手操作；加 safe-area */
+  .paper-take__nav {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 12px -4px 0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    background: rgba(248, 248, 246, 0.96);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line-soft);
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+
+  .paper-take__nav .ant-btn {
+    flex: 1 1 0;
+    min-width: 96px;
+  }
+
+  /* 填空多空的行布局收紧 */
+  .paper-take__blank-row {
+    grid-template-columns: 1fr !important;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 480px) {
+  .paper-take__intro {
+    padding: 12px 10px !important;
+  }
+
+  .paper-take__qcard.ant-card .ant-card-body {
+    padding: 16px 12px !important;
+  }
+
+  .paper-take__palette {
+    grid-template-columns: repeat(5, 1fr) !important;
+  }
+}
+
+/* ===== 2.2 试卷结果 / 列表 ===== */
+
+@media (max-width: 768px) {
+  /* summary 在窄屏改成 2 列卡片，比 1 列更密但仍可读 */
+  .paper-summary,
+  .paper-summary--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .paper-summary__card {
+    padding: 12px 14px !important;
+    min-height: 0 !important;
+    border-radius: 12px !important;
+  }
+
+  /* 答题卡选项块改为单列，避免 letter 与文字挤 */
+  .paper-answer-card__option {
+    grid-template-columns: 30px 1fr !important;
+    gap: 10px !important;
+  }
+}
+
+/* ===== 2.3 聊天 / 通关 ChatPage ===== */
+
+@media (max-width: 768px) {
+  .chat-session-header--minimal {
+    padding: 10px 14px 8px !important;
+  }
+
+  .chat-topbar--minimal {
+    padding: 8px 14px 10px !important;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+
+  .chat-topbar--minimal::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* stream 留出底部撰写区 + 安全区 */
+  .chat-screen--minimal .chat-stream {
+    padding: 16px 12px calc(120px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .chat-screen--minimal .chat-stream__inner {
+    gap: 10px !important;
+  }
+
+  /* 撰写区固定底部 + 安全区 */
+  .chat-screen--minimal .chat-composer-wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    background: rgba(248, 248, 246, 0.96);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line-soft);
+    z-index: 30;
+  }
+
+  .chat-screen--minimal .chat-composer {
+    border-radius: 12px;
+  }
+
+  /* 软键盘弹起时用 dvh，让 stream 不被遮 */
+  .chat-screen,
+  .chat-screen--minimal {
+    min-height: 100dvh;
+  }
+}
+
+/* ===== 2.4 MagicAcademyPage ===== */
+
+@media (max-width: 768px) {
+  /* 顶部 Tabs：去除多余左右间距，启用横向滚动
+     MagicAcademyPage 用 antd Tabs 但容器不挂 className；这里限定到 detail 容器
+     之外的最近 ant-tabs-nav 不行，因此改为：在 detail 容器内的 Tabs（少见）+
+     直接收紧 detail 内部的 Tabs。MagicAcademy 主页 Tabs 走全局 antd 样式。 */
+  .magic-academy-detail .ant-tabs-nav {
+    padding: 0 8px;
+  }
+
+  .magic-academy-detail .ant-tabs-tab {
+    padding: 10px 12px !important;
+    font-size: 14px;
+  }
+
+  /* 详情页面包屑 */
+  .magic-academy-crumb {
+    padding: 10px 12px !important;
+    gap: 8px;
+  }
+
+  .magic-academy-crumb__back {
+    flex: 0 0 auto;
+  }
+
+  .magic-academy-crumb__title {
+    font-size: 14px !important;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 详情容器 padding */
+  .magic-academy-detail {
+    padding: 14px 12px !important;
+  }
+
+  /* workspace 列表项内的双列布局退化为 1 列 */
+  .workspace-stage,
+  .workspace-dual,
+  .workspace-line-item,
+  .workspace-mini-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* 视频播放器最大高度 */
+  .magic-video-player-wrap,
+  .magic-video-player-wrap video,
+  .magic-video-player-wrap iframe,
+  .magic-video-player {
+    max-height: calc(100dvh - 240px) !important;
+  }
+
+  /* 日历单元格在窄屏紧凑 */
+  .magic-audio-calendar-cell {
+    min-height: 22px;
+    padding-top: 2px;
+  }
+}
+
+/* ===== 2.5 Prepare / ExamIntro / ExamResult ===== */
+
+@media (max-width: 768px) {
+  .prepare-screen,
+  .prepare-screen--workspace {
+    padding: 32px 16px 36px !important;
+    min-height: 100dvh;
+  }
+
+  .prepare-workspace__hero,
+  .exam-hero-card,
+  .exam-hero-card--minimal {
+    padding: 24px 18px !important;
+    border-radius: 16px !important;
+  }
+
+  /* 按钮组堆叠 */
+  .prepare-workspace__hero .ant-space,
+  .exam-hero-card .ant-space {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px !important;
+  }
+
+  .prepare-workspace__hero .ant-space .ant-btn,
+  .exam-hero-card .ant-space .ant-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  /* Review hero（复盘成绩） */
+  .review-hero,
+  .review-hero--minimal {
+    padding: 22px 18px !important;
+    border-radius: 16px !important;
+  }
+
+  .review-hero h2 {
+    font-size: 20px !important;
+  }
+
+  .review-hero .score {
+    font-size: 38px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .prepare-screen,
+  .prepare-screen--workspace {
+    padding: 24px 12px 28px !important;
+  }
+
+  .prepare-workspace__hero,
+  .exam-hero-card,
+  .exam-hero-card--minimal {
+    padding: 20px 14px !important;
+  }
+}
+
+/* ============================================================
+ * Mobile P3 — 全局兜底
+ *  - 触控目标最小 hit area
+ *  - dvh 兼容（避免软键盘弹起后 100vh 留白）
+ *  - 全局滚动条/字号适配
+ *  - 隐藏移动端不必要的 hover 装饰
+ * ============================================================ */
+
+@media (max-width: 768px) {
+  /* 提升触控可达性：所有原生小按钮在窄屏不要小于 32px */
+  .ant-btn-sm {
+    min-height: 32px;
+  }
+
+  /* 默认按钮在窄屏拉到 36，便于点击 */
+  .ant-btn:not(.ant-btn-sm):not(.ant-btn-text):not(.ant-btn-link):not(.ant-btn-icon-only) {
+    min-height: 36px;
+  }
+
+  /* Tabs 滚动条样式收紧 */
+  .ant-tabs-nav-list {
+    gap: 0;
+  }
+
+  /* Modal 顶部按钮间距收紧 */
+  .ant-modal-confirm-btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .ant-modal-confirm-btns .ant-btn {
+    flex: 1 1 0;
+    min-width: 96px;
+  }
+
+  /* 表单 Form.Item 在窄屏堆叠为纵向 */
+  .ant-form-horizontal .ant-form-item {
+    flex-wrap: wrap;
+  }
+
+  .ant-form-horizontal .ant-form-item-label {
+    flex: 0 0 100%;
+    text-align: left;
+  }
+
+  .ant-form-horizontal .ant-form-item-control {
+    flex: 0 0 100%;
+  }
+
+  /* 表格在窄屏强制开启横向滚动，避免布局错位
+   * 业务方仍可在 Table 上传 scroll={{ x: ... }} 自定义；这里给个全局兜底 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+  }
+
+  /* 隐藏在窄屏下基本看不到的鼠标 hover 装饰：减少绘制 */
+  .entry-card::before,
+  .entry-card::after,
+  .entry-card__bg {
+    display: none;
+  }
+}
+
+/* dvh 兼容：在原本写死 100vh 的全屏容器上叠加 dvh，避免 iOS 软键盘弹起后留白 */
+.prepare-screen,
+.prepare-screen--workspace,
+.user-layout,
+.chat-screen,
+.chat-screen--minimal {
+  min-height: 100dvh;
+}
+
+/* 移动端无障碍降级：超大字号/对比度时不挤压关键元素 */
+@media (prefers-contrast: more) {
+  .user-layout-drawer__nav-item.is-active {
+    background: rgba(88, 139, 200, 0.18);
+  }
+}
+
+

@@ -96,6 +96,7 @@ CREATE TABLE `exams` (
   `fixed_difficulty` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fixed_customer_type` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ai_weight` float NOT NULL DEFAULT '0.5' COMMENT 'AI 评分占最终成绩比例，0-1',
+  `deadline_at` datetime DEFAULT NULL COMMENT '考试截止时间（NULL=不限）',
   `created_by` bigint NOT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
