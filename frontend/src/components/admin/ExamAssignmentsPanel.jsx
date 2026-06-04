@@ -37,10 +37,12 @@ function statusTag(status) {
 
 export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const [exams, setExams] = useState([]);
+  const [examTotal, setExamTotal] = useState(0);
   const [users, setUsers] = useState([]);
   const [options, setOptions] = useState({ training_type: [], difficulty: [], customer_type: [], employment_status: [] });
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [examLoading, setExamLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState(null);
   const [reviewingAttempt, setReviewingAttempt] = useState(null); // {attempt, exam}
@@ -49,12 +51,40 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pushingId, setPushingId] = useState(null);
+  const [keyword, setKeyword] = useState("");
+  const [keywordInput, setKeywordInput] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
-  const reload = async () => {
+  const loadExams = async (overrides = {}) => {
+    const p = overrides.page ?? page;
+    const ps = overrides.pageSize ?? pageSize;
+    const kw = overrides.keyword ?? keyword;
+    const st = overrides.status ?? statusFilter;
+    setExamLoading(true);
+    try {
+      const params = { page: p, page_size: ps };
+      if (kw) params.keyword = kw;
+      if (st && st !== "all") params.status = st;
+      const data = await adminListExams(params);
+      const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+      const total = typeof data?.total === "number" ? data.total : items.length;
+      setExams(items);
+      setExamTotal(total);
+    } catch (err) {
+      message.error(err?.message || "通关列表加载失败。");
+      setExams([]);
+      setExamTotal(0);
+    } finally {
+      setExamLoading(false);
+    }
+  };
+
+  const loadStatic = async () => {
     setLoading(true);
     try {
-      const [examData, userData, ttData, dffData, ctData, employmentStatusData, pending] = await Promise.all([
-        adminListExams(),
+      const [userData, ttData, dffData, ctData, employmentStatusData, pending] = await Promise.all([
         adminListUsers(),
         adminListOptions("training_type"),
         adminListOptions("difficulty"),
@@ -62,7 +92,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         adminListOptions("employment_status"),
         adminListPendingReview().catch(() => []),
       ]);
-      setExams(Array.isArray(examData) ? examData : []);
       setUsers(Array.isArray(userData) ? userData : []);
       setOptions({
         training_type: (ttData || []).filter((o) => o.enabled).map((o) => o.value),
@@ -78,7 +107,16 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     }
   };
 
+  const reload = async () => {
+    await Promise.all([loadStatic(), loadExams()]);
+  };
+
   useEffect(() => { reload(); }, []);
+
+  useEffect(() => {
+    loadExams();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, keyword, statusFilter]);
 
   // 把 pending 数往上抛给壳，让 tab 标题挂红点
   useEffect(() => {
@@ -117,7 +155,9 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       }
       message.success(`通关已派发到 ${resolvedUserIds.length} 位用户。`);
       setCreating(false);
-      reload();
+      // 派发完跳到第一页看新派发的
+      if (page !== 1) setPage(1); else loadExams({ page: 1 });
+      loadStatic();
     } catch (err) {
       message.error(err?.message || "派发失败。");
     }
@@ -127,7 +167,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     try {
       await adminDeleteExam(exam.id);
       message.success("已删除。");
-      reload();
+      loadExams();
     } catch (err) {
       message.error(err?.message || "删除失败。");
     }
@@ -175,7 +215,8 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
               const da2 = Number(r2?.deleted_attempts || 0);
               message.success(`再删除 ${d2} 条通关（连同 ${da2} 条尝试记录）。`);
               setSelectedIds([]);
-              reload();
+              loadExams();
+              loadStatic();
             } catch (err) {
               message.error(err?.message || "强制删除失败。");
             }
@@ -189,7 +230,8 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         message.warning("没有可删除的通关。");
       }
       setSelectedIds([]);
-      reload();
+      loadExams();
+      loadStatic();
     } catch (err) {
       message.error(err?.message || "批量删除失败。");
     } finally {
@@ -218,7 +260,8 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       });
       message.success(`复核已提交。最终成绩 ${Math.round(data.attempt.final_score || 0)} 分，${data.attempt.final_is_pass ? "合格 ✓" : "不合格 ✗"}`);
       setReviewingAttempt(null);
-      reload();
+      loadExams();
+      loadStatic();
       if (detail) {
         openDetail({ id: detail.exam.id });
       }
@@ -399,8 +442,36 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ color: "var(--text-mute)" }}>共 {exams.length} 个通关</span>
+      <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ color: "var(--text-mute)" }}>共 {examTotal} 个通关</span>
+          <Input.Search
+            allowClear
+            placeholder="搜索姓名 / 用户名 / 标题"
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
+            onSearch={(v) => {
+              const kw = (v || "").trim();
+              setKeyword(kw);
+              setPage(1);
+            }}
+            style={{ width: 260 }}
+            enterButton
+          />
+          <Select
+            value={statusFilter}
+            onChange={(v) => { setStatusFilter(v); setPage(1); }}
+            style={{ width: 130 }}
+            options={[
+              { value: "all", label: "全部状态" },
+              { value: "pending", label: "待通关" },
+              { value: "in_progress", label: "进行中" },
+              { value: "pending_review", label: "待复核" },
+              { value: "passed", label: "已通过" },
+              { value: "failed", label: "未通过" },
+            ]}
+          />
+        </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreating(true); }}>
           派发通关
         </Button>
@@ -408,7 +479,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
 
       <Table
         rowKey="id"
-        loading={loading}
+        loading={loading || examLoading}
         dataSource={exams}
         columns={columns}
         rowSelection={{
@@ -417,10 +488,16 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
           preserveSelectedRowKeys: true,
         }}
         pagination={{
-          defaultPageSize: 10,
+          current: page,
+          pageSize: pageSize,
+          total: examTotal,
           showSizeChanger: true,
           pageSizeOptions: ["10", "20", "50", "100"],
           showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
+          onChange: (p, ps) => {
+            setPage(p);
+            setPageSize(ps);
+          },
         }}
         scroll={{ x: 1100 }}
       />

@@ -420,21 +420,46 @@ async def bulk_push_assignments_wecom(
 # ---------------- 提交记录 / 复核 ----------------
 
 
-@router.get("/{assignment_id}/submissions", response_model=list[SubmissionDTO])
+@router.get("/{assignment_id}/submissions")
 async def list_submissions(
     assignment_id: int,
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[SubmissionDTO]:
+) -> Any:
+    """单派发的所有提交。
+    不传 page → 返回 list[SubmissionDTO]，沿用旧契约；
+    传 page → 返回 {items, total, page, page_size}。
+    """
     del admin
+    base = (
+        select(PaperSubmission)
+        .where(PaperSubmission.assignment_id == assignment_id)
+        .order_by(PaperSubmission.attempt_no.desc(), PaperSubmission.id.desc())
+    )
+    if page is None:
+        rows = (await db.execute(base)).scalars().all()
+        return [_submission_to_dto(s) for s in rows]
+    total = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(PaperSubmission)
+                .where(PaperSubmission.assignment_id == assignment_id)
+            )
+        ).scalar_one()
+        or 0
+    )
     rows = (
-        await db.execute(
-            select(PaperSubmission)
-            .where(PaperSubmission.assignment_id == assignment_id)
-            .order_by(PaperSubmission.attempt_no.desc(), PaperSubmission.id.desc())
-        )
+        await db.execute(base.limit(page_size).offset((page - 1) * page_size))
     ).scalars().all()
-    return [_submission_to_dto(s) for s in rows]
+    return {
+        "items": [_submission_to_dto(s).model_dump() for s in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetailResponse)

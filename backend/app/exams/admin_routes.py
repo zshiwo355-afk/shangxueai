@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete as sql_delete, desc, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete as sql_delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import session_store
@@ -131,33 +131,79 @@ async def batch_create_exams(
     return out
 
 
-@admin_router.get("", response_model=list[ExamDTO])
+@admin_router.get("")
 async def list_exams(
+    page: int | None = Query(None, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    keyword: str | None = Query(None, description="按应试者姓名 / 用户名 / 标题模糊搜索"),
+    status_: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
-) -> list[ExamDTO]:
+) -> Any:
+    """列表。
+    不传 page → 返回 list[ExamDTO]，沿用旧契约；
+    传 page → 返回 {items, total, page, page_size}。
+    """
     del admin
-    result = await db.execute(select(Exam).order_by(desc(Exam.created_at)))
+    stmt = select(Exam)
+    count_stmt = select(func.count()).select_from(Exam)
+    if status_:
+        stmt = stmt.where(Exam.status == status_.strip())
+        count_stmt = count_stmt.where(Exam.status == status_.strip())
+    kw = (keyword or "").strip()
+    if kw:
+        like = f"%{kw}%"
+        # 关键字命中 exam.title 或者命中应试者（先取候选 user_id 子查询）
+        user_sub = select(User.id).where(
+            or_(
+                User.username.like(like),
+                User.real_name.like(like),
+                User.display_name.like(like),
+            )
+        )
+        kw_cond = or_(Exam.title.like(like), Exam.user_id.in_(user_sub))
+        stmt = stmt.where(kw_cond)
+        count_stmt = count_stmt.where(kw_cond)
+    stmt = stmt.order_by(desc(Exam.created_at), desc(Exam.id))
+
+    if page is None:
+        result = await db.execute(stmt)
+        exams = result.scalars().all()
+        if not exams:
+            return []
+        user_ids = {e.user_id for e in exams}
+        user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
+        user_map = {u.id: u for u in user_rows.scalars().all()}
+        return [_exam_to_dto(e, user_map.get(e.user_id)) for e in exams]
+
+    total = int((await db.execute(count_stmt)).scalar_one() or 0)
+    stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+    result = await db.execute(stmt)
     exams = result.scalars().all()
-    if not exams:
-        return []
     user_ids = {e.user_id for e in exams}
-    user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
-    user_map = {u.id: u for u in user_rows.scalars().all()}
-    return [_exam_to_dto(e, user_map.get(e.user_id)) for e in exams]
+    user_map: dict[int, User] = {}
+    if user_ids:
+        user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
+        user_map = {u.id: u for u in user_rows.scalars().all()}
+    items = [_exam_to_dto(e, user_map.get(e.user_id)).model_dump() for e in exams]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @admin_router.get("/pending-review", response_model=list[dict])
 async def list_pending_review(
+    limit: int = Query(default=200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict]:
-    """返回所有 status=completed 且 reviewed_at IS NULL 的 attempt（含所属考试和应试者）。"""
+    """返回所有 status=completed 且 reviewed_at IS NULL 的 attempt（含所属考试和应试者）。
+    默认最多 200 条，按 completed_at 倒序，避免历史积压一次拉空。
+    """
     del admin
     rows = await db.execute(
         select(ExamAttempt)
         .where(ExamAttempt.status == "completed", ExamAttempt.reviewed_at.is_(None))
         .order_by(desc(ExamAttempt.completed_at))
+        .limit(limit)
     )
     attempts = rows.scalars().all()
     if not attempts:

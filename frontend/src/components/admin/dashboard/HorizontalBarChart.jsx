@@ -1,33 +1,27 @@
 /**
- * 横向条形图：按某个维度展示部门排名。纯 SVG，不依赖图表库。
- * Props:
- *   data: [{label, value, sub}]
- *   color: 主色
- *   suffix: 数字后缀（"次" / "%"）
- *   maxBars: 最多展示几条（多的滚动）
+ * 横向条形图：单色，配套表格用。
  */
 export default function HorizontalBarChart({ data, color = "#1677ff", suffix = "" }) {
   const items = Array.isArray(data) ? data : [];
   if (!items.length) {
     return (
-      <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-mute)" }}>
+      <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "#bfbfbf" }}>
         暂无数据
       </div>
     );
   }
   const max = Math.max(1, ...items.map((it) => Number(it.value || 0)));
-  const rowHeight = 36;
   const labelWidth = 200;
-  const numberWidth = 90;
+  const numberWidth = 96;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {items.map((it, idx) => {
         const ratio = Math.max(0, Math.min(1, Number(it.value || 0) / max));
         return (
           <div
             key={idx}
-            style={{ display: "flex", alignItems: "center", height: rowHeight, gap: 12 }}
+            style={{ display: "flex", alignItems: "center", gap: 12 }}
             title={it.label}
           >
             <div
@@ -37,22 +31,42 @@ export default function HorizontalBarChart({ data, color = "#1677ff", suffix = "
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                color: "#333",
+                color: "#262626",
                 flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              <span style={{ display: "inline-block", width: 24, color: "var(--text-mute)" }}>
-                {idx < 3 ? ["🥇", "🥈", "🥉"][idx] : `${idx + 1}.`}
+              <span
+                style={{
+                  width: 22,
+                  textAlign: "right",
+                  fontSize: 12,
+                  color: "#8c8c8c",
+                  flexShrink: 0,
+                }}
+              >
+                {idx + 1}.
               </span>
-              {it.label}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{it.label}</span>
             </div>
-            <div style={{ flex: 1, position: "relative", height: 22, background: "#f5f7fa", borderRadius: 4 }}>
+            <div
+              style={{
+                flex: 1,
+                position: "relative",
+                height: 20,
+                background: "#fafafa",
+                borderRadius: 2,
+                overflow: "hidden",
+              }}
+            >
               <div
                 style={{
                   width: `${ratio * 100}%`,
                   height: "100%",
-                  background: `linear-gradient(90deg, ${color}cc, ${color})`,
-                  borderRadius: 4,
+                  background: color,
+                  borderRadius: 2,
                   transition: "width .3s",
                 }}
               />
@@ -64,8 +78,8 @@ export default function HorizontalBarChart({ data, color = "#1677ff", suffix = "
                     top: "50%",
                     transform: "translateY(-50%)",
                     fontSize: 11,
-                    color: "rgba(255,255,255,0.95)",
-                    textShadow: "0 0 2px rgba(0,0,0,0.25)",
+                    color: ratio > 0.2 ? "#fff" : "#8c8c8c",
+                    pointerEvents: "none",
                   }}
                 >
                   {it.sub}
@@ -77,12 +91,15 @@ export default function HorizontalBarChart({ data, color = "#1677ff", suffix = "
                 width: numberWidth,
                 textAlign: "right",
                 fontWeight: 600,
-                color,
-                fontSize: 14,
+                color: "#262626",
+                fontSize: 13,
                 flexShrink: 0,
               }}
             >
-              {Number(it.value || 0).toLocaleString()}{suffix}
+              {Number(it.value || 0).toLocaleString()}
+              <span style={{ fontSize: 11, color: "#8c8c8c", fontWeight: 400, marginLeft: 2 }}>
+                {suffix}
+              </span>
             </div>
           </div>
         );

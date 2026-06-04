@@ -115,8 +115,9 @@ export async function adminDeleteWhitelist(id) {
 }
 
 // ---- AI 通关 ----
-export async function adminListExams() {
-  return getJson("/api/admin/exams", "通关列表加载失败。");
+export async function adminListExams(params) {
+  const qs = params ? toQs(params) : "";
+  return getJson(`/api/admin/exams${qs}`, "通关列表加载失败。");
 }
 export async function adminCreateExam(payload) {
   return postJson("/api/admin/exams", payload, "派发通关失败。");

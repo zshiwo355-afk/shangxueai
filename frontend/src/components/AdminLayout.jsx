@@ -2,6 +2,7 @@ import {
   AppstoreOutlined,
   BellOutlined,
   BookOutlined,
+  CloseOutlined,
   DashboardOutlined,
   FolderOpenOutlined,
   FormOutlined,
@@ -16,7 +17,7 @@ import {
   UserSwitchOutlined,
 } from "@ant-design/icons";
 import { Button, Layout, Menu, Spin, Typography } from "antd";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, isSuperAdmin } from "../lib/auth";
@@ -37,7 +38,7 @@ const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
 const { Header, Sider, Content } = Layout;
 
 const MENU_GROUPS = [
-  { key: "dashboard", icon: <DashboardOutlined />, label: "数据看板" },
+  { key: "dashboard", icon: <DashboardOutlined />, label: "数据看板", path: "/admin/dashboard" },
   {
     key: "learning",
     icon: <ReadOutlined />,
@@ -45,8 +46,8 @@ const MENU_GROUPS = [
     children: [
       { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理", path: "/admin/magic-academy/courses" },
       { key: "magic-reading", icon: <BookOutlined />, label: "读书打卡", path: "/admin/magic-academy/reading" },
-      { key: "exams", icon: <FormOutlined />, label: "AI 通关" },
-      { key: "papers", icon: <SolutionOutlined />, label: "考试管理" },
+      { key: "exams", icon: <FormOutlined />, label: "AI 通关", path: "/admin/exams" },
+      { key: "papers", icon: <SolutionOutlined />, label: "考试管理", path: "/admin/papers" },
     ],
   },
   {
@@ -54,9 +55,9 @@ const MENU_GROUPS = [
     icon: <GiftOutlined />,
     label: "运营激励",
     children: [
-      { key: "points", icon: <TrophyOutlined />, label: "积分管理" },
-      { key: "mentors", icon: <UserSwitchOutlined />, label: "导师管理" },
-      { key: "notifications", icon: <BellOutlined />, label: "推送监控" },
+      { key: "points", icon: <TrophyOutlined />, label: "积分管理", path: "/admin/points" },
+      { key: "mentors", icon: <UserSwitchOutlined />, label: "导师管理", path: "/admin/mentors" },
+      { key: "notifications", icon: <BellOutlined />, label: "推送监控", path: "/admin/notifications" },
     ],
   },
   {
@@ -64,8 +65,8 @@ const MENU_GROUPS = [
     icon: <TeamOutlined />,
     label: "用户与权限",
     children: [
-      { key: "users", icon: <TeamOutlined />, label: "用户管理" },
-      { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true },
+      { key: "users", icon: <TeamOutlined />, label: "用户管理", path: "/admin/users" },
+      { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true, path: "/admin/whitelist" },
     ],
   },
   {
@@ -73,8 +74,8 @@ const MENU_GROUPS = [
     icon: <SettingOutlined />,
     label: "系统配置",
     children: [
-      { key: "options", icon: <AppstoreOutlined />, label: "配置管理" },
-      { key: "materials", icon: <FolderOpenOutlined />, label: "素材库" },
+      { key: "options", icon: <AppstoreOutlined />, label: "配置管理", path: "/admin/options" },
+      { key: "materials", icon: <FolderOpenOutlined />, label: "素材库", path: "/admin/materials" },
     ],
   },
 ];
@@ -85,6 +86,10 @@ function findParentKey(leafKey) {
   return MENU_GROUPS.find((g) => g.children?.some((c) => c.key === leafKey))?.key;
 }
 
+function findLeaf(key) {
+  return MENU_FLAT.find((m) => m.key === key);
+}
+
 function TabFallback() {
   return (
     <div style={{ display: "flex", justifyContent: "center", padding: "120px 0" }}>
@@ -92,6 +97,8 @@ function TabFallback() {
     </div>
   );
 }
+
+const DEFAULT_TAB = { key: "dashboard", label: "数据看板", path: "/admin/dashboard", closable: false };
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -101,7 +108,7 @@ export default function AdminLayout() {
   const menuItems = useMemo(() => {
     return MENU_GROUPS
       .map((g) => {
-        if (!g.children) return g;
+        if (!g.children) return { key: g.key, icon: g.icon, label: g.label };
         const children = g.children.filter((c) => !c.superOnly || showWhitelist);
         if (!children.length) return null;
         return {
@@ -128,6 +135,7 @@ export default function AdminLayout() {
     return m?.[1] || "dashboard";
   }, [location.pathname]);
 
+  // 多开父级菜单（受控）：只 add，不自动 remove，用户手动收起即可
   const [openKeys, setOpenKeys] = useState(() => {
     const parent = findParentKey(activeKey);
     return parent ? [parent] : [];
@@ -139,10 +147,37 @@ export default function AdminLayout() {
     }
   }, [activeKey]);
 
-  const activeLabel = useMemo(() => {
-    const leaf = MENU_FLAT.find((m) => m.key === activeKey);
-    return leaf?.label || "管理后台";
+  // 标签页签：dashboard 永驻，其他根据访问历史动态加入
+  const [tabs, setTabs] = useState([DEFAULT_TAB]);
+  const lastKeyRef = useRef(null);
+  useEffect(() => {
+    if (lastKeyRef.current === activeKey) return;
+    lastKeyRef.current = activeKey;
+    const leaf = findLeaf(activeKey);
+    if (!leaf) return;
+    setTabs((prev) => {
+      if (prev.some((t) => t.key === activeKey)) return prev;
+      return [...prev, {
+        key: activeKey,
+        label: leaf.label,
+        path: leaf.path || `/admin/${activeKey}`,
+        closable: activeKey !== "dashboard",
+      }];
+    });
   }, [activeKey]);
+
+  const closeTab = (key) => {
+    setTabs((prev) => {
+      const idx = prev.findIndex((t) => t.key === key);
+      if (idx < 0) return prev;
+      const next = prev.filter((t) => t.key !== key);
+      if (key === activeKey && next.length) {
+        const fallback = next[Math.min(idx, next.length - 1)];
+        navigate(fallback.path);
+      }
+      return next.length ? next : [DEFAULT_TAB];
+    });
+  };
 
   const handleLogout = async () => {
     try { await logoutApi(); } catch { /* ignore */ }
@@ -206,13 +241,14 @@ export default function AdminLayout() {
         </div>
         <Menu
           mode="inline"
+          multiple={false}
           selectedKeys={[activeKey]}
           openKeys={openKeys}
           onOpenChange={setOpenKeys}
           items={menuItems}
           style={{ flex: 1, overflowY: "auto", borderInlineEnd: 0 }}
           onClick={({ key }) => {
-            const item = MENU_FLAT.find((menuItem) => menuItem.key === key);
+            const item = findLeaf(key);
             if (!item) return;
             navigate(item.path || `/admin/${key}`);
           }}
@@ -231,13 +267,68 @@ export default function AdminLayout() {
             position: "sticky",
             top: 0,
             zIndex: 10,
+            height: 56,
           }}
         >
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {activeLabel}
+          <Typography.Title level={5} style={{ margin: 0, fontWeight: 500 }}>
+            {findLeaf(activeKey)?.label || "管理后台"}
           </Typography.Title>
           <Button icon={<LogoutOutlined />} onClick={handleLogout}>退出</Button>
         </Header>
+
+        <div
+          style={{
+            background: "#fafafa",
+            borderBottom: "1px solid #f0f0f0",
+            padding: "6px 16px",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            overflowX: "auto",
+            flexShrink: 0,
+          }}
+        >
+          {tabs.map((tab) => {
+            const isActive = tab.key === activeKey;
+            return (
+              <div
+                key={tab.key}
+                onClick={() => { if (!isActive) navigate(tab.path); }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 10px",
+                  fontSize: 13,
+                  borderRadius: 4,
+                  cursor: isActive ? "default" : "pointer",
+                  background: isActive ? "#fff" : "transparent",
+                  border: isActive ? "1px solid #e5e7eb" : "1px solid transparent",
+                  color: isActive ? "#1677ff" : "#595959",
+                  whiteSpace: "nowrap",
+                  height: 28,
+                }}
+              >
+                <span>{tab.label}</span>
+                {tab.closable ? (
+                  <CloseOutlined
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      closeTab(tab.key);
+                    }}
+                    style={{
+                      fontSize: 10,
+                      color: "#bfbfbf",
+                      padding: 2,
+                      borderRadius: 2,
+                    }}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
         <Content style={{ padding: 24, overflow: "auto", flex: 1 }}>
           <Suspense fallback={<TabFallback />}>
             <Routes>

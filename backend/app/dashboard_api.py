@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, distinct, func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import require_admin
@@ -52,43 +52,45 @@ async def kpi(
     today_start = datetime.combine(date.today(), datetime.min.time())
     week_start = today_start - timedelta(days=6)
 
-    # 用户数
-    total_users = int((await db.execute(select(func.count(User.id)))).scalar() or 0)
-    active_users = int((await db.execute(
-        select(func.count(User.id)).where(User.disabled.is_(False))
-    )).scalar() or 0)
+    # 用户总数 / 在职数：一次 SQL 同时算
+    user_row = (await db.execute(
+        select(
+            func.count(User.id),
+            func.sum(case((User.disabled.is_(False), 1), else_=0)),
+        )
+    )).first()
+    total_users = int(user_row[0] or 0)
+    active_users = int(user_row[1] or 0)
     left_users = total_users - active_users
 
-    # 今日活跃用户：训练 / 视频 / 打卡 / 试卷 任一更新（去重）
-    union_subqueries = []
-    union_subqueries.append(
-        select(TrainingRecord.user_id).where(TrainingRecord.created_at >= today_start)
+    # 今日活跃用户：UNION ALL 五个来源后 COUNT DISTINCT，
+    # 在 DB 内完成去重，避免把 user_id 拉到 Python
+    today_exam_uid = (
+        select(Exam.user_id.label("uid"))
+        .join(ExamAttempt, ExamAttempt.exam_id == Exam.id)
+        .where(ExamAttempt.started_at >= today_start)
     )
-    union_subqueries.append(
-        select(MagicVideoProgress.user_id).where(MagicVideoProgress.last_watched_at >= today_start)
-    )
-    union_subqueries.append(
-        select(MagicAudioUpload.user_id).where(
+    today_union = union_all(
+        select(TrainingRecord.user_id.label("uid")).where(TrainingRecord.created_at >= today_start),
+        select(MagicVideoProgress.user_id.label("uid")).where(MagicVideoProgress.last_watched_at >= today_start),
+        select(MagicAudioUpload.user_id.label("uid")).where(
             MagicAudioUpload.uploaded_on >= today_start, MagicAudioUpload.is_deleted.is_(False)
-        )
-    )
-    union_subqueries.append(
-        select(PaperSubmission.user_id).where(PaperSubmission.started_at >= today_start)
-    )
-    today_active = 0
-    seen: set[int] = set()
-    for sub in union_subqueries:
-        result = await db.execute(sub)
-        for (uid,) in result.all():
-            seen.add(int(uid))
-    today_active = len(seen)
-
-    # 本周训练次数
-    week_training = int((await db.execute(
-        select(func.count(TrainingRecord.id)).where(TrainingRecord.created_at >= week_start)
+        ),
+        select(PaperSubmission.user_id.label("uid")).where(PaperSubmission.started_at >= today_start),
+        today_exam_uid,
+    ).subquery()
+    today_active = int((await db.execute(
+        select(func.count(distinct(today_union.c.uid)))
     )).scalar() or 0)
 
-    # 本周读书打卡次数（不含软删）
+    # 本周 AI 对练次数 = 自由训练 + 通关 attempt（已开始）
+    week_training_free = int((await db.execute(
+        select(func.count(TrainingRecord.id)).where(TrainingRecord.created_at >= week_start)
+    )).scalar() or 0)
+    week_training_exam = int((await db.execute(
+        select(func.count(ExamAttempt.id)).where(ExamAttempt.started_at >= week_start)
+    )).scalar() or 0)
+    week_training = week_training_free + week_training_exam
     week_audio = int((await db.execute(
         select(func.count(MagicAudioUpload.id)).where(
             MagicAudioUpload.uploaded_on >= week_start,
@@ -96,29 +98,43 @@ async def kpi(
         )
     )).scalar() or 0)
 
-    # 待批阅 / 待复核
-    pending_papers = int((await db.execute(
-        select(func.count(PaperSubmission.id)).where(PaperSubmission.status == "submitted")
-    )).scalar() or 0)
-    pending_exams = int((await db.execute(
-        select(func.count(ExamAttempt.id)).where(ExamAttempt.status == "pending_review")
-    )).scalar() or 0)
-
-    # 本周通过率（试卷 graded 的）
-    week_paper_graded = (await db.execute(
+    # 待批阅试卷 + 本周通过率：一次 SQL 拿完
+    paper_row = (await db.execute(
         select(
-            func.sum(case((PaperSubmission.is_pass.is_(True), 1), else_=0)),
-            func.count(PaperSubmission.id),
-        ).where(
-            PaperSubmission.graded_at >= week_start,
-            PaperSubmission.status == "graded",
+            func.sum(case((PaperSubmission.status == "submitted", 1), else_=0)),
+            func.sum(case(
+                (and_(
+                    PaperSubmission.status == "graded",
+                    PaperSubmission.graded_at >= week_start,
+                    PaperSubmission.is_pass.is_(True),
+                ), 1),
+                else_=0,
+            )),
+            func.sum(case(
+                (and_(
+                    PaperSubmission.status == "graded",
+                    PaperSubmission.graded_at >= week_start,
+                ), 1),
+                else_=0,
+            )),
         )
     )).first()
+    pending_papers = int(paper_row[0] or 0)
+    week_paper_pass = int(paper_row[1] or 0)
+    week_paper_total = int(paper_row[2] or 0)
     paper_pass_rate = (
-        round(100 * (int(week_paper_graded[0] or 0) / int(week_paper_graded[1])), 1)
-        if week_paper_graded and int(week_paper_graded[1] or 0) > 0
+        round(100 * week_paper_pass / week_paper_total, 1)
+        if week_paper_total > 0
         else 0.0
     )
+
+    # 待复核 AI 通关：attempt 已 completed，但还没 reviewed_at
+    pending_exams = int((await db.execute(
+        select(func.count(ExamAttempt.id)).where(
+            ExamAttempt.status == "completed",
+            ExamAttempt.reviewed_at.is_(None),
+        )
+    )).scalar() or 0)
 
     return {
         "users": {
@@ -158,10 +174,15 @@ async def trend(
     start_dt = datetime.combine(start, datetime.min.time())
 
     if metric == "training":
-        date_expr = func.date(TrainingRecord.created_at)
-        stmt = select(date_expr.label("d"), func.count(TrainingRecord.id)).where(
+        # AI 对练 = 自由训练 + 通关 attempt
+        train_dates = select(func.date(TrainingRecord.created_at).label("d")).where(
             TrainingRecord.created_at >= start_dt
-        ).group_by(date_expr)
+        )
+        exam_dates = select(func.date(ExamAttempt.started_at).label("d")).where(
+            ExamAttempt.started_at >= start_dt
+        )
+        u = union_all(train_dates, exam_dates).subquery()
+        stmt = select(u.c.d, func.count()).group_by(u.c.d)
     elif metric == "video":
         date_expr = func.date(MagicVideoProgress.last_watched_at)
         stmt = select(date_expr.label("d"), func.count(MagicVideoProgress.id)).where(
@@ -216,33 +237,26 @@ async def department_stats(
         key = dept or "未分配"
         dept_head[key] = int(cnt or 0)
 
-    # 部门 → 活跃数（区间内有训练 / 视频 / 打卡 / 试卷）
-    active_users: dict[str, set[int]] = {k: set() for k in dept_head.keys()}
-
-    async def _gather_active(stmt) -> None:
-        sub = await db.execute(stmt)
-        for dept, uid in sub.all():
-            key = dept or "未分配"
-            if key in active_users:
-                active_users[key].add(int(uid))
-
-    await _gather_active(
-        select(User.department, TrainingRecord.user_id)
-        .join(User, User.id == TrainingRecord.user_id)
-        .where(TrainingRecord.created_at >= range_start)
+    # 部门 → 活跃数：UNION ALL 四个来源 join users 后 GROUP BY 部门 + COUNT DISTINCT
+    active_union = union_all(
+        select(TrainingRecord.user_id.label("uid"))
+        .where(TrainingRecord.created_at >= range_start),
+        select(MagicVideoProgress.user_id.label("uid"))
+        .where(MagicVideoProgress.last_watched_at >= range_start),
+        select(MagicAudioUpload.user_id.label("uid"))
+        .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False)),
+        select(Exam.user_id.label("uid"))
+        .join(ExamAttempt, ExamAttempt.exam_id == Exam.id)
+        .where(ExamAttempt.started_at >= range_start),
+    ).subquery()
+    active_result = await db.execute(
+        select(User.department, func.count(distinct(active_union.c.uid)))
+        .join(User, User.id == active_union.c.uid)
+        .group_by(User.department)
     )
-    await _gather_active(
-        select(User.department, MagicVideoProgress.user_id)
-        .join(User, User.id == MagicVideoProgress.user_id)
-        .where(MagicVideoProgress.last_watched_at >= range_start)
-    )
-    await _gather_active(
-        select(User.department, MagicAudioUpload.user_id)
-        .join(User, User.id == MagicAudioUpload.user_id)
-        .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False))
-    )
+    dept_active = {(d or "未分配"): int(c or 0) for d, c in active_result.all()}
 
-    # 部门 → 训练次数 + 平均分
+    # 部门 → 训练次数 + 平均分：自由训练
     training_result = await db.execute(
         select(User.department, func.count(TrainingRecord.id), func.avg(TrainingRecord.score))
         .join(User, User.id == TrainingRecord.user_id)
@@ -254,8 +268,22 @@ async def department_stats(
         key = dept or "未分配"
         dept_training[key] = {
             "count": int(cnt or 0),
-            "avg_score": round(float(avg_score or 0), 1),
+            "score_sum": float(avg_score or 0) * int(cnt or 0),
         }
+
+    # 部门 → 通关 attempt 次数 + 平均 AI 分（用 exam→user 关联部门）
+    exam_attempt_result = await db.execute(
+        select(User.department, func.count(ExamAttempt.id), func.avg(ExamAttempt.score))
+        .join(Exam, Exam.id == ExamAttempt.exam_id)
+        .join(User, User.id == Exam.user_id)
+        .where(ExamAttempt.started_at >= range_start)
+        .group_by(User.department)
+    )
+    for dept, cnt, avg_score in exam_attempt_result.all():
+        key = dept or "未分配"
+        bucket = dept_training.setdefault(key, {"count": 0, "score_sum": 0.0})
+        bucket["count"] += int(cnt or 0)
+        bucket["score_sum"] += float(avg_score or 0) * int(cnt or 0)
 
     # 部门 → 打卡次数
     audio_result = await db.execute(
@@ -277,13 +305,15 @@ async def department_stats(
 
     items = []
     for dept, head in dept_head.items():
-        training = dept_training.get(dept, {"count": 0, "avg_score": 0.0})
+        training = dept_training.get(dept, {"count": 0, "score_sum": 0.0})
+        cnt = int(training.get("count") or 0)
+        avg = round(training.get("score_sum", 0.0) / cnt, 1) if cnt > 0 else 0.0
         items.append({
             "department": dept,
             "headcount": head,
-            "active_count": len(active_users.get(dept, set())),
-            "training_count": training["count"],
-            "training_avg_score": training["avg_score"],
+            "active_count": dept_active.get(dept, 0),
+            "training_count": cnt,
+            "training_avg_score": avg,
             "reading_count": dept_audio.get(dept, 0),
             "total_points": dept_points.get(dept, 0),
         })
@@ -303,54 +333,47 @@ async def pending_tasks(
     now = datetime.now()
     week_later = now + timedelta(days=7)
 
-    # 7 天内 deadline 的视频
-    video_due_result = await db.execute(
-        select(func.count(MagicVideo.id)).where(
-            MagicVideo.deadline_at.isnot(None),
-            MagicVideo.deadline_at >= now,
-            MagicVideo.deadline_at <= week_later,
-            MagicVideo.deleted_at.is_(None),
-        )
-    )
-    video_due = int(video_due_result.scalar() or 0)
+    video_due_q = select(func.count(MagicVideo.id)).where(
+        MagicVideo.deadline_at.isnot(None),
+        MagicVideo.deadline_at >= now,
+        MagicVideo.deadline_at <= week_later,
+        MagicVideo.deleted_at.is_(None),
+    ).scalar_subquery()
 
-    # 7 天内 deadline 的读书内容
-    reading_due_result = await db.execute(
-        select(func.count(MagicReadingContent.id)).where(
-            MagicReadingContent.makeup_deadline_at.isnot(None),
-            MagicReadingContent.makeup_deadline_at >= now,
-            MagicReadingContent.makeup_deadline_at <= week_later,
-            MagicReadingContent.is_deleted.is_(False),
-        )
-    )
-    reading_due = int(reading_due_result.scalar() or 0)
+    reading_due_q = select(func.count(MagicReadingContent.id)).where(
+        MagicReadingContent.makeup_deadline_at.isnot(None),
+        MagicReadingContent.makeup_deadline_at >= now,
+        MagicReadingContent.makeup_deadline_at <= week_later,
+        MagicReadingContent.is_deleted.is_(False),
+    ).scalar_subquery()
 
-    # 7 天内 deadline 的试卷派发
-    paper_due_result = await db.execute(
-        select(func.count(PaperAssignment.id)).where(
-            PaperAssignment.deadline_at.isnot(None),
-            PaperAssignment.deadline_at >= now,
-            PaperAssignment.deadline_at <= week_later,
-            PaperAssignment.status.in_(["pending", "in_progress"]),
-        )
-    )
-    paper_due = int(paper_due_result.scalar() or 0)
+    paper_due_q = select(func.count(PaperAssignment.id)).where(
+        PaperAssignment.deadline_at.isnot(None),
+        PaperAssignment.deadline_at >= now,
+        PaperAssignment.deadline_at <= week_later,
+        PaperAssignment.status.in_(["pending", "in_progress"]),
+    ).scalar_subquery()
 
-    # 已逾期但未完成的试卷派发
-    paper_overdue_result = await db.execute(
-        select(func.count(PaperAssignment.id)).where(
-            PaperAssignment.deadline_at.isnot(None),
-            PaperAssignment.deadline_at < now,
-            PaperAssignment.status.in_(["pending", "in_progress"]),
+    paper_overdue_q = select(func.count(PaperAssignment.id)).where(
+        PaperAssignment.deadline_at.isnot(None),
+        PaperAssignment.deadline_at < now,
+        PaperAssignment.status.in_(["pending", "in_progress"]),
+    ).scalar_subquery()
+
+    row = (await db.execute(
+        select(
+            video_due_q.label("video_due"),
+            reading_due_q.label("reading_due"),
+            paper_due_q.label("paper_due"),
+            paper_overdue_q.label("paper_overdue"),
         )
-    )
-    paper_overdue = int(paper_overdue_result.scalar() or 0)
+    )).first()
 
     return {
-        "video_due_in_7d": video_due,
-        "reading_due_in_7d": reading_due,
-        "paper_due_in_7d": paper_due,
-        "paper_overdue": paper_overdue,
+        "video_due_in_7d": int(row.video_due or 0),
+        "reading_due_in_7d": int(row.reading_due or 0),
+        "paper_due_in_7d": int(row.paper_due or 0),
+        "paper_overdue": int(row.paper_overdue or 0),
     }
 
 
