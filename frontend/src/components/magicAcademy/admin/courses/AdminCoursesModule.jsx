@@ -19,10 +19,41 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 
 const { Text } = Typography;
+
+function renderSelectOptionWithTooltip(option) {
+  const text = String(option?.data?.tooltip || option?.data?.label || "");
+  return (
+    <Tooltip title={text} placement="rightTop" mouseEnterDelay={0.15} align={{ offset: [6, 0] }}>
+      <span className="magic-academy-select-option-text">{text}</span>
+    </Tooltip>
+  );
+}
+
+function renderSelectTagWithTooltip({ label, closable, onClose }) {
+  const text = String(label ?? "");
+  return (
+    <Tooltip title={text} placement="top" mouseEnterDelay={0.15} align={{ offset: [0, -4] }}>
+      <Tag
+        closable={closable}
+        onClose={onClose}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        style={{ marginInlineEnd: 4, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-block", maxWidth: 160 }}>
+          {text}
+        </span>
+      </Tag>
+    </Tooltip>
+  );
+}
 
 export function buildAdminCoursesTabItems({
   courseAdminState,
@@ -465,7 +496,13 @@ export function buildAdminCoursesTabItems({
           <Card>
             <Space wrap>
               <Text>选择视频：</Text>
-              <Select style={{ minWidth: 260 }} value={statsVideoId} onChange={courseAdminActions.setStatsVideoId} options={videos.map((item) => ({ value: item.id, label: item.title }))} />
+              <Select
+                style={{ minWidth: 260 }}
+                value={statsVideoId}
+                onChange={courseAdminActions.setStatsVideoId}
+                optionRender={renderSelectOptionWithTooltip}
+                options={videos.map((item) => ({ value: item.id, label: item.title, title: null, tooltip: item.title }))}
+              />
               <Select
                 mode="multiple"
                 allowClear
@@ -475,6 +512,8 @@ export function buildAdminCoursesTabItems({
                 onChange={(value) => courseAdminActions.setStatsDepartment(value || [])}
                 options={statsDepartmentOptions}
                 maxTagCount="responsive"
+                optionRender={renderSelectOptionWithTooltip}
+                tagRender={renderSelectTagWithTooltip}
               />
               <Select
                 mode="multiple"
@@ -487,6 +526,8 @@ export function buildAdminCoursesTabItems({
                 onChange={(value) => courseAdminActions.setStatsUserId(value || [])}
                 options={statsEmployeeOptions}
                 maxTagCount="responsive"
+                optionRender={renderSelectOptionWithTooltip}
+                tagRender={renderSelectTagWithTooltip}
               />
               <Button type="primary" onClick={handleStatsSearch}>查询</Button>
               <Button onClick={handleStatsReset}>重置</Button>

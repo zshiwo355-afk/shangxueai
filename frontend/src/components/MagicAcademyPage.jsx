@@ -217,6 +217,8 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     () => Array.from(new Set(employeeUsers.map((item) => item.department || UNASSIGNED_DEPARTMENT_FILTER))).map((item) => ({
       value: item,
       label: item === UNASSIGNED_DEPARTMENT_FILTER ? "未分配部门" : item,
+      title: null,
+      tooltip: item === UNASSIGNED_DEPARTMENT_FILTER ? "未分配部门" : item,
     })),
     [employeeUsers],
   );
@@ -300,6 +302,8 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     () => filteredStatsEmployees.map((item) => ({
       value: item.id,
       label: `${item.real_name || item.display_name || item.username} (${item.username})`,
+      title: null,
+      tooltip: `${item.real_name || item.display_name || item.username} (${item.username})`,
     })),
     [filteredStatsEmployees],
   );
