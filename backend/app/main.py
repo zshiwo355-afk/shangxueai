@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import ensure_builtin_super_admin, router as auth_router
+from .banners_api import admin_router as banners_admin_router, user_router as banners_user_router
 from .config import get_settings
 from .db import session_scope
 from .deadline_reminder_worker import deadline_reminder_worker
@@ -29,6 +30,9 @@ from .maxkb import MaxKBClient
 from .notifications_api import router as notifications_router
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
 from .paper_ai_worker import paper_ai_worker
+from .points_admin_api import router as points_admin_router
+from .mentors_admin_api import router as mentors_admin_router
+from .dashboard_api import router as dashboard_admin_router
 from .paper_assignments_api import (
     router as paper_assignments_router,
     submit_router as paper_submit_router,
@@ -86,6 +90,12 @@ app.include_router(auth_router)
 # 选项
 app.include_router(options_user_router)
 app.include_router(options_admin_router)
+# 轮播图
+app.include_router(banners_user_router)
+app.include_router(banners_admin_router)
+app.include_router(points_admin_router)
+app.include_router(mentors_admin_router)
+app.include_router(dashboard_admin_router)
 # 用户管理（管理员）
 app.include_router(users_admin_router)
 app.include_router(whitelist_router)

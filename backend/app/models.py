@@ -353,6 +353,155 @@ class MaterialAsset(Base):
     )
 
 
+class Banner(Base):
+    __tablename__ = "banners"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    image_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    link_url: Mapped[str] = mapped_column(String(2048), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    remark: Mapped[str] = mapped_column(String(500), default="")
+    material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_banners_enabled_sort", "enabled", "sort_order", "id"),
+    )
+
+
+# =========================================================================
+# 积分系统：规则 / 流水 / 用户汇总
+# =========================================================================
+
+
+class PointRule(Base):
+    __tablename__ = "point_rules"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), default="")
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    daily_limit: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_point_rules_category", "category", "enabled"),
+    )
+
+
+class PointTransaction(Base):
+    __tablename__ = "point_transactions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    rule_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(32), default="")
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    business_type: Mapped[str] = mapped_column(String(32), default="")
+    business_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    remark: Mapped[str] = mapped_column(String(500), default="")
+    operator_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_point_transactions_user_time", "user_id", "created_at"),
+        Index("idx_point_transactions_rule_time", "rule_code", "created_at"),
+        Index("idx_point_transactions_category_time", "category", "created_at"),
+    )
+
+
+class UserPointSummary(Base):
+    __tablename__ = "user_point_summary"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    total_points: Mapped[int] = mapped_column(Integer, default=0)
+    training_points: Mapped[int] = mapped_column(Integer, default=0)
+    course_points: Mapped[int] = mapped_column(Integer, default=0)
+    reading_points: Mapped[int] = mapped_column(Integer, default=0)
+    paper_points: Mapped[int] = mapped_column(Integer, default=0)
+    exam_points: Mapped[int] = mapped_column(Integer, default=0)
+    manual_points: Mapped[int] = mapped_column(Integer, default=0)
+    streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    max_streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    last_checkin_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# =========================================================================
+# 导师专区：档案 + 推荐内容
+# =========================================================================
+
+
+class Mentor(Base):
+    __tablename__ = "mentors"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(128), default="")
+    avatar_url: Mapped[str] = mapped_column(String(2048), default="")
+    avatar_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    avatar_material_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tagline: Mapped[str] = mapped_column(String(255), default="")
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expertise_tags: Mapped[str] = mapped_column(String(500), default="")
+    years_experience: Mapped[int] = mapped_column(Integer, default=0)
+    contact_wecom: Mapped[str] = mapped_column(String(128), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    featured: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_mentors_enabled_sort", "enabled", "sort_order", "id"),
+        Index("idx_mentors_featured", "featured", "enabled", "sort_order"),
+    )
+
+
+class MentorRecommendation(Base):
+    __tablename__ = "mentor_recommendations"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mentor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    link_url: Mapped[str] = mapped_column(String(2048), default="")
+    title: Mapped[str] = mapped_column(String(255), default="")
+    note: Mapped[str] = mapped_column(String(500), default="")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_mentor_recommendations_mentor", "mentor_id", "enabled", "sort_order"),
+        Index("idx_mentor_recommendations_target", "target_type", "target_id"),
+    )
+
+
 class TrainingSessionRow(Base):
     """训练 / 考试运行时 session 状态。和 V1 的 .sessions/*.json 对应。"""
 

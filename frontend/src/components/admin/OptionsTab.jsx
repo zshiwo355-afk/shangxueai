@@ -7,6 +7,7 @@ import {
   adminListOptions,
   adminUpdateOption,
 } from "../../lib/api.options";
+import BannersTab from "./banners/BannersTab";
 
 const CATEGORY_TABS = [
   { key: "training_type", label: "训练类型" },
@@ -163,15 +164,25 @@ function OptionEditModal({ editing, category, itemsCount, onCancel, onSaved }) {
 export default function OptionsTab() {
   const [activeKey, setActiveKey] = useState("training_type");
 
+  const tabItems = [
+    ...CATEGORY_TABS.map((t) => ({
+      key: t.key,
+      label: t.label,
+      children: <CategoryTable category={t.key} />,
+    })),
+    {
+      key: "banners",
+      label: "轮播图管理",
+      children: <BannersTab />,
+    },
+  ];
+
   return (
     <Tabs
       activeKey={activeKey}
       onChange={setActiveKey}
-      items={CATEGORY_TABS.map((t) => ({
-        key: t.key,
-        label: t.label,
-        children: <CategoryTable category={t.key} />,
-      }))}
+      items={tabItems}
+      destroyInactiveTabPane
     />
   );
 }

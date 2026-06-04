@@ -26,6 +26,7 @@ from ..models import (
     PaperSubmission,
     QuestionBank,
 )
+from ..points_service import grant_points
 from ..paper_grading import (
     grade_short_answer_with_ai,
     is_objective,
@@ -192,6 +193,20 @@ async def _recalc_submission(submission: PaperSubmission, db: AsyncSession) -> N
         submission.status = "graded"
         submission.is_pass = bool(submission.final_score >= float(paper.pass_score)) if paper else None
         submission.graded_at = datetime.now()
+        # 试卷判定通过 → 入账（dedupe_extra=paper_id 保证每用户每试卷只首次给）
+        if submission.is_pass:
+            try:
+                await grant_points(
+                    db,
+                    user_id=int(submission.user_id),
+                    rule_code="paper_pass",
+                    business_type="paper_submission",
+                    business_id=int(submission.id),
+                    dedupe_extra=f"p{int(submission.paper_id)}",
+                    remark=f"试卷#{submission.paper_id} 通过",
+                )
+            except Exception:  # noqa: BLE001
+                paper_grading_logger.exception("grant_points failed for paper submission=%s", submission.id)
 
 
 async def _ensure_assignment_status(assignment: PaperAssignment, db: AsyncSession) -> None:

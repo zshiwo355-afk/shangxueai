@@ -445,7 +445,7 @@ export default function UsersTab() {
       },
     },
     {
-      title: "鍒涘缓鏃堕棿",
+      title: "创建时间",
       dataIndex: "created_at",
       width: 150,
       render: (v) => v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "—",

@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { buildWecomStartUrl, getAuthProviders, login } from "../lib/api.auth";
 import { setCurrentUser, setToken } from "../lib/auth";
+import logoImg from "../assets/logo.png";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -86,7 +87,9 @@ export default function LoginPage() {
         <span className="auth-shell__watermark" aria-hidden="true">怀</span>
         <div className="auth-shell__brand-inner">
           <div className="auth-shell__logo">
-            <span className="auth-shell__logo-mark">怀</span>
+            <span className="auth-shell__logo-mark">
+              <img src={logoImg} alt="怀仁商学院" />
+            </span>
             <div className="auth-shell__logo-copy">
               <strong>怀仁商学院</strong>
               <span>Huairen Business School</span>

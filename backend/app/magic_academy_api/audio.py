@@ -23,6 +23,7 @@ from ..magic_academy_schemas import (
     MagicAudioUploadPayload,
 )
 from ..models import MagicAudioMakeupSetting, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, User
+from ..points_service import grant_points, record_reading_streak
 from . import router
 from ._utils import (
     AUDIO_EXTENSIONS,
@@ -1041,6 +1042,21 @@ async def upload_my_audio(
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(status_code=400, detail="该读书内容已完成打卡，请勿重复提交。") from exc
+    # 读书打卡积分（每日上限 1 次，dedupe_extra=日期 保证每日唯一）+ streak 奖励
+    try:
+        checkin_date = row.uploaded_date if isinstance(row.uploaded_date, date) else now.date()
+        await grant_points(
+            db,
+            user_id=user.id,
+            rule_code="reading_checkin",
+            business_type="audio_upload",
+            business_id=int(row.id),
+            dedupe_extra=f"d{checkin_date.isoformat()}",
+            remark=f"读书打卡 {checkin_date.isoformat()}",
+        )
+        await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "id": row.id,
         "file_name": row.file_name,
@@ -1111,6 +1127,21 @@ async def submit_my_audio_makeup(
         await db.rollback()
         raise HTTPException(status_code=400, detail="该读书内容已完成打卡，请勿重复提交。") from exc
     await db.refresh(row)
+    # 补卡也算"当日打卡"——dedupe 走 uploaded_date 保证每日仅一次入账
+    try:
+        checkin_date = row.uploaded_date if isinstance(row.uploaded_date, date) else target_date
+        await grant_points(
+            db,
+            user_id=user.id,
+            rule_code="reading_checkin",
+            business_type="audio_upload",
+            business_id=int(row.id),
+            dedupe_extra=f"d{checkin_date.isoformat()}",
+            remark=f"读书补卡 {checkin_date.isoformat()}",
+        )
+        await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
+    except Exception:  # noqa: BLE001
+        pass
     return _serialize_audio_record(row)
 
 

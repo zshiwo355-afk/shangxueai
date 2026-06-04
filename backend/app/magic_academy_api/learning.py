@@ -26,6 +26,7 @@ from ..models import (
     MagicVideoWatchConfirmLog,
     User,
 )
+from ..points_service import grant_points
 from . import router
 from ._oss import _build_signed_stream_url
 from ._utils import (
@@ -258,6 +259,7 @@ async def save_my_video_progress(
     if whitelist_permissions.get("course_exempt_enabled"):
         progress.quiz_passed = True
     near_end = duration > 0 and trusted_max >= max(duration - 1.5, duration * 0.98)
+    was_completed_before = bool(progress.is_completed)
     if whitelist_permissions.get("course_exempt_enabled"):
         progress.is_completed = True
         progress.completed_by_whitelist = True
@@ -269,6 +271,20 @@ async def save_my_video_progress(
         if not progress.completed_at:
             progress.completed_at = now
     await db.flush()
+    # 视频从未完成 → 完成：发"视频学完"积分（dedupe_extra=video_id 保证每用户每视频仅一次）
+    if progress.is_completed and not was_completed_before:
+        try:
+            await grant_points(
+                db,
+                user_id=user.id,
+                rule_code="video_complete",
+                business_type="video_progress",
+                business_id=int(video_id),
+                dedupe_extra=f"v{video_id}",
+                remark=f"完成视频#{video_id}",
+            )
+        except Exception:  # noqa: BLE001
+            pass
     series_context_map = await _get_series_context_map(
         db,
         [video_id],
@@ -387,10 +403,38 @@ async def submit_my_video_quiz(
     )
     required_point_ids = {int(item[0]) for item in point_result.all()}
     progress.quiz_passed = answered.issuperset(required_point_ids) or whitelist_permissions.get("course_exempt_enabled")
+    was_completed_before = bool(progress.is_completed)
     if progress.total_duration > 0 and progress.max_watched_position >= max(progress.total_duration - 1.5, progress.total_duration * 0.98) and progress.quiz_passed:
         progress.is_completed = True
         progress.completed_at = progress.completed_at or _now()
     await db.flush()
+    # 随堂测通过 & 视频完成两类积分
+    if passed:
+        try:
+            await grant_points(
+                db,
+                user_id=user.id,
+                rule_code="quiz_pass",
+                business_type="quiz_point",
+                business_id=int(point.id),
+                dedupe_extra=f"u{user.id}",
+                remark=f"随堂测点位#{point.id} 通过",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    if progress.is_completed and not was_completed_before:
+        try:
+            await grant_points(
+                db,
+                user_id=user.id,
+                rule_code="video_complete",
+                business_type="video_progress",
+                business_id=int(video_id),
+                dedupe_extra=f"v{video_id}",
+                remark=f"完成视频#{video_id}",
+            )
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "quiz_point_id": point.id,
         "attempt_no": attempt_no,

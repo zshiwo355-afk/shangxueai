@@ -22,6 +22,7 @@ from ..llm_errors import LLMError
 from ..maxkb import MaxKBError
 from ..models import ConfigOption, Exam, ExamAttempt, User
 from ..notification_service import notify_exam_assigned
+from ..points_service import grant_points
 from ..rule_loader import RuleLoader
 from ..scenarios import random_scenario_seed
 from ..schemas import ChatTurn, StateView
@@ -375,6 +376,22 @@ async def _review_exam_attempt_locked(
         exam.status = "pending"
 
     await db.flush()
+    # AI通关考试通过 → 入账（dedupe_extra=exam_id 保证每用户每 exam 只首次给）
+    if final_is_pass:
+        try:
+            await grant_points(
+                db,
+                user_id=int(exam.user_id),
+                rule_code="exam_pass",
+                business_type="exam_attempt",
+                business_id=int(attempt.id),
+                dedupe_extra=f"e{int(exam.id)}",
+                remark=f"AI通关考试#{exam.id} 通过",
+            )
+        except Exception:  # noqa: BLE001
+            logging.getLogger("app.exams").exception(
+                "grant_points failed for exam_attempt=%s", attempt.id,
+            )
     await db.refresh(attempt)
     await db.refresh(exam)
     response_payload = {

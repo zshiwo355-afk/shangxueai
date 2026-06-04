@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
+import logoImg from "../assets/logo.png";
 
 const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
@@ -78,7 +79,9 @@ export default function UserLayout() {
       <header className="user-layout__header">
         <div className="user-layout__header-inner">
           <button type="button" className="user-layout__brand" onClick={() => navigate("/home")}>
-            <div className="user-layout__brand-mark">怀</div>
+            <div className="user-layout__brand-mark">
+              <img src={logoImg} alt="怀仁商学院" />
+            </div>
             <div className="user-layout__brand-copy">
               <strong>怀仁商学院</strong>
               <span>{currentSection}</span>

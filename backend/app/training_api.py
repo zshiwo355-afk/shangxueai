@@ -26,6 +26,7 @@ from .db import get_db
 from .llm_errors import LLMError
 from .maxkb import MaxKBError
 from .models import TrainingRecord, User
+from .points_service import grant_points
 from .rule_loader import RuleLoader
 from .scenarios import random_scenario_seed
 from .schemas import (
@@ -191,6 +192,27 @@ def build_router(
         db.add(record)
         await db.flush()
         await db.refresh(record)
+
+        # 训练完成 → 入账积分（成交 / 意向客户 / 其他完成）。
+        # 业务事务内调用，commit 时一并落库；幂等键带 record_id，重复回调不会重复入账。
+        try:
+            result_text = (str(normalized.get("result") or "")).strip()
+            if result_text == "成交":
+                rule_code = "training_deal"
+            elif result_text == "意向客户":
+                rule_code = "training_intent"
+            else:
+                rule_code = "training_other"
+            await grant_points(
+                db,
+                user_id=user.id,
+                rule_code=rule_code,
+                business_type="training_record",
+                business_id=int(record.id),
+                remark=f"AI对练 {result_text or '完成'}",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("grant_points failed for training record=%s", record.id)
 
         # 删除 session 行（V2 不保留对话历史）
         await session_store.delete_session(db, payload.session_id)
