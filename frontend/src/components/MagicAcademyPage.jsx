@@ -348,6 +348,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const {
     handleDeleteReadingContent,
     handleBatchDeleteReadingContents,
+    handleBatchEnableReadingContents,
     handleBatchDisableReadingContents,
     handleToggleReadingContentStatus,
   } = useReadingContentActions({
@@ -1252,6 +1253,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       handleToggleReadingContentStatus,
       handleDeleteReadingContent,
       handleBatchDeleteReadingContents,
+      handleBatchEnableReadingContents,
       handleBatchDisableReadingContents,
       handleOpenReadingPushDetail: readingContentPushSupport.openReadingContentPushDetail,
       handleRetryReadingPush: readingContentPushSupport.handleRetryReadingPush,

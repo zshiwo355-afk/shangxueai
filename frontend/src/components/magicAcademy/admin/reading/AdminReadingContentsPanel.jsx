@@ -53,6 +53,7 @@ export default function AdminReadingContentsPanel({
   handleToggleReadingContentStatus,
   handleDeleteReadingContent,
   handleBatchDeleteReadingContents,
+  handleBatchEnableReadingContents,
   handleBatchDisableReadingContents,
   readingPushSummaryMap = {},
   handleOpenReadingPushDetail,
@@ -119,6 +120,12 @@ export default function AdminReadingContentsPanel({
             />
           </Space>
           <Space wrap>
+            <Button
+              disabled={!selectedReadingContentRowKeys.length}
+              onClick={handleBatchEnableReadingContents}
+            >
+              批量启用
+            </Button>
             <Button
               disabled={!selectedReadingContentRowKeys.length}
               onClick={handleBatchDisableReadingContents}

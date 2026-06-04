@@ -61,6 +61,26 @@ export function createReadingContentActions({
     }
   };
 
+  const handleBatchEnableReadingContents = async () => {
+    if (!selectedReadingContentRowKeys.length) {
+      message.warning("请先选择要启用的读书内容。");
+      return;
+    }
+    try {
+      const result = await batchUpdateAdminReadingContentsStatus(selectedReadingContentRowKeys, "active");
+      const updatedCount = Array.isArray(result?.updated_ids) ? result.updated_ids.length : 0;
+      const skippedCount = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      if (updatedCount) {
+        message.success(skippedCount ? `已启用 ${updatedCount} 条，跳过 ${skippedCount} 条。` : `已启用 ${updatedCount} 条读书内容。`);
+      } else {
+        message.warning(skippedCount ? `没有可启用内容，已跳过 ${skippedCount} 条。` : "没有可启用内容。");
+      }
+      await reloadReadingContents();
+    } catch (error) {
+      message.error(error?.message || "批量启用读书内容失败。");
+    }
+  };
+
   const handleToggleReadingContentStatus = async (row) => {
     try {
       await updateAdminReadingContentStatus(row.id, row.status === "active" ? "disabled" : "active");
@@ -74,6 +94,7 @@ export function createReadingContentActions({
   return {
     handleDeleteReadingContent,
     handleBatchDeleteReadingContents,
+    handleBatchEnableReadingContents,
     handleBatchDisableReadingContents,
     handleToggleReadingContentStatus,
   };

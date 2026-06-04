@@ -33,6 +33,7 @@ export function buildReadingAdminTabItems({
   handleToggleReadingContentStatus,
   handleDeleteReadingContent,
   handleBatchDeleteReadingContents,
+  handleBatchEnableReadingContents,
   handleBatchDisableReadingContents,
   readingPushSummaryMap = {},
   handleOpenReadingPushDetail,
@@ -80,6 +81,7 @@ export function buildReadingAdminTabItems({
           handleToggleReadingContentStatus={handleToggleReadingContentStatus}
           handleDeleteReadingContent={handleDeleteReadingContent}
           handleBatchDeleteReadingContents={handleBatchDeleteReadingContents}
+          handleBatchEnableReadingContents={handleBatchEnableReadingContents}
           handleBatchDisableReadingContents={handleBatchDisableReadingContents}
           readingPushSummaryMap={readingPushSummaryMap}
           handleOpenReadingPushDetail={handleOpenReadingPushDetail}

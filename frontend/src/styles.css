@@ -1554,6 +1554,82 @@ body {
   gap: 28px;
 }
 
+.reading-checkin-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.reading-checkin-nav__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(245, 248, 252, 0.92) 100%);
+  box-shadow: 0 10px 24px rgba(31, 41, 51, 0.06);
+  text-align: left;
+  color: var(--text-base);
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.reading-checkin-nav__item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(88, 139, 200, 0.32);
+  box-shadow: 0 14px 30px rgba(66, 111, 159, 0.12);
+}
+
+.reading-checkin-nav__item.is-active {
+  border-color: rgba(88, 139, 200, 0.48);
+  background:
+    linear-gradient(180deg, rgba(237, 244, 251, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: 0 16px 32px rgba(88, 139, 200, 0.16);
+}
+
+.reading-checkin-nav__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(88, 139, 200, 0.12);
+  color: var(--accent-deep);
+  font-size: 16px;
+}
+
+.reading-checkin-nav__content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.reading-checkin-nav__content strong {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.reading-checkin-nav__content span {
+  color: var(--text-mute);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reading-checkin-section {
+  scroll-margin-top: 120px;
+}
+
 .workspace-panel {
   display: flex;
   flex-direction: column;
@@ -5700,9 +5776,26 @@ body {
   .workspace-stage,
   .workspace-dual,
   .workspace-line-item,
-  .workspace-mini-grid {
+  .workspace-mini-grid,
+  .reading-checkin-nav {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
+  }
+
+  .reading-checkin-nav {
+    margin-bottom: 18px;
+  }
+
+  .reading-checkin-nav__item {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+
+  .reading-checkin-nav__icon {
+    flex-basis: 34px;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
   }
 
   /* 视频播放器最大高度 */
@@ -5859,5 +5952,3 @@ body {
     background: rgba(88, 139, 200, 0.18);
   }
 }
-
-
