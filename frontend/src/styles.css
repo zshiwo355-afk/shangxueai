@@ -3800,8 +3800,20 @@ body {
   }
 
   .showcase-hero__actions .cta-arrow-btn {
-    justify-content: space-between;
+    justify-content: flex-start;
     width: 100%;
+  }
+
+  .showcase-hero__actions .cta-arrow-btn > span:not([class]) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .showcase-hero__actions .cta-arrow-btn .cta-arrow-btn__arrow {
+    margin-left: auto;
   }
 
   .showcase-hero__side {
@@ -5271,7 +5283,23 @@ body {
   .showcase-hero__actions .cta-arrow-btn {
     width: 100%;
     min-height: 44px;
-    justify-content: space-between;
+    height: 44px;
+    padding: 0 16px 0 14px;
+    gap: 8px;
+    font-size: 13px;
+    justify-content: flex-start;
+  }
+
+  .showcase-hero__actions .cta-arrow-btn > span:not([class]) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .showcase-hero__actions .cta-arrow-btn .cta-arrow-btn__arrow {
+    margin-left: auto;
   }
 
   /* 实时时钟简化 */
@@ -5966,5 +5994,270 @@ body {
 @media (prefers-contrast: more) {
   .user-layout-drawer__nav-item.is-active {
     background: rgba(88, 139, 200, 0.18);
+  }
+}
+
+/* ============ Mentor Zone ============ */
+
+.mentor-carousel-wrap {
+  margin-top: 32px;
+  padding: 24px 0;
+}
+.mentor-carousel-wrap__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 0 4px;
+}
+
+.mentor-carousel-static {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.mentor-marquee {
+  overflow: hidden;
+  padding: 4px 0;
+}
+.mentor-marquee__track {
+  display: flex;
+  gap: 20px;
+  width: max-content;
+  animation: mentor-marquee-scroll 30s linear infinite;
+}
+.mentor-marquee:hover .mentor-marquee__track {
+  animation-play-state: paused;
+}
+.mentor-marquee .mentor-show-card {
+  flex-shrink: 0;
+  width: 280px;
+}
+@keyframes mentor-marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.mentor-show-card {
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s, transform 0.25s;
+  cursor: default;
+}
+.mentor-show-card:hover {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+}
+.mentor-show-card__photo {
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #e8edf3 0%, #dce3ec 100%);
+}
+.mentor-show-card__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mentor-show-card__photo .ant-avatar {
+  width: 120px !important;
+  height: 120px !important;
+  font-size: 48px !important;
+}
+.mentor-show-card__info {
+  padding: 16px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mentor-show-card__name {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary, #1a2332);
+}
+.mentor-show-card__title {
+  font-size: 13px;
+  color: var(--text-secondary, #5c6b7a);
+}
+.mentor-show-card__tagline {
+  font-size: 13px;
+  color: var(--text-tertiary, #8c99a8);
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+/* 导师详情弹窗 */
+.mentor-detail__header {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.mentor-detail__avatar {
+  flex-shrink: 0;
+  width: 160px;
+  height: 160px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #e8edf3 0%, #dce3ec 100%);
+}
+.mentor-detail__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mentor-detail__bio {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+@media (max-width: 768px) {
+  .mentor-carousel-static {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .mentor-show-card__photo {
+    height: 160px;
+  }
+  .mentor-detail__header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+@media (max-width: 480px) {
+  .mentor-carousel-static {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mentor-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.mentor-card {
+  display: flex;
+  gap: 16px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.mentor-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 16px rgba(88, 139, 200, 0.08);
+}
+
+.mentor-card--full {
+  padding: 28px 24px;
+}
+
+.mentor-card__avatar {
+  flex-shrink: 0;
+}
+
+.mentor-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mentor-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.mentor-card__title {
+  font-size: 13px;
+  color: var(--text-mute);
+}
+
+.mentor-card__tagline {
+  margin: 4px 0 0 !important;
+  font-size: 13px;
+  color: var(--text-secondary, #555);
+  line-height: 1.6;
+}
+
+.mentor-card__bio {
+  margin: 4px 0 0 !important;
+  font-size: 13px;
+  color: var(--text-mute);
+  line-height: 1.6;
+}
+
+.mentor-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.mentor-card__meta {
+  font-size: 12px;
+  color: var(--text-mute);
+  margin-top: 4px;
+}
+
+.mentor-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px 0;
+}
+
+.mentor-directory__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.mentor-directory__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.mentor-directory__subtitle {
+  margin: 0;
+  color: var(--text-mute);
+  font-size: 14px;
+}
+
+.mentor-directory__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 640px) {
+  .mentor-preview-grid,
+  .mentor-directory__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mentor-card {
+    padding: 16px;
+  }
+
+  .mentor-card--full {
+    padding: 20px 16px;
   }
 }

@@ -19,6 +19,7 @@ import { fetchMyTrainingRecords } from "../lib/api.training";
 import { fetchMyPaperAssignments } from "../lib/api.userPapers";
 import { getCurrentUser } from "../lib/auth";
 import { loadActiveSession } from "../lib/storage";
+import MentorPreviewSection from "./magicAcademy/user/mentor/MentorPreviewSection";
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -348,7 +349,7 @@ export default function HomePage() {
                 <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
               </button>
             </div>
-            <LiveClock />
+            <MentorPreviewSection compact onViewAll={() => navigate("/magic-academy?tab=mentors")} />
           </div>
           <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
             <span className="showcase-hero__side-eyebrow">Today at a glance</span>

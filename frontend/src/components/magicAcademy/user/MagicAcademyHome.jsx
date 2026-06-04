@@ -6,6 +6,7 @@ import {
   RightOutlined,
 } from "@ant-design/icons";
 import { Button, Space, Typography } from "antd";
+import MentorPreviewSection from "./mentor/MentorPreviewSection";
 
 const { Title, Paragraph } = Typography;
 
@@ -18,6 +19,7 @@ export default function MagicAcademyHome({
   latestAudioRecord,
   onOpenCourseCenter,
   onOpenReadingCenter,
+  onOpenMentorZone,
   yearMark = "魔",
 }) {
   return (
@@ -192,6 +194,8 @@ export default function MagicAcademyHome({
           </div>
         </section>
       ) : null}
+
+      <MentorPreviewSection onViewAll={onOpenMentorZone} />
     </>
   );
 }

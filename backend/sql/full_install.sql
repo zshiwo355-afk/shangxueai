@@ -1096,6 +1096,166 @@ CREATE TABLE `wecom_sync_entries` (
   KEY `idx_wecom_sync_entries_action` (`action`,`created_at`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='企业微信同步明细';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `banners`
+--
+
+DROP TABLE IF EXISTS `banners`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `banners` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '展示标题（可选）',
+  `image_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '图片公开访问 URL',
+  `image_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'OSS 对象键，从素材库导入时为素材原 key',
+  `link_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '点击跳转链接（可选）',
+  `sort_order` int NOT NULL DEFAULT '0' COMMENT '升序，越小越靠前',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用',
+  `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '备注',
+  `material_asset_id` bigint DEFAULT NULL COMMENT '若来自素材库，记录来源素材 id',
+  `created_by` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_banners_enabled_sort` (`enabled`,`sort_order`,`id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='首页轮播图';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `point_rules`
+--
+
+DROP TABLE IF EXISTS `point_rules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `point_rules` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '程序标识符，例：training_deal / video_complete',
+  `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '展示名',
+  `category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '分类：training/course/reading/paper/exam/manual',
+  `points` int NOT NULL DEFAULT '0' COMMENT '默认加分（负数=扣分）',
+  `daily_limit` int NOT NULL DEFAULT '0' COMMENT '0=不限；>0 表示同用户同规则每自然日最多入账次数',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '规则文字说明，会展示给管理员',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_point_rules_code` (`code`) USING BTREE,
+  KEY `idx_point_rules_category` (`category`,`enabled`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='积分规则';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `point_transactions`
+--
+
+DROP TABLE IF EXISTS `point_transactions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `point_transactions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `rule_code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '关联 point_rules.code（manual_adjust 也走这里）',
+  `category` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '冗余 category，便于按维度聚合',
+  `points` int NOT NULL COMMENT '实际入账分数（已应用规则、上限、手动覆盖之后的值）',
+  `business_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '业务类型：training_record/video_progress/...',
+  `business_id` bigint DEFAULT NULL COMMENT '业务主键 id（manual_adjust 无）',
+  `dedupe_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '幂等键，保证同事件不重复入账',
+  `remark` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `operator_id` bigint DEFAULT NULL COMMENT '手动调分时记录管理员 user_id',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_point_transactions_dedupe` (`dedupe_key`) USING BTREE,
+  KEY `idx_point_transactions_user_time` (`user_id`,`created_at`) USING BTREE,
+  KEY `idx_point_transactions_rule_time` (`rule_code`,`created_at`) USING BTREE,
+  KEY `idx_point_transactions_category_time` (`category`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='积分流水';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `user_point_summary`
+--
+
+DROP TABLE IF EXISTS `user_point_summary`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_point_summary` (
+  `user_id` bigint NOT NULL,
+  `total_points` int NOT NULL DEFAULT '0' COMMENT '累计总分（含历史扣分）',
+  `training_points` int NOT NULL DEFAULT '0' COMMENT 'category=training 的累计',
+  `course_points` int NOT NULL DEFAULT '0' COMMENT 'category=course 的累计',
+  `reading_points` int NOT NULL DEFAULT '0' COMMENT 'category=reading 的累计',
+  `paper_points` int NOT NULL DEFAULT '0' COMMENT 'category=paper 的累计',
+  `exam_points` int NOT NULL DEFAULT '0' COMMENT 'category=exam 的累计',
+  `manual_points` int NOT NULL DEFAULT '0' COMMENT 'category=manual 的累计',
+  `streak_days` int NOT NULL DEFAULT '0' COMMENT '当前读书打卡连续天数',
+  `max_streak_days` int NOT NULL DEFAULT '0' COMMENT '历史最长连续天数',
+  `last_checkin_date` date DEFAULT NULL COMMENT '最近一次打卡日期，用于 streak 计算',
+  `last_event_at` datetime DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`) USING BTREE,
+  KEY `idx_user_point_summary_total` (`total_points` DESC) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='用户积分汇总';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mentors`
+--
+
+DROP TABLE IF EXISTS `mentors`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mentors` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL COMMENT '关联 users.id；不强约束 role',
+  `display_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '对外展示名（默认 = users.display_name）',
+  `title` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '头衔，例：金牌讲师 / 销售总监',
+  `avatar_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '头像公开 URL',
+  `avatar_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'OSS 对象键',
+  `avatar_material_id` bigint DEFAULT NULL COMMENT '若来自素材库，记录原 material_assets.id',
+  `tagline` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '一句话签名',
+  `bio` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT '长简介（支持换行，前端按段落展示）',
+  `expertise_tags` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '专长标签，逗号分隔',
+  `years_experience` int NOT NULL DEFAULT '0' COMMENT '从业年限',
+  `contact_wecom` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '企业微信联系方式（可选）',
+  `sort_order` int NOT NULL DEFAULT '0' COMMENT '升序，越小越靠前',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否在用户端展示',
+  `featured` tinyint(1) NOT NULL DEFAULT '0' COMMENT '是否首页推荐位',
+  `created_by` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_mentors_user` (`user_id`) USING BTREE,
+  KEY `idx_mentors_enabled_sort` (`enabled`,`sort_order`,`id`) USING BTREE,
+  KEY `idx_mentors_featured` (`featured`,`enabled`,`sort_order`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='导师档案';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `mentor_recommendations`
+--
+
+DROP TABLE IF EXISTS `mentor_recommendations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mentor_recommendations` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `mentor_id` bigint NOT NULL,
+  `target_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'video / reading / paper / link',
+  `target_id` bigint DEFAULT NULL COMMENT '内置类型的资源 id；link 类型时为空',
+  `link_url` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'target_type=link 时使用',
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '展示标题（覆盖目标资源原标题）',
+  `note` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '导师寄语',
+  `sort_order` int NOT NULL DEFAULT '0',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_mentor_recommendations_mentor` (`mentor_id`,`enabled`,`sort_order`) USING BTREE,
+  KEY `idx_mentor_recommendations_target` (`target_type`,`target_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='导师推荐内容';
+/*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

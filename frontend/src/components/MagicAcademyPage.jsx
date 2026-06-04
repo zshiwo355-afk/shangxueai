@@ -89,6 +89,7 @@ import useReadingContentImportAdmin from "./magicAcademy/admin/reading/useReadin
 import useReadingContentPushAdmin from "./magicAcademy/admin/reading/useReadingContentPushAdmin";
 import useReadingContentsAdmin from "./magicAcademy/admin/reading/useReadingContentsAdmin";
 import MagicAcademyHome from "./magicAcademy/user/MagicAcademyHome";
+import MentorDirectoryPage from "./magicAcademy/user/mentor/MentorDirectoryPage";
 import CourseCard from "./magicAcademy/user/CourseCard";
 import CourseListSection from "./magicAcademy/user/CourseListSection";
 import CourseCenterShell from "./magicAcademy/user/CourseCenterShell";
@@ -148,7 +149,9 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         ? "reading"
         : searchParams.get("tab") === "courses"
           ? "courses"
-          : "home"),
+          : searchParams.get("tab") === "mentors"
+            ? "mentors"
+            : "home"),
   );
   const [users, setUsers] = useState([]);
   const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
@@ -276,6 +279,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const openReadingCenter = () => {
     setAcademyView("reading");
     if (!adminMode) setSearchParams({ tab: "audio" });
+  };
+
+  const openMentorZone = () => {
+    setAcademyView("mentors");
+    if (!adminMode) setSearchParams({ tab: "mentors" });
   };
 
   const handleTabChange = (nextTab) => {
@@ -1348,7 +1356,9 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
         ? renderCourseCenter()
         : academyView === "reading"
           ? renderReadingCheckin()
-          : (
+          : academyView === "mentors"
+            ? <MentorDirectoryPage onBack={openAcademyHome} />
+            : (
             <MagicAcademyHome
               continueStudyVideo={continueStudyVideo}
               todayUploadedAudio={userReadingCheckinSupport.todayUploadedAudio}
@@ -1358,6 +1368,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               latestAudioRecord={userReadingCheckinSupport.latestAudioRecord}
               onOpenCourseCenter={openCourseCenter}
               onOpenReadingCenter={openReadingCenter}
+              onOpenMentorZone={openMentorZone}
             />
           ))
     : null;
