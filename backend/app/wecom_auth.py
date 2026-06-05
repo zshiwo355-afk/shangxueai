@@ -44,6 +44,7 @@ def build_auth_user_payload(user: User) -> dict[str, Any]:
         "role": user.role,
         "is_newcomer": bool(user.is_newcomer),
         "employment_status": user.employment_status or "",
+        "guide_completed_at": user.guide_completed_at.isoformat() if user.guide_completed_at else None,
         "status": user.status or "active",
         "wecom_userid": user.wecom_userid or "",
     }

@@ -12,8 +12,10 @@ import { Avatar, Button, Drawer, Space, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
+import { fetchGuideStatus } from "../lib/api.guide";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 import logoImg from "../assets/logo.png";
+import NewbieGuide from "./NewbieGuide";
 
 const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
@@ -53,6 +55,14 @@ export default function UserLayout() {
   const currentSection = resolveSection(location.pathname);
   const showAdminEntry = isAdmin();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [guideActive, setGuideActive] = useState(false);
+
+  useEffect(() => {
+    if (user?.guide_completed_at) return;
+    fetchGuideStatus()
+      .then((data) => { if (data?.should_show) setGuideActive(true); })
+      .catch(() => {});
+  }, []);
 
   // Close drawer on every route change so menu doesn't linger after navigation.
   useEffect(() => {
@@ -100,6 +110,7 @@ export default function UserLayout() {
                   key={item.key}
                   type="button"
                   className={`user-layout__nav-item${active ? " is-active" : ""}`}
+                  data-guide={`nav-${item.key}`}
                   onClick={() => navigate(item.path)}
                 >
                   {item.icon}
@@ -201,6 +212,8 @@ export default function UserLayout() {
       <main className="user-layout__content">
         <Outlet />
       </main>
+
+      <NewbieGuide active={guideActive} onFinish={() => setGuideActive(false)} />
     </div>
   );
 }

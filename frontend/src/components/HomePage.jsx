@@ -349,7 +349,9 @@ export default function HomePage() {
                 <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
               </button>
             </div>
-            <MentorPreviewSection compact onViewAll={() => navigate("/magic-academy?tab=mentors")} />
+            <div data-guide="mentor-section">
+              <MentorPreviewSection compact onViewAll={() => navigate("/magic-academy?tab=mentors")} />
+            </div>
           </div>
           <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
             <span className="showcase-hero__side-eyebrow">Today at a glance</span>

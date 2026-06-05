@@ -28,6 +28,7 @@ from .magic_push_service import reading_push_worker
 from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
 from .notifications_api import router as notifications_router
+from .newbie_guide_api import router as newbie_guide_router
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
 from .paper_ai_worker import paper_ai_worker
 from .points_admin_api import router as points_admin_router
@@ -91,6 +92,8 @@ app.include_router(auth_router)
 # 选项
 app.include_router(options_user_router)
 app.include_router(options_admin_router)
+# 新手引导
+app.include_router(newbie_guide_router)
 # 轮播图
 app.include_router(banners_user_router)
 app.include_router(banners_admin_router)

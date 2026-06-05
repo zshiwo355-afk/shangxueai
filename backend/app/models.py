@@ -41,6 +41,7 @@ class User(Base):
     employment_status: Mapped[str] = mapped_column(String(32), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")
     disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    guide_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     wecom_userid: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
     wecom_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     wecom_raw_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)

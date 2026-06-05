@@ -14,6 +14,7 @@ const CATEGORY_TABS = [
   { key: "difficulty", label: "难度" },
   { key: "customer_type", label: "客户类型" },
   { key: "employment_status", label: "在职状态" },
+  { key: "newbie_guide_trigger", label: "新手引导触发" },
 ];
 
 function CategoryTable({ category }) {

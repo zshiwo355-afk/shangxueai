@@ -43,9 +43,20 @@ export default function MentorPreviewSection({ onViewAll, compact = false }) {
         </div>
         {loading ? (
           <div style={{ textAlign: "center", padding: "48px 0" }}><Spin /></div>
+        ) : previewList.length <= 1 ? (
+          <div className="mentor-marquee mentor-marquee--static">
+            <div className="mentor-marquee__track">
+              {previewList.map((m) => (
+                <MentorShowCard key={m.id} mentor={m} onClick={() => setSelectedMentor(m)} />
+              ))}
+            </div>
+          </div>
         ) : (
           <div className="mentor-marquee">
-            <div className="mentor-marquee__track">
+            <div
+              className="mentor-marquee__track"
+              style={{ animationDuration: `${previewList.length * 8}s` }}
+            >
               {previewList.map((m) => (
                 <MentorShowCard key={m.id} mentor={m} onClick={() => setSelectedMentor(m)} />
               ))}

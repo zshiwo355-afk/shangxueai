@@ -6021,11 +6021,18 @@ body {
   overflow: hidden;
   padding: 4px 0;
 }
+.mentor-marquee--static {
+  overflow: visible;
+}
 .mentor-marquee__track {
   display: flex;
   gap: 20px;
   width: max-content;
   animation: mentor-marquee-scroll 30s linear infinite;
+}
+.mentor-marquee--static .mentor-marquee__track {
+  animation: none;
+  width: auto;
 }
 .mentor-marquee:hover .mentor-marquee__track {
   animation-play-state: paused;
@@ -6259,5 +6266,154 @@ body {
 
   .mentor-card--full {
     padding: 20px 16px;
+  }
+}
+
+/* ===== Newbie Guide Tour ===== */
+.guide-tour {
+  transition: opacity 0.3s ease;
+}
+.guide-tour--out {
+  opacity: 0;
+}
+.guide-tour__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0);
+  pointer-events: auto;
+  transition: background 0.4s ease;
+}
+.guide-tour__overlay--visible {
+  background: rgba(0, 0, 0, 0.45);
+}
+.guide-tour__spotlight {
+  position: absolute;
+  z-index: 9999;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  background: transparent;
+  pointer-events: none;
+  transition: top 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              left 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: guide-spotlight-in 0.4s ease-out;
+}
+@keyframes guide-spotlight-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.guide-tour__tooltip {
+  position: absolute;
+  z-index: 10000;
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  animation: guide-tooltip-in 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  animation-fill-mode: both;
+}
+@keyframes guide-tooltip-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+.guide-tour__tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.guide-tour__tooltip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent, #588bc8);
+  color: #fff;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.guide-tour__tooltip-title {
+  font-size: 17px;
+  color: var(--text-base, #1f2933);
+  flex: 1;
+}
+.guide-tour__tooltip-close {
+  background: none;
+  border: none;
+  color: var(--text-mute, #697586);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+.guide-tour__tooltip-close:hover {
+  color: var(--text-base, #1f2933);
+}
+.guide-tour__tooltip-desc {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-mute, #697586);
+  margin: 0 0 20px;
+}
+.guide-tour__tooltip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.guide-tour__tooltip-progress {
+  font-size: 13px;
+  color: var(--text-mute, #697586);
+}
+.guide-tour__tooltip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent, #588bc8);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+.guide-tour__tooltip-btn:hover {
+  background: var(--accent-dark, #4a78b0);
+  transform: translateY(-1px);
+}
+.guide-tour__fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.guide-tour__tooltip--center {
+  position: relative;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  pointer-events: auto;
+  animation: guide-tooltip-center-in 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes guide-tooltip-center-in {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (max-width: 768px) {
+  .guide-tour__tooltip {
+    width: calc(100vw - 32px);
+    left: 16px !important;
+    transform: none !important;
   }
 }

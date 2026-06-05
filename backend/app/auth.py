@@ -188,6 +188,7 @@ class MeResponse(BaseModel):
     role: str
     is_newcomer: bool = False
     employment_status: str = ""
+    guide_completed_at: str | None = None
     status: str = "active"
     wecom_userid: str = ""
 
@@ -231,6 +232,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
             "role": user.role,
             "is_newcomer": bool(user.is_newcomer),
             "employment_status": user.employment_status or "",
+            "guide_completed_at": user.guide_completed_at.isoformat() if user.guide_completed_at else None,
             "status": user.status or "active",
             "wecom_userid": user.wecom_userid or "",
         },
@@ -249,6 +251,7 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
         role=user.role,
         is_newcomer=bool(user.is_newcomer),
         employment_status=user.employment_status or "",
+        guide_completed_at=user.guide_completed_at.isoformat() if user.guide_completed_at else None,
         status=user.status or "active",
         wecom_userid=user.wecom_userid or "",
     )
