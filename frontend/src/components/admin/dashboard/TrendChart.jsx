@@ -1,10 +1,11 @@
-import { DownloadOutlined, LineChartOutlined } from "@ant-design/icons";
+import { DownloadOutlined } from "@ant-design/icons";
 import { Button, Card, Segmented, Spin } from "antd";
 import { useEffect, useState } from "react";
 
 import { fetchDashboardTrend } from "../../../lib/api.dashboard";
 import { downloadCsv, todayStamp } from "../../../lib/csvExport";
 import MiniLineChart from "./MiniLineChart";
+import { TREND_COLORS } from "./palette";
 
 const METRIC_OPTIONS = [
   { label: "AI 对练", value: "training" },
@@ -50,11 +51,12 @@ export default function TrendChart() {
   return (
     <Card
       size="small"
+      className="dash-card"
       title={(
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#595959" }}>
-          <LineChartOutlined />
-          <span>近 {days} 天 · {meta.label} 趋势</span>
-        </span>
+        <div className="dash-card__title">
+          <span className="dash-card__title-eyebrow">Trend · 近 {days} 天</span>
+          <span className="dash-card__title-text">{meta.label}走势</span>
+        </div>
       )}
       extra={(
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -70,19 +72,15 @@ export default function TrendChart() {
           </Button>
         </div>
       )}
-      style={{ borderRadius: 8, width: "100%", display: "flex", flexDirection: "column" }}
-      bodyStyle={{ padding: "12px 16px 16px", flex: 1, display: "flex", flexDirection: "column" }}
+      style={{ width: "100%", display: "flex", flexDirection: "column" }}
+      styles={{ body: { flex: 1, display: "flex", flexDirection: "column" } }}
     >
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 24, fontWeight: 600, color: "#262626" }}>
-          {total.toLocaleString()}
-        </span>
-        <span style={{ fontSize: 12, color: "#8c8c8c" }}>
-          {unit} · 累计
-        </span>
+      <div className="dash-card__hero">
+        <span className="dash-card__hero-num">{total.toLocaleString()}</span>
+        <span className="dash-card__hero-meta">{unit} · 累计</span>
       </div>
       <Spin spinning={loading}>
-        <MiniLineChart data={data} height={220} />
+        <MiniLineChart data={data} height={220} color={TREND_COLORS[metric] || "#426f9f"} />
       </Spin>
     </Card>
   );

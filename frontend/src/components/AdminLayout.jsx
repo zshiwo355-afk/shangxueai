@@ -16,12 +16,13 @@ import {
   TrophyOutlined,
   UserSwitchOutlined,
 } from "@ant-design/icons";
-import { Button, Layout, Menu, Spin, Typography } from "antd";
+import { Button, Layout, Menu, Spin } from "antd";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
 import { clearAuth, isSuperAdmin } from "../lib/auth";
 import logoImg from "../assets/logo.png";
+import "./admin-shell.css";
 
 const UsersTab = lazy(() => import("./admin/UsersTab"));
 const OptionsTab = lazy(() => import("./admin/OptionsTab"));
@@ -90,6 +91,10 @@ function findLeaf(key) {
   return MENU_FLAT.find((m) => m.key === key);
 }
 
+function findGroup(leafKey) {
+  return MENU_GROUPS.find((g) => g.children?.some((c) => c.key === leafKey));
+}
+
 function TabFallback() {
   return (
     <div style={{ display: "flex", justifyContent: "center", padding: "120px 0" }}>
@@ -135,7 +140,6 @@ export default function AdminLayout() {
     return m?.[1] || "dashboard";
   }, [location.pathname]);
 
-  // 多开父级菜单（受控）：只 add，不自动 remove，用户手动收起即可
   const [openKeys, setOpenKeys] = useState(() => {
     const parent = findParentKey(activeKey);
     return parent ? [parent] : [];
@@ -147,7 +151,6 @@ export default function AdminLayout() {
     }
   }, [activeKey]);
 
-  // 标签页签：dashboard 永驻，其他根据访问历史动态加入
   const [tabs, setTabs] = useState([DEFAULT_TAB]);
   const lastKeyRef = useRef(null);
   useEffect(() => {
@@ -185,60 +188,23 @@ export default function AdminLayout() {
     navigate("/login", { replace: true });
   };
 
+  const activeLeaf = findLeaf(activeKey);
+  const activeGroup = findGroup(activeKey);
+  const headerEyebrow = activeGroup?.label || (activeKey === "dashboard" ? "Overview" : "管理后台");
+
   return (
-    <Layout style={{ height: "100vh" }}>
-      <Sider
-        width={220}
-        theme="light"
-        style={{
-          borderRight: "1px solid var(--line-soft)",
-          height: "100vh",
-          position: "sticky",
-          top: 0,
-          left: 0,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div
-          style={{
-            padding: "20px 16px 16px",
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            borderBottom: "1px solid var(--line-soft)",
-            flexShrink: 0,
-          }}
-        >
-          <div
-            className="prepare-emblem"
-            style={{
-              width: 40,
-              height: 40,
-              fontSize: 18,
-              marginBottom: 0,
-              borderRadius: 12,
-              flexShrink: 0,
-              padding: 0,
-              background: "transparent",
-              boxShadow: "none",
-              overflow: "hidden",
-            }}
-          >
-            <img
-              src={logoImg}
-              alt="怀仁商学院"
-              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-            />
+    <Layout className="admin-shell" style={{ height: "100vh" }}>
+      <Sider width={224} theme="light" className="admin-sider">
+        <div className="admin-sider__brand">
+          <div className="admin-sider__brand-mark">
+            <img src={logoImg} alt="怀仁商学院" />
           </div>
-          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, gap: 2 }}>
-            <strong style={{ fontSize: 14, lineHeight: 1.3 }}>怀仁商学院</strong>
-            <span style={{ fontSize: 12, color: "var(--text-mute)", lineHeight: 1.3 }}>
-              管理后台
-            </span>
+          <div className="admin-sider__brand-text">
+            <span className="admin-sider__brand-name">怀仁商学院</span>
+            <span className="admin-sider__brand-sub">Admin Console</span>
           </div>
         </div>
+        <div className="admin-sider__nav-eyebrow">Navigation</div>
         <Menu
           mode="inline"
           multiple={false}
@@ -246,7 +212,8 @@ export default function AdminLayout() {
           openKeys={openKeys}
           onOpenChange={setOpenKeys}
           items={menuItems}
-          style={{ flex: 1, overflowY: "auto", borderInlineEnd: 0 }}
+          className="admin-sider__menu"
+          motion={{ motionName: "" }}
           onClick={({ key }) => {
             const item = findLeaf(key);
             if (!item) return;
@@ -255,59 +222,28 @@ export default function AdminLayout() {
         />
       </Sider>
       <Layout style={{ height: "100vh" }}>
-        <Header
-          style={{
-            background: "#fff",
-            padding: "0 24px",
-            borderBottom: "1px solid var(--line-soft)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexShrink: 0,
-            position: "sticky",
-            top: 0,
-            zIndex: 10,
-            height: 56,
-          }}
-        >
-          <Typography.Title level={5} style={{ margin: 0, fontWeight: 500 }}>
-            {findLeaf(activeKey)?.label || "管理后台"}
-          </Typography.Title>
-          <Button icon={<LogoutOutlined />} onClick={handleLogout}>退出</Button>
+        <Header className="admin-header">
+          <div className="admin-header__title">
+            <span className="admin-header__eyebrow">{headerEyebrow}</span>
+            <span className="admin-header__name">{activeLeaf?.label || "管理后台"}</span>
+          </div>
+          <Button
+            icon={<LogoutOutlined />}
+            onClick={handleLogout}
+            className="admin-header__logout"
+          >
+            退出
+          </Button>
         </Header>
 
-        <div
-          style={{
-            background: "#fafafa",
-            borderBottom: "1px solid #f0f0f0",
-            padding: "6px 16px",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            overflowX: "auto",
-            flexShrink: 0,
-          }}
-        >
+        <div className="admin-tabs">
           {tabs.map((tab) => {
             const isActive = tab.key === activeKey;
             return (
               <div
                 key={tab.key}
                 onClick={() => { if (!isActive) navigate(tab.path); }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "4px 10px",
-                  fontSize: 13,
-                  borderRadius: 4,
-                  cursor: isActive ? "default" : "pointer",
-                  background: isActive ? "#fff" : "transparent",
-                  border: isActive ? "1px solid #e5e7eb" : "1px solid transparent",
-                  color: isActive ? "#1677ff" : "#595959",
-                  whiteSpace: "nowrap",
-                  height: 28,
-                }}
+                className={`admin-tab${isActive ? " admin-tab--active" : ""}`}
               >
                 <span>{tab.label}</span>
                 {tab.closable ? (
@@ -316,12 +252,7 @@ export default function AdminLayout() {
                       ev.stopPropagation();
                       closeTab(tab.key);
                     }}
-                    style={{
-                      fontSize: 10,
-                      color: "#bfbfbf",
-                      padding: 2,
-                      borderRadius: 2,
-                    }}
+                    className="admin-tab__close"
                   />
                 ) : null}
               </div>
@@ -329,7 +260,7 @@ export default function AdminLayout() {
           })}
         </div>
 
-        <Content style={{ padding: 24, overflow: "auto", flex: 1 }}>
+        <Content className="admin-content">
           <Suspense fallback={<TabFallback />}>
             <Routes>
               <Route index element={<Navigate to="dashboard" replace />} />

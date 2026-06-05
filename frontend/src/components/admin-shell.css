@@ -1,0 +1,349 @@
+/* ============================================================
+   Admin Shell · Editorial Refresh
+   左侧 Sider + 顶部 Header + 标签页签 的整体视觉语言。
+   token 全部复用 :root 的 --accent / --accent-deep / --line /
+   --text-* 系列，避免新造色。
+   ============================================================ */
+
+.admin-shell {
+  background: var(--bg-canvas, #f6f5f2);
+}
+
+/* ============ 左侧 Sider ============ */
+.admin-sider {
+  background: #fbfaf6 !important;
+  border-right: 1px solid var(--line-soft) !important;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.admin-sider__brand {
+  padding: 20px 18px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line-soft, rgba(31, 41, 51, 0.07));
+  flex-shrink: 0;
+}
+
+.admin-sider__brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.admin-sider__brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.admin-sider__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 4px;
+}
+
+.admin-sider__brand-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-base, #1f2933);
+  letter-spacing: -0.005em;
+}
+
+.admin-sider__brand-sub {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent-deep, #426f9f);
+  line-height: 1;
+}
+
+.admin-sider__nav-eyebrow {
+  padding: 18px 22px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-faint, #98a2b3);
+  flex-shrink: 0;
+}
+
+.admin-sider__menu {
+  flex: 1;
+  overflow-y: auto;
+  /* 关键：保留滚动条空间，避免动画时滚动条闪现导致宽度抖动 */
+  scrollbar-gutter: stable;
+  /* 让浏览器把布局/绘制隔离在菜单内，submenu 动画不再触发外层重排 */
+  contain: layout paint style;
+  padding: 4px 12px 16px;
+  background: transparent !important;
+  border-inline-end: 0 !important;
+}
+
+/* 细滚动条，避免 stable gutter 留出大宽度 */
+.admin-sider__menu::-webkit-scrollbar {
+  width: 4px;
+}
+.admin-sider__menu::-webkit-scrollbar-thumb {
+  background: rgba(31, 41, 51, 0.12);
+  border-radius: 4px;
+}
+.admin-sider__menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(31, 41, 51, 0.22);
+}
+
+/* antd Menu 在浅米底上的视觉重塑 */
+.admin-sider__menu.ant-menu-light,
+.admin-sider__menu.ant-menu-light .ant-menu-sub {
+  background: transparent !important;
+}
+
+/*
+ * antd 的 inline 折叠用 motion 测 scrollHeight 来跑 height 动画。
+ * 这里只对 background / color 做缓动，绝对不要给 .ant-menu-item /
+ * .ant-menu-submenu-title 的 height/margin 加 transition，否则动画会抖。
+ * 同样保留 antd 默认的 height (40px) 与 margin，避免 sub 容器测高时跟我们的 !important
+ * 起冲突。
+ */
+.admin-sider__menu .ant-menu-item,
+.admin-sider__menu .ant-menu-submenu-title {
+  margin-block: 2px !important;
+  padding-inline: 12px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  color: var(--text-base, #1f2933) !important;
+  /* 不缓动 height/padding/margin（与 rc-motion 抢时序）；只缓动颜色相关 */
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease !important;
+}
+
+.admin-sider__menu .ant-menu-item .anticon,
+.admin-sider__menu .ant-menu-submenu-title .anticon {
+  color: var(--text-mute, #697586);
+  font-size: 14px;
+  transition: color 0.18s ease;
+}
+
+.admin-sider__menu .ant-menu-item:hover,
+.admin-sider__menu .ant-menu-submenu-title:hover {
+  background-color: rgba(66, 111, 159, 0.06) !important;
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+.admin-sider__menu .ant-menu-item:hover .anticon,
+.admin-sider__menu .ant-menu-submenu-title:hover .anticon {
+  color: var(--accent-deep, #426f9f);
+}
+
+.admin-sider__menu .ant-menu-item-selected {
+  background-color: var(--accent-soft, #edf4fb) !important;
+  color: var(--accent-deep, #426f9f) !important;
+  font-weight: 500;
+}
+
+.admin-sider__menu .ant-menu-item-selected .anticon {
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+/* 选中态左侧细条用 box-shadow 而不是 ::before，
+   避免 antd 在折叠时用 transform/clip 切掉绝对定位的伪元素。 */
+.admin-sider__menu .ant-menu-item-selected {
+  box-shadow: inset 2.5px 0 0 var(--accent-deep, #426f9f);
+}
+
+.admin-sider__menu .ant-menu-submenu-arrow {
+  color: var(--text-faint, #98a2b3) !important;
+  transition: transform 0.24s cubic-bezier(0.645, 0.045, 0.355, 1) !important;
+}
+
+.admin-sider__menu .ant-menu-submenu-open > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+/* 折叠期间隔离重绘 */
+.admin-sider__menu .ant-menu-sub.ant-menu-inline {
+  background: transparent !important;
+  padding-block: 2px;
+}
+
+/*
+ * 直接关闭 inline 折叠动画。
+ * antd 的 height-tween 在中文管理后台这种字体大、submenu 项多的场景下，
+ * 每帧都要 layout + repaint 整个 Sider，做不到 60fps。
+ * 与其卡半秒不如瞬间切换 —— 这是大多数生产后台（飞书、钉钉、Linear、Vercel）
+ * 的实际选择。
+ */
+.admin-sider__menu .ant-motion-collapse-legacy,
+.admin-sider__menu .ant-motion-collapse {
+  transition: none !important;
+  animation: none !important;
+}
+
+.admin-sider__menu .ant-menu-submenu-arrow {
+  transition: transform 0.18s ease !important;
+}
+
+.admin-sider__menu .ant-menu-sub .ant-menu-item {
+  font-size: 12.5px !important;
+}
+
+/* ============ 顶部 Header ============ */
+.admin-header {
+  background: #fbfaf6 !important;
+  padding: 0 28px !important;
+  border-bottom: 1px solid var(--line-soft, rgba(31, 41, 51, 0.07));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 60px !important;
+  line-height: 1.2 !important;
+}
+
+.admin-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-header__eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent-deep, #426f9f);
+  line-height: 1;
+}
+
+.admin-header__name {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--text-base, #1f2933);
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+
+.admin-header__logout {
+  border-radius: 8px !important;
+  border-color: var(--line, rgba(31, 41, 51, 0.12)) !important;
+  color: var(--text-mute, #697586) !important;
+  font-size: 12.5px !important;
+  height: 34px !important;
+  padding: 0 14px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.admin-header__logout:hover {
+  color: var(--accent-deep, #426f9f) !important;
+  border-color: var(--accent-light, #7da5d4) !important;
+  background: var(--accent-soft, #edf4fb) !important;
+}
+
+/* ============ Tab 条 ============ */
+.admin-tabs {
+  background: rgba(251, 250, 246, 0.7);
+  border-bottom: 1px solid var(--line-soft, rgba(31, 41, 51, 0.07));
+  padding: 8px 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.admin-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.admin-tabs::-webkit-scrollbar-thumb {
+  background: rgba(31, 41, 51, 0.12);
+  border-radius: 4px;
+}
+
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 28px;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-mute, #697586);
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-tab:hover {
+  background: rgba(31, 41, 51, 0.04);
+  color: var(--text-base, #1f2933);
+}
+
+.admin-tab--active {
+  background: #fff;
+  border-color: var(--line, rgba(31, 41, 51, 0.12));
+  color: var(--accent-deep, #426f9f);
+  cursor: default;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.admin-tab--active:hover {
+  background: #fff;
+  color: var(--accent-deep, #426f9f);
+}
+
+.admin-tab__close {
+  font-size: 9px !important;
+  color: var(--text-faint, #98a2b3);
+  padding: 3px;
+  border-radius: 50%;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.admin-tab__close:hover {
+  background: rgba(31, 41, 51, 0.08);
+  color: var(--text-base, #1f2933);
+}
+
+/* ============ 内容区 ============ */
+.admin-content {
+  padding: 24px 28px !important;
+  overflow: auto;
+  flex: 1;
+  background: var(--bg-canvas, #f6f5f2);
+}

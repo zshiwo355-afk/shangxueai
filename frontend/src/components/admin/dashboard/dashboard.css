@@ -1,0 +1,349 @@
+/* ============================================================
+   Admin Dashboard · Editorial Refresh
+   语言：站点已有的 editorial 风（米色 canvas + 海军蓝 + 1px 分隔
+   线 + tabular-nums + eyebrow）。所有 token 复用 :root 变量，
+   颜色保持低饱和、节制；强调色仅用于关键数字与提示。
+   ============================================================ */
+
+.dash {
+  --dash-line: rgba(31, 41, 51, 0.08);
+  --dash-line-soft: rgba(31, 41, 51, 0.05);
+  --dash-card-bg: rgba(255, 255, 255, 0.96);
+  --dash-card-bg-hover: #ffffff;
+  --dash-shadow: 0 1px 2px rgba(15, 23, 42, 0.02), 0 8px 24px rgba(15, 23, 42, 0.04);
+
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ============ Section / Eyebrow ============ */
+.dash-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dash-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.dash-section__title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dash-section__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--accent-deep, #426f9f);
+}
+
+.dash-section__eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.dash-section__title {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--text-base, #1f2933);
+  letter-spacing: -0.005em;
+}
+
+.dash-section__hint {
+  font-size: 12px;
+  color: var(--text-faint, #98a2b3);
+  letter-spacing: 0.02em;
+}
+
+/* ============ KPI Grid ============ */
+.dash-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--dash-line);
+  border-left: 1px solid var(--dash-line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--dash-card-bg);
+}
+
+.dash-kpi__cell {
+  position: relative;
+  padding: 22px 22px 20px;
+  border-right: 1px solid var(--dash-line);
+  border-bottom: 1px solid var(--dash-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 124px;
+  background: transparent;
+  transition: background 0.18s ease;
+}
+
+.dash-kpi__cell:hover {
+  background: rgba(247, 242, 234, 0.45);
+}
+
+.dash-kpi__cell--alert::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 0;
+  width: 3px;
+  height: 22px;
+  background: #c0426a;
+  border-radius: 0 2px 2px 0;
+}
+
+.dash-kpi__index {
+  font-family: "Inter", "Geist", "Helvetica Neue", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--text-faint, #98a2b3);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-kpi__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dash-kpi__label {
+  font-size: 12.5px;
+  color: var(--text-mute, #697586);
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dash-kpi__label .anticon {
+  color: var(--accent, #588bc8);
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.dash-kpi__value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: "Inter", "Geist", "Helvetica Neue", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.dash-kpi__value strong {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text-base, #1f2933);
+}
+
+.dash-kpi__value--alert strong {
+  color: #c0426a;
+}
+
+.dash-kpi__suffix {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-mute, #697586);
+  letter-spacing: 0;
+}
+
+.dash-kpi__foot {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--text-faint, #98a2b3);
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
+.dash-kpi__foot--alert {
+  color: #c0426a;
+  font-weight: 500;
+}
+
+/* ============ Card 通用容器 ============ */
+.dash-card {
+  border-radius: 14px !important;
+  border: 1px solid var(--dash-line) !important;
+  background: var(--dash-card-bg) !important;
+  box-shadow: none !important;
+}
+
+.dash-card .ant-card-head {
+  border-bottom: 1px solid var(--dash-line-soft) !important;
+  padding: 14px 22px !important;
+  min-height: 0 !important;
+}
+
+.dash-card .ant-card-head-title {
+  padding: 0 !important;
+}
+
+.dash-card .ant-card-body {
+  padding: 18px 22px 20px !important;
+}
+
+.dash-card__title {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dash-card__title-eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--accent-deep, #426f9f);
+}
+
+.dash-card__title-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-base, #1f2933);
+  letter-spacing: -0.005em;
+}
+
+.dash-card__hero {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.dash-card__hero-num {
+  font-family: "Inter", "Geist", "Helvetica Neue", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text-base, #1f2933);
+}
+
+.dash-card__hero-meta {
+  font-size: 12px;
+  color: var(--text-faint, #98a2b3);
+  letter-spacing: 0.04em;
+}
+
+/* antd Segmented 在看板里的视觉削弱 */
+.dash-card .ant-segmented {
+  background: rgba(31, 41, 51, 0.04) !important;
+  padding: 2px !important;
+  border-radius: 8px !important;
+}
+
+.dash-card .ant-segmented .ant-segmented-item {
+  border-radius: 6px !important;
+}
+
+.dash-card .ant-segmented .ant-segmented-item-selected {
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+  color: var(--accent-deep, #426f9f) !important;
+  font-weight: 500;
+}
+
+.dash-card .ant-btn-default {
+  border-color: var(--dash-line) !important;
+}
+
+/* ============ 排行榜列表（可选替代纯 ECharts，先沿用，但调外壳） ============ */
+.dash-card--leaderboard .ant-card-body {
+  padding: 14px 18px 18px !important;
+}
+
+/* ============ 部门表格 ============ */
+.dash-card--department .ant-table-thead > tr > th {
+  background: rgba(247, 242, 234, 0.5) !important;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-mute, #697586) !important;
+  border-bottom: 1px solid var(--dash-line) !important;
+}
+
+.dash-card--department .ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--dash-line-soft) !important;
+}
+
+/* ============ Empty 占位 ============ */
+.dash-empty {
+  padding: 40px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint, #98a2b3);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+/* ============ 数字风格统一 ============ */
+.dash :where(strong, .ant-typography strong) {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ============ Responsive ============ */
+@media (max-width: 1280px) {
+  .dash-kpi {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .dash-kpi {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .dash-kpi {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dash-hero__pulse {
+    padding: 14px 16px;
+  }
+}
+
+@media (max-width: 540px) {
+  .dash-kpi {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-hero__title {
+    font-size: 24px;
+  }
+
+  .dash-card .ant-card-head {
+    padding: 12px 16px !important;
+  }
+
+  .dash-card .ant-card-body {
+    padding: 14px 16px 16px !important;
+  }
+}

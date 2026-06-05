@@ -1,18 +1,17 @@
-import { PieChartOutlined } from "@ant-design/icons";
 import { Card, Empty, Spin } from "antd";
 import { useEffect, useState } from "react";
 
 import { fetchDashboardPointsBreakdown } from "../../../lib/api.dashboard";
 import DonutChart from "./DonutChart";
+import { CATEGORY_COLORS } from "./palette";
 
-// 中性灰阶 + 一抹主色，避免彩虹拼图
 const CATEGORY_META = [
-  { key: "training", label: "AI 对练", color: "#1677ff" },
-  { key: "course", label: "课程视频", color: "#4096ff" },
-  { key: "reading", label: "读书打卡", color: "#69b1ff" },
-  { key: "paper", label: "考试试卷", color: "#91caff" },
-  { key: "exam", label: "AI 通关", color: "#bae0ff" },
-  { key: "manual", label: "手动调整", color: "#d9d9d9" },
+  { key: "training", label: "AI 对练", color: CATEGORY_COLORS.training },
+  { key: "course", label: "课程视频", color: CATEGORY_COLORS.course },
+  { key: "reading", label: "读书打卡", color: CATEGORY_COLORS.reading },
+  { key: "paper", label: "考试试卷", color: CATEGORY_COLORS.paper },
+  { key: "exam", label: "AI 通关", color: CATEGORY_COLORS.exam },
+  { key: "manual", label: "手动调整", color: CATEGORY_COLORS.manual },
 ];
 
 export default function PointsBreakdownCard() {
@@ -38,20 +37,21 @@ export default function PointsBreakdownCard() {
   return (
     <Card
       size="small"
+      className="dash-card"
       title={(
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#595959" }}>
-          <PieChartOutlined />
-          <span>积分分类构成</span>
-        </span>
+        <div className="dash-card__title">
+          <span className="dash-card__title-eyebrow">Composition</span>
+          <span className="dash-card__title-text">积分分类构成</span>
+        </div>
       )}
-      style={{ borderRadius: 8 }}
-      bodyStyle={{ padding: 16 }}
     >
       <Spin spinning={loading}>
         {hasData ? (
-          <DonutChart data={items} size={200} thickness={26} />
+          <DonutChart data={items} size={220} thickness={28} />
         ) : (
-          <Empty description="暂无积分数据" />
+          <div className="dash-empty">
+            <Empty description="暂无积分数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          </div>
         )}
       </Spin>
     </Card>

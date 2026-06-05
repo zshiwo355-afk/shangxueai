@@ -5,11 +5,23 @@ import {
   fetchDashboardKpi,
   fetchDashboardPendingTasks,
 } from "../../../lib/api.dashboard";
+import "./dashboard.css";
 import DepartmentChart from "./DepartmentTable";
 import KpiOverviewCards from "./KpiOverviewCards";
 import LeaderboardPreview from "./LeaderboardPreview";
 import PointsBreakdownCard from "./PointsBreakdownCard";
 import TrendChart from "./TrendChart";
+
+function SectionHead({ eyebrow, title }) {
+  return (
+    <header className="dash-section__head">
+      <div className="dash-section__title-group">
+        <span className="dash-section__eyebrow">{eyebrow}</span>
+        <h2 className="dash-section__title">{title}</h2>
+      </div>
+    </header>
+  );
+}
 
 export default function DashboardPage() {
   const { message } = AntdApp.useApp();
@@ -28,30 +40,41 @@ export default function DashboardPage() {
   }, [message]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {kpi ? (
-        <KpiOverviewCards kpi={kpi} pending={pending} />
-      ) : (
-        <Skeleton active paragraph={{ rows: 2 }} />
-      )}
+    <div className="dash">
+      <section className="dash-section">
+        <SectionHead eyebrow="01 · Vital Signs" title="关键指标速览" />
+        {kpi ? (
+          <KpiOverviewCards kpi={kpi} pending={pending} />
+        ) : (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        )}
+      </section>
 
-      <Row gutter={[16, 16]} align="stretch">
-        <Col xs={24} lg={16} style={{ display: "flex" }}>
-          <div style={{ flex: 1, display: "flex" }}>
-            <TrendChart />
-          </div>
-        </Col>
-        <Col xs={24} lg={8} style={{ display: "flex" }}>
-          <div style={{ flex: 1, display: "flex" }}>
-            <LeaderboardPreview />
-          </div>
-        </Col>
-      </Row>
+      <section className="dash-section">
+        <SectionHead eyebrow="02 · Activity & Champions" title="趋势走向 · 学习达人" />
+        <Row gutter={[20, 20]} align="stretch">
+          <Col xs={24} lg={16} style={{ display: "flex" }}>
+            <div style={{ flex: 1, display: "flex" }}>
+              <TrendChart />
+            </div>
+          </Col>
+          <Col xs={24} lg={8} style={{ display: "flex" }}>
+            <div style={{ flex: 1, display: "flex" }}>
+              <LeaderboardPreview />
+            </div>
+          </Col>
+        </Row>
+      </section>
 
-      <DepartmentChart />
+      <section className="dash-section">
+        <SectionHead eyebrow="03 · By Department" title="部门维度透视" />
+        <DepartmentChart />
+      </section>
 
-      <PointsBreakdownCard />
+      <section className="dash-section">
+        <SectionHead eyebrow="04 · Points Composition" title="积分分类构成" />
+        <PointsBreakdownCard />
+      </section>
     </div>
   );
 }
-

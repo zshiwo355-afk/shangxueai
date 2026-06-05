@@ -1,10 +1,11 @@
-import { BarChartOutlined, DownloadOutlined, TableOutlined } from "@ant-design/icons";
+import { DownloadOutlined, TableOutlined } from "@ant-design/icons";
 import { Button, Card, Empty, Segmented, Spin, Switch, Table } from "antd";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchDashboardDepartmentStats } from "../../../lib/api.dashboard";
 import { downloadCsv, todayStamp } from "../../../lib/csvExport";
 import HorizontalBarChart from "./HorizontalBarChart";
+import { DEPARTMENT_COLORS } from "./palette";
 
 const DAYS_OPTIONS = [
   { label: "近 7 天", value: 7 },
@@ -18,8 +19,6 @@ const METRIC_OPTIONS = [
   { label: "打卡次数", value: "reading_count", suffix: "次" },
   { label: "活跃率", value: "active_rate", suffix: "%" },
 ];
-
-const CHART_COLOR = "#1677ff";
 
 const TOP_OPTIONS = [
   { label: "Top 10", value: 10 },
@@ -119,11 +118,12 @@ export default function DepartmentChart() {
   return (
     <Card
       size="small"
+      className="dash-card dash-card--department"
       title={(
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#595959" }}>
-          <BarChartOutlined />
-          <span>部门维度透视</span>
-        </span>
+        <div className="dash-card__title">
+          <span className="dash-card__title-eyebrow">By Department · 近 {days} 天</span>
+          <span className="dash-card__title-text">{meta.label}</span>
+        </div>
       )}
       extra={(
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -144,19 +144,19 @@ export default function DepartmentChart() {
           </Button>
         </div>
       )}
-      style={{ borderRadius: 8 }}
-      bodyStyle={{ padding: 16 }}
     >
       <Spin spinning={loading}>
         {chartData.length ? (
-          <HorizontalBarChart data={chartData} color={CHART_COLOR} suffix={meta.suffix} />
+          <HorizontalBarChart data={chartData} color={DEPARTMENT_COLORS[metric] || "#426f9f"} suffix={meta.suffix} />
         ) : (
-          <Empty description="暂无部门数据" />
+          <div className="dash-empty">
+            <Empty description="暂无部门数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          </div>
         )}
       </Spin>
 
       {showTable ? (
-        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #f0f0f0" }}>
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--dash-line, rgba(31,41,51,0.08))" }}>
           <Table
             rowKey="department"
             size="small"
