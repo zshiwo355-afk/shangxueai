@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import math
 import mimetypes
 import uuid
 from contextlib import asynccontextmanager
@@ -272,6 +273,33 @@ def _build_video_cover_prompt(payload: MagicVideoCoverGeneratePayload) -> str:
     return "\n".join(parts)
 
 
+def _ceil_to_multiple(value: int, base: int) -> int:
+    safe_value = max(int(value), 1)
+    return max(base, ((safe_value + base - 1) // base) * base)
+
+
+def _normalize_video_cover_generation_size(reference_size: tuple[int, int]) -> tuple[int, int]:
+    """Normalize arbitrary reference image sizes to values accepted by the upstream image API.
+
+    The upstream `/images/edits` endpoint rejects many raw image sizes from the UI:
+    width/height must be divisible by 16, and low-resolution sizes can be rejected for
+    being below the minimum pixel budget. We therefore upscale while preserving aspect
+    ratio, then round both edges up to multiples of 16. The returned image is still
+    resized back to the original reference size later in the pipeline.
+    """
+
+    width, height = (int(reference_size[0]), int(reference_size[1]))
+    if width <= 0 or height <= 0:
+        return (1536, 864)
+
+    min_area = 1024 * 1024 if width == height else 1536 * 864
+    current_area = width * height
+    scale = max(1.0, math.sqrt(min_area / float(current_area))) if current_area > 0 else 1.0
+    normalized_width = _ceil_to_multiple(math.ceil(width * scale), 16)
+    normalized_height = _ceil_to_multiple(math.ceil(height * scale), 16)
+    return normalized_width, normalized_height
+
+
 @router.post("/admin/video-cover/generate")
 async def generate_magic_video_cover(
     title: str = Form(""),
@@ -306,11 +334,12 @@ async def generate_magic_video_cover(
     if len(reference_size) != 2 or reference_size[0] <= 0 or reference_size[1] <= 0:
         raise HTTPException(status_code=400, detail="参考封面图片尺寸无效。")
     final_prompt = _build_video_cover_prompt(payload)
+    generated_size = _normalize_video_cover_generation_size(reference_size)
     endpoint = f"{settings.llm_base_url.rstrip('/')}/images/edits"
     data = {
         "model": settings.image_gen_model,
         "prompt": final_prompt,
-        "size": f"{reference_size[0]}x{reference_size[1]}",
+        "size": f"{generated_size[0]}x{generated_size[1]}",
         "quality": settings.image_gen_quality,
         "n": "1",
     }
@@ -338,6 +367,11 @@ async def generate_magic_video_cover(
     else:
         detail = str(payload_json.get("error", {}).get("message") or payload_json.get("detail") or "").strip()
     if response.status_code >= 400:
+        if response.status_code in {400, 422}:
+            raise HTTPException(
+                status_code=400,
+                detail=detail or "AI 生图请求参数不合法，请更换参考图或调整配置后重试。",
+            )
         raise HTTPException(status_code=502, detail=detail or "AI 生图失败，请检查模型配置或稍后重试。")
 
     items = payload_json.get("data") if isinstance(payload_json, dict) else None
