@@ -146,9 +146,9 @@ async def grant_points(
 
 
 async def record_reading_streak(db: AsyncSession, *, user_id: int, checkin_date: date) -> dict[str, Any]:
-    """记录读书打卡 streak：若达到 7/30/60... 给奖励规则发放积分。
+    """记录读书打卡 streak：仅维护连续天数 / 最长连续，不再发放 milestone 奖励。
 
-    返回 {"streak_days": int, "rewarded": ["reading_streak_7", ...]}。
+    返回 {"streak_days": int, "rewarded": []}。
     一天多次调用幂等（基于 last_checkin_date 比较）。
     """
     summary = await _ensure_summary(db, user_id)
@@ -166,24 +166,7 @@ async def record_reading_streak(db: AsyncSession, *, user_id: int, checkin_date:
         summary.max_streak_days = new_streak
     await db.flush()
 
-    rewarded: list[str] = []
-    # 7 天 / 30 天奖励：达到时一次性发放（用 dedupe_extra 保证同次连续仅一次）
-    streak_milestones = [(7, "reading_streak_7"), (30, "reading_streak_30")]
-    for milestone, code in streak_milestones:
-        if new_streak == milestone:
-            res = await grant_points(
-                db,
-                user_id=user_id,
-                rule_code=code,
-                business_type="reading_streak",
-                business_id=None,
-                dedupe_extra=f"streak{milestone}-end{checkin_date.isoformat()}",
-                remark=f"连续打卡 {milestone} 天",
-            )
-            if res.get("granted"):
-                rewarded.append(code)
-
-    return {"streak_days": new_streak, "rewarded": rewarded}
+    return {"streak_days": new_streak, "rewarded": []}
 
 
 async def get_user_total(db: AsyncSession, user_id: int) -> int:

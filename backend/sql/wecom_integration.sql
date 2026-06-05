@@ -263,14 +263,12 @@ CREATE TABLE IF NOT EXISTS `point_rules` (
 
 -- 默认规则种子（已存在则不动，可改 points/daily_limit/enabled/description）
 INSERT IGNORE INTO `point_rules` (`code`,`name`,`category`,`points`,`daily_limit`,`enabled`,`description`) VALUES
-  ('training_deal',      'AI对练-成交',          'training', 20, 0, 1, '一次销售对练复盘结果为"成交"时入账'),
-  ('training_intent',    'AI对练-意向客户',      'training', 10, 0, 1, '一次销售对练复盘结果为"意向客户"时入账'),
-  ('training_other',     'AI对练-其他完成',      'training', 3,  5, 1, '一次销售对练完成但未达成上述结果，每日最多 5 次入账'),
+  ('training_deal',      'AI对练-成交',          'training', 20, 0, 1, '一次销售对练复盘得分 ≥80 时入账'),
+  ('training_intent',    'AI对练-意向客户',      'training', 10, 0, 1, '一次销售对练复盘得分 ≥60 且 <80 时入账'),
+  ('training_other',     'AI对练-其他完成',      'training', 3,  5, 1, '一次销售对练完成但得分 <60，每日最多 5 次入账'),
   ('video_complete',     '课程-视频完整学完',    'course',   15, 0, 1, '同一视频首次标记为完成时入账（每用户每视频仅一次）'),
   ('quiz_pass',          '课程-随堂测通过',      'course',   5,  0, 1, '随堂测点位首次通过时入账（每用户每点位仅一次）'),
   ('reading_checkin',    '读书打卡-当日完成',    'reading',  8,  1, 1, '当日提交读书音频打卡时入账，每自然日最多 1 次'),
-  ('reading_streak_7',   '读书打卡-连续7天奖励', 'reading',  30, 0, 1, '读书打卡连续达到 7 天时一次性奖励'),
-  ('reading_streak_30',  '读书打卡-连续30天奖励','reading', 100, 0, 1, '读书打卡连续达到 30 天时一次性奖励'),
   ('paper_pass',         '考试-试卷通过',        'paper',    30, 0, 1, '试卷批阅完成且通过时入账（每用户每试卷仅一次）'),
   ('exam_pass',          'AI通关-考试通过',      'exam',     50, 0, 1, 'AI通关考试通过时入账（每用户每 exam 仅一次）'),
   ('manual_adjust',      '手动调整',             'manual',   0,  0, 1, '管理员手动加减分使用，不依赖默认 points');
@@ -367,3 +365,5 @@ CREATE TABLE IF NOT EXISTS `mentor_recommendations` (
   KEY `idx_mentor_recommendations_mentor` (`mentor_id`,`enabled`,`sort_order`) USING BTREE,
   KEY `idx_mentor_recommendations_target` (`target_type`,`target_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='导师推荐内容';
+
+ALTER TABLE `users` ADD COLUMN `guide_completed_at` datetime DEFAULT NULL;

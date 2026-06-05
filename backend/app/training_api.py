@@ -193,13 +193,15 @@ def build_router(
         await db.flush()
         await db.refresh(record)
 
-        # 训练完成 → 入账积分（成交 / 意向客户 / 其他完成）。
+        # 训练完成 → 入账积分。按训练分数分档：
+        #   ≥80 → training_deal（成交档），≥60 → training_intent（意向客户档），其余 → training_other。
         # 业务事务内调用，commit 时一并落库；幂等键带 record_id，重复回调不会重复入账。
         try:
             result_text = (str(normalized.get("result") or "")).strip()
-            if result_text == "成交":
+            score_value = float(normalized.get("score") or 0)
+            if score_value >= 80:
                 rule_code = "training_deal"
-            elif result_text == "意向客户":
+            elif score_value >= 60:
                 rule_code = "training_intent"
             else:
                 rule_code = "training_other"
@@ -209,7 +211,7 @@ def build_router(
                 rule_code=rule_code,
                 business_type="training_record",
                 business_id=int(record.id),
-                remark=f"AI对练 {result_text or '完成'}",
+                remark=f"AI对练 {result_text or '完成'}（{score_value:.0f} 分）",
             )
         except Exception:  # noqa: BLE001
             logger.exception("grant_points failed for training record=%s", record.id)
