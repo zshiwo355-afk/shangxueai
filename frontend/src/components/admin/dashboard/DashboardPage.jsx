@@ -66,15 +66,20 @@ export default function DashboardPage() {
         </Row>
       </section>
 
-      <section className="dash-section">
-        <SectionHead eyebrow="03 · By Department" title="部门维度透视" />
-        <DepartmentChart />
-      </section>
-
-      <section className="dash-section">
-        <SectionHead eyebrow="04 · Points Composition" title="积分分类构成" />
-        <PointsBreakdownCard />
-      </section>
+      <Row gutter={[20, 20]} align="stretch">
+        <Col xs={24} lg={16} style={{ display: "flex" }}>
+          <section className="dash-section" style={{ flex: 1, minWidth: 0 }}>
+            <SectionHead eyebrow="03 · By Department" title="部门维度透视" />
+            <DepartmentChart />
+          </section>
+        </Col>
+        <Col xs={24} lg={8} style={{ display: "flex" }}>
+          <section className="dash-section" style={{ flex: 1, minWidth: 0 }}>
+            <SectionHead eyebrow="04 · Points Composition" title="积分分类构成" />
+            <PointsBreakdownCard />
+          </section>
+        </Col>
+      </Row>
     </div>
   );
 }

@@ -480,7 +480,7 @@ export default function UsersTab() {
           allowClear
           showSearch
           placeholder="按部门筛选"
-          style={{ width: 200 }}
+          style={{ width: 240 }}
           options={departmentOptions}
           value={department}
           onChange={(v) => { setPage(1); setDepartment(v); }}

@@ -108,11 +108,13 @@ export default function LeaderboardTab() {
           {scope === "department" ? (
             <Select
               placeholder="选择部门"
-              style={{ width: 200 }}
+              style={{ width: 240 }}
               value={department || undefined}
               onChange={setDepartment}
               options={departments.map((d) => ({ label: d, value: d }))}
               allowClear
+              showSearch
+              optionFilterProp="label"
             />
           ) : null}
           <span style={{ color: "var(--text-mute)" }}>分类</span>

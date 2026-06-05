@@ -98,6 +98,14 @@ async def kpi(
         )
     )).scalar() or 0)
 
+    # 今日打卡人数（去重）：当天提交读书音频的不同用户数
+    today_audio_users = int((await db.execute(
+        select(func.count(distinct(MagicAudioUpload.user_id))).where(
+            MagicAudioUpload.uploaded_on >= today_start,
+            MagicAudioUpload.is_deleted.is_(False),
+        )
+    )).scalar() or 0)
+
     # 待批阅试卷 + 本周通过率：一次 SQL 拿完
     paper_row = (await db.execute(
         select(
@@ -148,6 +156,7 @@ async def kpi(
         },
         "reading": {
             "week_count": week_audio,
+            "today_users": today_audio_users,
         },
         "papers": {
             "pending_review": pending_papers,
@@ -237,7 +246,8 @@ async def department_stats(
         key = dept or "未分配"
         dept_head[key] = int(cnt or 0)
 
-    # 部门 → 活跃数：UNION ALL 四个来源 join users 后 GROUP BY 部门 + COUNT DISTINCT
+    # 部门 → 活跃数：UNION ALL 五个来源 join users 后 GROUP BY 部门 + COUNT DISTINCT
+    # 口径与 /kpi 的 today_active 保持一致（训练 / 视频 / 音频 / 试卷 / 通关）
     active_union = union_all(
         select(TrainingRecord.user_id.label("uid"))
         .where(TrainingRecord.created_at >= range_start),
@@ -245,6 +255,8 @@ async def department_stats(
         .where(MagicVideoProgress.last_watched_at >= range_start),
         select(MagicAudioUpload.user_id.label("uid"))
         .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False)),
+        select(PaperSubmission.user_id.label("uid"))
+        .where(PaperSubmission.started_at >= range_start),
         select(Exam.user_id.label("uid"))
         .join(ExamAttempt, ExamAttempt.exam_id == Exam.id)
         .where(ExamAttempt.started_at >= range_start),

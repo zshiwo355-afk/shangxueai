@@ -86,7 +86,9 @@ export default function AdminAudioStatsPanel({
           />
           <Select
             allowClear
-            style={{ width: 180 }}
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 220 }}
             placeholder="按部门筛选"
             value={audioDepartment || undefined}
             onChange={(value) => setAudioDepartment(value || "")}

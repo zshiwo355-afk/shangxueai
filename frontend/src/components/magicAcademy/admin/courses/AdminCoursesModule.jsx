@@ -506,7 +506,9 @@ export function buildAdminCoursesTabItems({
               <Select
                 mode="multiple"
                 allowClear
-                style={{ width: 180 }}
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 220 }}
                 placeholder="选择部门"
                 value={statsDepartment}
                 onChange={(value) => courseAdminActions.setStatsDepartment(value || [])}

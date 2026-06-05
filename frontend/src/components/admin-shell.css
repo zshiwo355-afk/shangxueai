@@ -207,8 +207,24 @@
   transition: transform 0.18s ease !important;
 }
 
-.admin-sider__menu .ant-menu-sub .ant-menu-item {
+/* 二级菜单缩进，让父子层级像文档的 h2 / h3 一样有视觉差 */
+.admin-sider__menu .ant-menu-sub.ant-menu-inline .ant-menu-item {
+  padding-inline-start: 26px !important;
   font-size: 12.5px !important;
+  color: var(--text-mute, #697586) !important;
+}
+
+.admin-sider__menu .ant-menu-sub.ant-menu-inline .ant-menu-item .anticon {
+  color: var(--text-faint, #98a2b3);
+  font-size: 13px;
+}
+
+.admin-sider__menu .ant-menu-sub.ant-menu-inline .ant-menu-item:hover {
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+.admin-sider__menu .ant-menu-sub.ant-menu-inline .ant-menu-item-selected {
+  color: var(--accent-deep, #426f9f) !important;
 }
 
 /* ============ 顶部 Header ============ */

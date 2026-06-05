@@ -1,5 +1,4 @@
 import {
-  AlertOutlined,
   BookOutlined,
   CheckCircleOutlined,
   FormOutlined,
@@ -30,14 +29,13 @@ function KpiCell({ index, icon, label, value, suffix, footer, alert }) {
   );
 }
 
-export default function KpiOverviewCards({ kpi, pending }) {
+export default function KpiOverviewCards({ kpi }) {
   if (!kpi) return null;
   const u = kpi.users || {};
   const t = kpi.training || {};
   const r = kpi.reading || {};
   const p = kpi.papers || {};
   const e = kpi.exams || {};
-  const pt = pending || {};
 
   const cells = [
     {
@@ -85,12 +83,11 @@ export default function KpiOverviewCards({ kpi, pending }) {
       footer: "AI 通关考试待人工复核",
     },
     {
-      icon: <AlertOutlined />,
-      label: "已逾期未完成",
-      value: pt.paper_overdue || 0,
-      suffix: "份",
-      alert: (pt.paper_overdue || 0) > 0,
-      footer: (pt.paper_overdue || 0) > 0 ? "建议催办" : "无逾期",
+      icon: <BookOutlined />,
+      label: "今日打卡人数",
+      value: r.today_users || 0,
+      suffix: "人",
+      footer: (r.today_users || 0) > 0 ? "今天已上传读书音频" : "今天暂无打卡",
     },
     {
       icon: <TeamOutlined />,

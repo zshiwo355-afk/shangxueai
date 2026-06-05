@@ -192,6 +192,22 @@
   box-shadow: none !important;
 }
 
+/* 当 section 跟其它 section 同行时，让 Card 撑满剩余高度，保证两列等高。
+   .dash-section 已经是 flex column，这里只把 Card 拉成 flex:1。 */
+.dash-section > .dash-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.dash-section > .dash-card > .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .dash-card .ant-card-head {
   border-bottom: 1px solid var(--dash-line-soft) !important;
   padding: 14px 22px !important;
