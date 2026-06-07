@@ -9,19 +9,19 @@ import {
   RocketOutlined,
   TrophyOutlined,
 } from "@ant-design/icons";
-import { App as AntdApp, Button, Empty, Progress, Space, Tag, Typography } from "antd";
+import { App as AntdApp, Button, Carousel, Empty, Progress, Space, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { fetchActiveBanners } from "../lib/api.banners";
 import { fetchMyExams } from "../lib/api.exam";
 import { fetchMyAudios, fetchMyMagicVideos } from "../lib/api.magic";
 import { fetchMyTrainingRecords } from "../lib/api.training";
 import { fetchMyPaperAssignments } from "../lib/api.userPapers";
-import { getCurrentUser } from "../lib/auth";
 import { loadActiveSession } from "../lib/storage";
 import MentorPreviewSection from "./magicAcademy/user/mentor/MentorPreviewSection";
 
-const { Paragraph, Text, Title } = Typography;
+const { Title } = Typography;
 
 function challengeStatusLabel(status) {
   if (status === "passed") return "已通过";
@@ -132,16 +132,55 @@ function LiveClock() {
   );
 }
 
+function HomeHeroBanner({ banners, onOpen }) {
+  return (
+    <div className="showcase-hero__banner fade-in-up" style={{ "--fade-delay": "80ms" }}>
+      {banners.length > 0 ? (
+        <Carousel autoplay autoplaySpeed={4500} pauseOnHover draggable>
+          {banners.map((banner) => {
+            const hasLink = !!String(banner.link_url || "").trim();
+            return (
+              <div key={banner.id || banner.image_url} className="home-banner-carousel__item">
+                <button
+                  type="button"
+                  className={`home-banner-slide${hasLink ? " home-banner-slide--clickable" : ""}`}
+                  onClick={() => onOpen(banner)}
+                  aria-label={hasLink ? `打开轮播图：${banner.title || "首页推荐"}` : banner.title || "首页轮播图"}
+                >
+                  <img src={banner.image_url} alt={banner.title || "首页轮播图"} />
+                  <span className="home-banner-slide__shade" aria-hidden="true" />
+                  {banner.title ? (
+                    <span className="home-banner-slide__caption">
+                      <span>Featured</span>
+                      <strong>{banner.title}</strong>
+                      {hasLink ? <em>点击查看</em> : null}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+            );
+          })}
+        </Carousel>
+      ) : (
+        <div className="home-banner-empty">
+          <span>Homepage Banner</span>
+          <strong>暂无启用轮播图</strong>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
-  const user = getCurrentUser();
   const [, setLoading] = useState(true);
   const [challenges, setChallenges] = useState([]); // 老的"通关"
   const [papers, setPapers] = useState([]);         // 新的"考试"
   const [records, setRecords] = useState([]);
   const [videos, setVideos] = useState([]);
   const [audios, setAudios] = useState([]);
+  const [banners, setBanners] = useState([]);
   const activeSession = useMemo(() => loadActiveSession(), []);
 
   useEffect(() => {
@@ -149,12 +188,13 @@ export default function HomePage() {
 
     (async () => {
       try {
-        const [challengeData, paperData, recordData, videoData, audioData] = await Promise.all([
+        const [challengeData, paperData, recordData, videoData, audioData, bannerData] = await Promise.all([
           fetchMyExams().catch(() => []),
           fetchMyPaperAssignments().catch(() => []),
           fetchMyTrainingRecords().catch(() => []),
           fetchMyMagicVideos().catch(() => []),
           fetchMyAudios().catch(() => []),
+          fetchActiveBanners().catch(() => []),
         ]);
         if (!alive) return;
         setChallenges(Array.isArray(challengeData) ? challengeData : []);
@@ -162,6 +202,7 @@ export default function HomePage() {
         setRecords(Array.isArray(recordData) ? recordData : []);
         setVideos(Array.isArray(videoData) ? videoData : []);
         setAudios(Array.isArray(audioData) ? audioData : []);
+        setBanners(Array.isArray(bannerData) ? bannerData.filter((item) => item?.image_url) : []);
       } catch (error) {
         if (alive) message.error(error?.message || "首页数据加载失败。");
       } finally {
@@ -286,7 +327,6 @@ export default function HomePage() {
   );
 
   const yearText = dayjs().format("YYYY");
-  const openTodos = () => navigate("/todo");
   const openTodoPapers = () => navigate("/papers?filter=todo");
   const openTodoChallenges = () => {
     const exam = todoChallenges[0]?.exam;
@@ -298,62 +338,25 @@ export default function HomePage() {
   };
   const openTrainingRecords = () => navigate("/training/records");
   const openAudioCheckin = () => navigate("/magic-academy?tab=audio");
+  const openBanner = (banner) => {
+    const target = String(banner?.link_url || "").trim();
+    if (!target) return;
+    if (target.startsWith("/")) {
+      navigate(target);
+      return;
+    }
+    if (/^https?:\/\//i.test(target)) {
+      window.open(target, "_blank", "noopener,noreferrer");
+    }
+  };
 
   return (
     <div className="portal-home portal-home--editorial portal-home--minimal">
       <section className="showcase-hero">
         <span className="showcase-hero__year" aria-hidden="true">学</span>
         <div className="showcase-hero__inner">
-          <div className="showcase-hero__intro">
-            <span className="showcase-eyebrow fade-in-up" style={{ "--fade-delay": "0ms" }}>
-              Personal Workspace
-            </span>
-            <Title level={1} className="showcase-hero__title fade-in-up" style={{ "--fade-delay": "80ms" }}>
-              今天，做点什么
-            </Title>
-            <p className="showcase-hero__english fade-in-up" style={{ "--fade-delay": "160ms" }}>
-              SHANGXUE AI · TRAIN · LEARN · GROW
-            </p>
-            <Paragraph className="showcase-hero__desc fade-in-up" style={{ "--fade-delay": "220ms" }}>
-              欢迎回来，{user?.display_name || user?.username || "学员"}。
-              从这里出发，进入<strong style={{ color: "var(--accent-deep)" }}>销售对练</strong>磨砺话术，
-              走进<strong style={{ color: "var(--accent-deep)" }}>课程管理</strong>沉淀知识，
-              或前往<strong style={{ color: "var(--accent-deep)" }}>考试</strong>验证学习成果。
-            </Paragraph>
-            <div className="showcase-hero__actions fade-in-up" style={{ "--fade-delay": "300ms" }}>
-              <button
-                type="button"
-                className="cta-arrow-btn"
-                onClick={() => navigate("/workspace/training")}
-              >
-                <RocketOutlined />
-                <span>开启销售对练</span>
-                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-              </button>
-              <button
-                type="button"
-                className="cta-arrow-btn cta-arrow-btn--ghost"
-                onClick={openTodos}
-              >
-                <CalendarOutlined />
-                <span>查看我的待办</span>
-                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-              </button>
-              <button
-                type="button"
-                className={`cta-arrow-btn cta-arrow-btn--ghost${todayUploaded ? " cta-arrow-btn--done" : ""}`}
-                onClick={() => navigate("/magic-academy?tab=audio")}
-              >
-                <ReadOutlined />
-                <span>{todayUploaded ? "今日已打卡 · 查看记录" : "去读书打卡"}</span>
-                <span className="cta-arrow-btn__arrow"><ArrowRightOutlined /></span>
-              </button>
-            </div>
-            <div data-guide="mentor-section">
-              <MentorPreviewSection compact onViewAll={() => navigate("/magic-academy?tab=mentors")} />
-            </div>
-          </div>
-          <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "380ms" }}>
+          <HomeHeroBanner banners={banners} onOpen={openBanner} />
+          <aside className="showcase-hero__side fade-in-up" style={{ "--fade-delay": "180ms" }}>
             <span className="showcase-hero__side-eyebrow">Today at a glance</span>
             <ul className="showcase-hero__side-list">
               <li className="showcase-hero__side-item">
@@ -376,6 +379,10 @@ export default function HomePage() {
           </aside>
         </div>
       </section>
+
+      <div data-guide="mentor-section">
+        <MentorPreviewSection compact onViewAll={() => navigate("/magic-academy?tab=mentors")} />
+      </div>
 
       <section className="showcase-section fade-in-up" style={{ "--fade-delay": "120ms" }}>
         <div className="showcase-section__header">

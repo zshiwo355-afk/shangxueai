@@ -3342,9 +3342,9 @@ body {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.75fr);
-  gap: 56px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.7fr);
+  gap: 32px;
+  align-items: center;
 }
 
 .showcase-hero__intro {
@@ -3561,6 +3561,156 @@ body {
   font-weight: 700;
   color: var(--accent-deep);
   letter-spacing: -0.02em;
+}
+
+.showcase-hero__banner {
+  width: 100%;
+  min-height: 400px;
+  aspect-ratio: 16 / 7.6;
+  align-self: center;
+  border-radius: 24px;
+  border: 1px solid var(--line-soft);
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(31, 41, 51, 0.08);
+  overflow: hidden;
+}
+
+.showcase-hero__banner .ant-carousel,
+.showcase-hero__banner .slick-slider,
+.showcase-hero__banner .slick-list,
+.showcase-hero__banner .slick-track,
+.showcase-hero__banner .slick-slide,
+.showcase-hero__banner .slick-slide > div {
+  height: 100%;
+}
+
+.showcase-hero__banner .slick-dots {
+  bottom: 14px;
+}
+
+.showcase-hero__banner .slick-dots li,
+.showcase-hero__banner .slick-dots li button {
+  height: 4px;
+}
+
+.showcase-hero__banner .slick-dots li button {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.showcase-hero__banner .slick-dots li.slick-active button {
+  background: #fff;
+}
+
+.home-banner-carousel__item {
+  height: 100%;
+}
+
+.home-banner-slide {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  padding: 0;
+  border: 0;
+  background: #edf4fb;
+  color: #fff;
+  text-align: left;
+  overflow: hidden;
+  cursor: default;
+}
+
+.home-banner-slide--clickable {
+  cursor: pointer;
+}
+
+.home-banner-slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.home-banner-slide--clickable:hover img,
+.home-banner-slide--clickable:focus-visible img {
+  transform: scale(1.035);
+}
+
+.home-banner-slide__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.06) 0%, rgba(15, 23, 42, 0.38) 100%),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.38) 0%, rgba(15, 23, 42, 0) 62%);
+  pointer-events: none;
+}
+
+.home-banner-slide__caption {
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  bottom: 38px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1;
+}
+
+.home-banner-slide__caption span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.82;
+}
+
+.home-banner-slide__caption strong {
+  max-width: 92%;
+  font-size: 32px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.home-banner-slide__caption em {
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.88;
+}
+
+.home-banner-slide:focus-visible {
+  outline: 3px solid rgba(88, 139, 200, 0.38);
+  outline-offset: -3px;
+}
+
+.home-banner-empty {
+  height: 100%;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 34px;
+  color: var(--accent-deep);
+  background:
+    linear-gradient(135deg, rgba(88, 139, 200, 0.12), rgba(255, 255, 255, 0.78)),
+    radial-gradient(circle at 85% 12%, rgba(88, 139, 200, 0.18), transparent 36%);
+}
+
+.home-banner-empty span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.home-banner-empty strong {
+  font-size: 30px;
+  line-height: 1.25;
+  color: var(--text-base);
 }
 
 .stat-inline-button {
@@ -5360,6 +5510,50 @@ body {
   .showcase-hero__side-item strong {
     font-size: 18px;
     color: var(--text-strong);
+  }
+
+  .showcase-hero__banner {
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: 16 / 10;
+    border-radius: 18px;
+    box-shadow: 0 12px 24px rgba(31, 41, 51, 0.07);
+  }
+
+  .home-banner-slide {
+    min-height: 0;
+  }
+
+  .home-banner-empty {
+    min-height: 0;
+    padding: 18px;
+  }
+
+  .home-banner-slide__caption {
+    left: 16px;
+    right: 16px;
+    bottom: 28px;
+    gap: 5px;
+  }
+
+  .home-banner-slide__caption span {
+    font-size: 10px;
+  }
+
+  .home-banner-slide__caption strong {
+    font-size: 18px;
+  }
+
+  .home-banner-empty strong {
+    font-size: 18px;
+  }
+
+  .home-banner-slide__caption em {
+    font-size: 12px;
+  }
+
+  .showcase-hero__banner .slick-dots {
+    bottom: 10px;
   }
 
   /* Modules Section 收紧 */
