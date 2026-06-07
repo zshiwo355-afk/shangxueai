@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import ensure_builtin_super_admin, router as auth_router
@@ -51,6 +51,8 @@ from .wecom_client import WecomClient
 from .whitelist_api import router as whitelist_router
 
 logger = logging.getLogger(__name__)
+WECOM_VERIFY_FILENAME = "WW_verify_gg1rPhoArDoHroVv.txt"
+WECOM_VERIFY_CONTENT = "gg1rPhoArDoHroVv"
 
 app = FastAPI(title="怀仁商学院", version="2.0.0")
 
@@ -250,6 +252,15 @@ assets_dir = (frontend_dist / "assets") if frontend_dist else None
 
 if assets_dir and assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+
+@app.get(f"/{WECOM_VERIFY_FILENAME}", response_model=None, include_in_schema=False)
+async def wecom_verify_file():
+    if frontend_dist:
+        verify_file = frontend_dist / WECOM_VERIFY_FILENAME
+        if verify_file.exists():
+            return FileResponse(verify_file, media_type="text/plain")
+    return PlainTextResponse(WECOM_VERIFY_CONTENT, media_type="text/plain")
 
 
 @app.get("/{full_path:path}", response_model=None)
