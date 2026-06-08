@@ -26,6 +26,21 @@ const TOP_OPTIONS = [
   { label: "全部", value: 0 },
 ];
 
+const DEPARTMENT_NAME_PREFIXES = ["怀仁产业发展集团"];
+
+function formatDepartmentName(value) {
+  const original = String(value || "").trim();
+  if (!original) return "未分配";
+  let display = original;
+  for (const prefix of DEPARTMENT_NAME_PREFIXES) {
+    if (display.startsWith(prefix)) {
+      display = display.slice(prefix.length).replace(/^[\s/\\|｜>＞\-—–_]+/, "").trim();
+      break;
+    }
+  }
+  return display || original;
+}
+
 export default function DepartmentChart() {
   const [days, setDays] = useState(30);
   const [metric, setMetric] = useState("total_points");
@@ -48,7 +63,7 @@ export default function DepartmentChart() {
 
   const handleExport = () => {
     const columns = [
-      { title: "部门", value: (r) => r.department || "未分配" },
+      { title: "部门", value: (r) => formatDepartmentName(r.department) },
       { title: "在职人数", key: "headcount" },
       { title: "活跃人数", key: "active_count" },
       {
@@ -78,7 +93,7 @@ export default function DepartmentChart() {
         sub = `${it.headcount} 人`;
       }
       return {
-        label: it.department || "未分配",
+        label: formatDepartmentName(it.department),
         value,
         sub,
       };
@@ -88,7 +103,7 @@ export default function DepartmentChart() {
   }, [items, metric, topN]);
 
   const columns = [
-    { title: "部门", dataIndex: "department", render: (v) => v || "—" },
+    { title: "部门", dataIndex: "department", render: (v) => formatDepartmentName(v) },
     { title: "在职人数", dataIndex: "headcount", width: 100, sorter: (a, b) => a.headcount - b.headcount },
     {
       title: "活跃率",

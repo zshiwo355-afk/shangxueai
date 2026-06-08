@@ -450,6 +450,10 @@ def _norm_employment_status(raw: Any) -> str:
     return _EMPLOYMENT_STATUS_ALIASES.get(text, text)
 
 
+def _is_left_employment_status(value: str | None) -> bool:
+    return (value or "").strip() == "离职"
+
+
 async def _read_upload_with_limit(file: UploadFile, *, limit: int = 20 * 1024 * 1024) -> bytes:
     try:
         file.file.seek(0, 2)
@@ -706,6 +710,8 @@ async def create_user(
 ) -> UserDTO:
     if payload.role == "super_admin" and not is_super_admin(admin):
         raise HTTPException(status_code=403, detail="仅超级管理员可创建超级管理员账号。")
+    employment_status = payload.employment_status or ""
+    disabled = bool(payload.disabled) or _is_left_employment_status(employment_status)
     user = User(
         username=payload.username,
         password_md5=_digest(payload.password),
@@ -715,9 +721,9 @@ async def create_user(
         position=payload.position or "",
         role=payload.role,
         is_newcomer=payload.is_newcomer,
-        employment_status=payload.employment_status or "",
-        status=payload.status,
-        disabled=payload.disabled,
+        employment_status=employment_status,
+        status="inactive" if disabled else payload.status,
+        disabled=disabled,
     )
     db.add(user)
     try:
@@ -768,6 +774,11 @@ async def update_user(
         if user.id == admin.id and payload.disabled:
             raise HTTPException(status_code=400, detail="不能禁用当前登录的管理员。")
         user.disabled = payload.disabled
+    if _is_left_employment_status(user.employment_status):
+        if user.id == admin.id:
+            raise HTTPException(status_code=400, detail="不能将当前登录的管理员置为离职。")
+        user.disabled = True
+        user.status = "inactive"
     await db.flush()
     await db.refresh(user)
     return _to_dto(user)

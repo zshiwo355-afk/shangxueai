@@ -252,6 +252,7 @@ export default function UsersTab() {
 
   const disabledValue = Form.useWatch("disabled", form);
   const statusValue = Form.useWatch("status", form);
+  const employmentStatusValue = Form.useWatch("employment_status", form);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -260,14 +261,22 @@ export default function UsersTab() {
     }
   }, [disabledValue, form, modalOpen, statusValue]);
 
+  useEffect(() => {
+    if (!modalOpen) return;
+    if (employmentStatusValue === "离职" && !disabledValue) {
+      form.setFieldValue("disabled", true);
+    }
+  }, [disabledValue, employmentStatusValue, form, modalOpen]);
+
   const submit = async () => {
     const values = await form.validateFields();
     try {
       setSaving(true);
+      const disabled = Boolean(values.disabled) || values.employment_status === "离职";
       const payload = {
         ...values,
-        disabled: Boolean(values.disabled),
-        status: values.disabled ? "inactive" : (values.status || "active"),
+        disabled,
+        status: disabled ? "inactive" : (values.status || "active"),
       };
       if (!payload.password) delete payload.password;
 
