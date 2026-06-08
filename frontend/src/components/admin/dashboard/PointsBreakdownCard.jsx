@@ -15,6 +15,21 @@ const CATEGORY_META = [
   { key: "manual", label: "手动调整", color: CATEGORY_COLORS.manual },
 ];
 
+const DEPARTMENT_NAME_PREFIXES = ["怀仁产业发展集团"];
+
+function formatDepartmentName(value) {
+  const original = String(value || "").trim();
+  if (!original) return original;
+  let display = original;
+  for (const prefix of DEPARTMENT_NAME_PREFIXES) {
+    if (display.startsWith(prefix)) {
+      display = display.slice(prefix.length).replace(/^[\s/\\|｜>＞\-—–_]+/, "").trim();
+      break;
+    }
+  }
+  return display || original;
+}
+
 export default function PointsBreakdownCard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -60,11 +75,12 @@ export default function PointsBreakdownCard() {
         <Select
           size="small"
           value={department}
-          style={{ minWidth: 140 }}
+          style={{ minWidth: 220 }}
+          popupMatchSelectWidth={false}
           onChange={setDepartment}
           options={[
             { value: "", label: "全部部门" },
-            ...departments.map((item) => ({ value: item, label: item })),
+            ...departments.map((item) => ({ value: item, label: formatDepartmentName(item) })),
           ]}
         />
       )}

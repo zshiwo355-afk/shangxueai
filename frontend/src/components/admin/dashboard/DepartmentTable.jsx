@@ -14,7 +14,7 @@ const DAYS_OPTIONS = [
 ];
 
 const METRIC_OPTIONS = [
-  { label: "累计积分", value: "total_points", suffix: "分" },
+  { label: "人均积分", value: "total_points", suffix: "分" },
   { label: "训练次数", value: "training_count", suffix: "次" },
   { label: "打卡次数", value: "reading_count", suffix: "次" },
   { label: "活跃率", value: "active_rate", suffix: "%" },
@@ -77,6 +77,10 @@ export default function DepartmentChart() {
       },
       { title: "打卡次数", key: "reading_count" },
       { title: "累计积分", key: "total_points" },
+      {
+        title: "人均积分",
+        value: (r) => (r.headcount > 0 ? (Number(r.total_points || 0) / r.headcount).toFixed(1) : "0"),
+      },
     ];
     downloadCsv(`部门维度透视_近${days}天_${todayStamp()}.csv`, columns, items);
   };
@@ -88,6 +92,9 @@ export default function DepartmentChart() {
       if (metric === "active_rate") {
         value = it.headcount > 0 ? Math.round(100 * it.active_count / it.headcount) : 0;
         sub = `${it.active_count}/${it.headcount}`;
+      } else if (metric === "total_points") {
+        value = it.headcount > 0 ? Math.round(10 * Number(it.total_points || 0) / it.headcount) / 10 : 0;
+        sub = `${Number(it.total_points || 0).toLocaleString()}分 / ${it.headcount} 人`;
       } else {
         value = Number(it[metric] || 0);
         sub = `${it.headcount} 人`;
@@ -127,6 +134,15 @@ export default function DepartmentChart() {
       dataIndex: "total_points",
       width: 100,
       render: (v) => <strong>{v}</strong>,
+    },
+    {
+      title: "人均积分",
+      key: "avg_points",
+      width: 100,
+      sorter: (a, b) =>
+        (a.headcount > 0 ? a.total_points / a.headcount : 0) -
+        (b.headcount > 0 ? b.total_points / b.headcount : 0),
+      render: (_, r) => (r.headcount > 0 ? (Number(r.total_points || 0) / r.headcount).toFixed(1) : "—"),
     },
   ];
 
