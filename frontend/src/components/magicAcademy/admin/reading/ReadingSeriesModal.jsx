@@ -1,14 +1,18 @@
 import { Card, DatePicker, Form, Input, Modal, Select, Space, Switch, Typography } from "antd";
 
+import DepartmentUserTreeSelect from "../../../common/DepartmentUserTreeSelect";
 import { READING_SERIES_STATUS_OPTIONS } from "../../magicAcademyPageConfig";
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
 
 export default function ReadingSeriesModal({
   form,
   support,
-  departmentOptions = [],
   positionOptions = [],
   employeeUsers = [],
   employmentStatusOptions = [],
@@ -54,10 +58,16 @@ export default function ReadingSeriesModal({
               {({ getFieldValue }) => getFieldValue("target_all") ? null : (
                 <Space direction="vertical" size={12} style={{ width: "100%" }}>
                   <Form.Item name="target_department_ids" label="部门" style={{ marginBottom: 0 }}>
-                    <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={departmentOptions} placeholder="选择部门" />
+                    <DepartmentUserTreeSelect
+                      users={employeeUsers}
+                      placeholder="选择部门会自动包含下级员工，可展开后取消个人"
+                    />
                   </Form.Item>
                   <Form.Item name="target_position_ids" label="岗位" style={{ marginBottom: 0 }}>
                     <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={positionOptions} placeholder="选择岗位" />
+                  </Form.Item>
+                  <Form.Item name="target_job_level_ids" label="职级" style={{ marginBottom: 0 }}>
+                    <Select mode="multiple" allowClear options={JOB_LEVEL_OPTIONS} placeholder="选择 M线 / P线" />
                   </Form.Item>
                   <Form.Item name="target_employment_status_ids" label="在职状态" style={{ marginBottom: 0 }}>
                     <Select

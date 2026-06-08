@@ -198,6 +198,16 @@ async def create_assignments(
     if (paper.question_count or 0) <= 0:
         raise HTTPException(status_code=400, detail="试卷尚无题目。")
 
+    reviewer: User | None = None
+    if payload.reviewer_id:
+        reviewer = await db.get(User, int(payload.reviewer_id))
+        if (
+            reviewer is None
+            or bool(reviewer.disabled)
+            or (reviewer.role or "").strip() != "admin"
+        ):
+            raise HTTPException(status_code=400, detail="阅卷人不存在或不可用。")
+
     user_rows = (
         await db.execute(select(User).where(User.id.in_(payload.user_ids)))
     ).scalars().all()
@@ -206,9 +216,14 @@ async def create_assignments(
     if missing:
         raise HTTPException(status_code=400, detail=f"用户不存在：{missing}")
     # 离职 / 禁用员工不参与任何业务，从本批中静默剔除——不影响其余有效员工的派发。
-    effective_user_ids = [int(u.id) for u in user_rows if not bool(u.disabled)]
+    assignable_roles = {"user", "admin"}
+    effective_user_ids = [
+        int(u.id)
+        for u in user_rows
+        if not bool(u.disabled) and (u.role or "").strip() in assignable_roles
+    ]
     if not effective_user_ids:
-        raise HTTPException(status_code=400, detail="所选员工均已离职或被禁用，无法派发。")
+        raise HTTPException(status_code=400, detail="所选员工均不可派发，无法派发。")
 
     deadline = _parse_datetime(payload.deadline_at)
 
@@ -232,6 +247,8 @@ async def create_assignments(
         row = PaperAssignment(
             paper_id=payload.paper_id,
             user_id=uid,
+            reviewer_id=int(reviewer.id) if reviewer else None,
+            reward_points=int(payload.reward_points) if payload.reward_points is not None else None,
             max_attempts=int(payload.max_attempts or 1),
             deadline_at=deadline,
             status="pending",

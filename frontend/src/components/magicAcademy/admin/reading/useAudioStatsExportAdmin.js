@@ -36,7 +36,7 @@ export default function useAudioStatsExportAdmin({
   const audioUserOptionMap = useMemo(
     () => new Map(
       users
-        .filter((item) => item.role === "user")
+        .filter((item) => item.role === "user" || item.role === "admin")
         .map((item) => [String(item.id), `${item.real_name || item.display_name || item.username} (${item.username})`]),
     ),
     [users],

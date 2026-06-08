@@ -196,6 +196,7 @@ async def _recalc_submission(submission: PaperSubmission, db: AsyncSession) -> N
         # 试卷判定通过 → 入账（dedupe_extra=paper_id 保证每用户每试卷只首次给）
         if submission.is_pass:
             try:
+                assignment = await db.get(PaperAssignment, int(submission.assignment_id))
                 await grant_points(
                     db,
                     user_id=int(submission.user_id),
@@ -204,6 +205,11 @@ async def _recalc_submission(submission: PaperSubmission, db: AsyncSession) -> N
                     business_id=int(submission.id),
                     dedupe_extra=f"p{int(submission.paper_id)}",
                     remark=f"试卷#{submission.paper_id} 通过",
+                    points_override=(
+                        int(assignment.reward_points)
+                        if assignment and assignment.reward_points is not None
+                        else None
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 paper_grading_logger.exception("grant_points failed for paper submission=%s", submission.id)

@@ -557,7 +557,7 @@ export function buildAdminCoursesTabItems({
                 <Select style={{ width: 240 }} placeholder="选择视频" options={videos.map((item) => ({ value: item.id, label: item.title }))} />
               </Form.Item>
               <Form.Item name="user_id" rules={[{ required: true, message: "请选择用户" }]}>
-                <Select style={{ width: 240 }} placeholder="选择用户" options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))} />
+                <Select style={{ width: 240 }} placeholder="选择用户" options={users.filter((item) => item.role === "user" || item.role === "admin").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))} />
               </Form.Item>
               <Form.Item name="note">
                 <Input style={{ width: 220 }} placeholder="备注（选填）" />

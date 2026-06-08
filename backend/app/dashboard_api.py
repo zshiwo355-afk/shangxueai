@@ -431,12 +431,13 @@ async def leaderboard_preview(
 
 @router.get("/points-breakdown")
 async def points_breakdown(
+    department: str | None = Query(default=None, max_length=128),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     """全公司积分按分类聚合，前端画环形图。"""
     del admin
-    result = await db.execute(
+    stmt = (
         select(
             func.coalesce(func.sum(UserPointSummary.training_points), 0),
             func.coalesce(func.sum(UserPointSummary.course_points), 0),
@@ -449,6 +450,10 @@ async def points_breakdown(
         .join(User, User.id == UserPointSummary.user_id)
         .where(User.disabled.is_(False))
     )
+    clean_department = (department or "").strip()
+    if clean_department:
+        stmt = stmt.where(User.department == clean_department)
+    result = await db.execute(stmt)
     row = result.first()
     return {
         "training": int(row[0] or 0),

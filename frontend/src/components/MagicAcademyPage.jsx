@@ -199,7 +199,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   const adminAudioCalendarMap = useMemo(() => buildAudioCalendarMap(adminAudioCalendarDays), [adminAudioCalendarDays]);
   const selectedAdminAudioDay = adminAudioCalendarMap[adminAudioSelectedDate] || null;
   const employeeUsers = useMemo(
-    () => users.filter((item) => item.role === "user"),
+    () => users.filter((item) => item.role === "user" || item.role === "admin"),
     [users],
   );
   const employeeDepartmentOptions = useMemo(

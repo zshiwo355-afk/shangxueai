@@ -22,11 +22,16 @@ import "dayjs/locale/zh-cn";
 import { useEffect, useMemo, useState } from "react";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../../lib/api.materials";
 import { getHolidayInfo, isAdjustedWorkday, isBusinessDay, isRestDay } from "../../lib/chinaHolidays";
+import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../common/DepartmentUserTreeSelect";
 
 dayjs.locale("zh-cn");
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
 
 const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
@@ -62,6 +67,7 @@ function buildEmptyItem(dateText) {
     target_user_ids: [],
     target_department_ids: [],
     target_position_ids: [],
+    target_job_level_ids: [],
     target_employment_status_ids: [],
     targets: [],
     newcomer_only: false,
@@ -74,13 +80,15 @@ function normalizeItem(item) {
     ? "department"
     : item?.targets?.some((target) => target.target_type === "position")
       ? "position"
-      : item?.targets?.some((target) => target.target_type === "employment_status")
-        ? "employment_status"
-        : item?.targets?.some((target) => target.target_type === "all_newcomers")
-          ? "all_newcomers"
-          : item?.targets?.some((target) => target.target_type === "all")
-            ? "all"
-            : "user";
+      : item?.targets?.some((target) => target.target_type === "job_level")
+        ? "job_level"
+        : item?.targets?.some((target) => target.target_type === "employment_status")
+          ? "employment_status"
+          : item?.targets?.some((target) => target.target_type === "all_newcomers")
+            ? "all_newcomers"
+            : item?.targets?.some((target) => target.target_type === "all")
+              ? "all"
+              : "user";
   return {
     client_key: `edit-${item?.id || dayjs().valueOf()}`,
     reading_date: item?.reading_date || dayjs().format("YYYY-MM-DD"),
@@ -97,6 +105,7 @@ function normalizeItem(item) {
     target_user_ids: (item?.targets || []).filter((target) => target.target_type === "user").map((target) => Number(target.target_id)),
     target_department_ids: (item?.targets || []).filter((target) => target.target_type === "department").map((target) => target.target_id),
     target_position_ids: (item?.targets || []).filter((target) => target.target_type === "position").map((target) => target.target_id),
+    target_job_level_ids: (item?.targets || []).filter((target) => target.target_type === "job_level").map((target) => target.target_id),
     target_employment_status_ids: (item?.targets || []).filter((target) => target.target_type === "employment_status").map((target) => target.target_id),
     targets: (item?.targets || []).map((target) => ({ target_type: target.target_type, target_id: target.target_id })),
     newcomer_only: targetType === "all_newcomers",
@@ -121,6 +130,7 @@ function resolveManualTargetType(item) {
   if (item?.target_type === "all" || item?.target_type === "all_newcomers") return item.target_type;
   if (item?.target_department_ids?.length) return "department";
   if (item?.target_position_ids?.length) return "position";
+  if (item?.target_job_level_ids?.length) return "job_level";
   if (item?.target_employment_status_ids?.length) return "employment_status";
   if (item?.target_user_ids?.length) return "user";
   return "user";
@@ -135,7 +145,6 @@ export default function ReadingContentFormModal({
   preferredSeriesId = null,
   onCreateSeries,
   employeeUsers,
-  employeeDepartmentOptions,
   employeePositionOptions,
   employmentStatusOptions = [],
   onCancel,
@@ -219,7 +228,7 @@ export default function ReadingContentFormModal({
     const targets = Array.isArray(series.targets) ? series.targets : [];
     const next = { ...item, series_id: series.id, series_title: series.title || "" };
     if (targets.some((target) => target.target_type === "all")) {
-      return { ...next, target_type: "all", target_user_ids: [], target_department_ids: [], target_position_ids: [], target_employment_status_ids: [], targets };
+      return { ...next, target_type: "all", target_user_ids: [], target_department_ids: [], target_position_ids: [], target_job_level_ids: [], target_employment_status_ids: [], targets };
     }
     if (!targets.length) {
       return { ...next, targets: [] };
@@ -230,6 +239,7 @@ export default function ReadingContentFormModal({
       target_user_ids: targets.filter((target) => target.target_type === "user").map((target) => Number(target.target_id)).filter(Boolean),
       target_department_ids: targets.filter((target) => target.target_type === "department").map((target) => target.target_id),
       target_position_ids: targets.filter((target) => target.target_type === "position").map((target) => target.target_id),
+      target_job_level_ids: targets.filter((target) => target.target_type === "job_level").map((target) => target.target_id),
       target_employment_status_ids: targets.filter((target) => target.target_type === "employment_status").map((target) => target.target_id),
       targets,
     };
@@ -241,8 +251,9 @@ export default function ReadingContentFormModal({
       || item?.target_user_ids?.length
       || item?.target_department_ids?.length
       || item?.target_position_ids?.length
+      || item?.target_job_level_ids?.length
       || item?.target_employment_status_ids?.length
-      || ["all", "all_newcomers", "department", "position", "employment_status"].includes(item?.target_type)
+      || ["all", "all_newcomers", "department", "position", "job_level", "employment_status"].includes(item?.target_type)
     )
   );
 
@@ -345,7 +356,7 @@ export default function ReadingContentFormModal({
           series_id: null,
           series_title: "",
           targets: [],
-          target_type: resolveManualTargetType(item),
+        target_type: resolveManualTargetType(item),
         };
       }
       return applySeriesDefaults(item, series);
@@ -397,6 +408,7 @@ export default function ReadingContentFormModal({
       target_user_ids: [...source.target_user_ids],
       target_department_ids: [...source.target_department_ids],
       target_position_ids: [...source.target_position_ids],
+      target_job_level_ids: [...source.target_job_level_ids],
       target_employment_status_ids: [...source.target_employment_status_ids],
       targets: [...(source.targets || [])],
       newcomer_only: source.newcomer_only,
@@ -422,6 +434,20 @@ export default function ReadingContentFormModal({
       if (item.image_source === "material" && !item.material_asset_id) {
         throw new Error(`请为 ${item.reading_date} 选择素材库图片。`);
       }
+      if (item.target_type === "department") {
+        const selectedUserIds = resolveDepartmentSelectionUserIds(item.target_department_ids, employeeUsers);
+        if (!selectedUserIds.length) {
+          throw new Error(`请为 ${item.reading_date} 选择至少一个部门或员工。`);
+        }
+        return {
+          ...item,
+          target_type: "user",
+          target_user_ids: selectedUserIds,
+          target_department_ids: [],
+          target_job_level_ids: [],
+          targets: selectedUserIds.map((id) => ({ target_type: "user", target_id: id })),
+        };
+      }
       if (Array.isArray(item.targets) && item.targets.length) {
         return {
           ...item,
@@ -431,11 +457,11 @@ export default function ReadingContentFormModal({
       if (item.target_type === "user" && !item.target_user_ids.length) {
         throw new Error(`请为 ${item.reading_date} 选择至少一个员工。`);
       }
-      if (item.target_type === "department" && !item.target_department_ids.length) {
-        throw new Error(`请为 ${item.reading_date} 选择至少一个部门。`);
-      }
       if (item.target_type === "position" && !item.target_position_ids.length) {
         throw new Error(`请为 ${item.reading_date} 选择至少一个岗位。`);
+      }
+      if (item.target_type === "job_level" && !item.target_job_level_ids.length) {
+        throw new Error(`请为 ${item.reading_date} 选择至少一个职级。`);
       }
       if (item.target_type === "employment_status" && !item.target_employment_status_ids.length) {
         throw new Error(`请选择 ${item.reading_date} 的在职状态。`);
@@ -843,6 +869,7 @@ export default function ReadingContentFormModal({
                           target_user_ids: [],
                           target_department_ids: [],
                           target_position_ids: [],
+                          target_job_level_ids: [],
                           target_employment_status_ids: [],
                           targets: [],
                         })}
@@ -850,6 +877,7 @@ export default function ReadingContentFormModal({
                           { value: "user", label: "指定员工" },
                           { value: "department", label: "按部门" },
                           { value: "position", label: "按岗位" },
+                          { value: "job_level", label: "按职级" },
                           { value: "employment_status", label: "按在职状态" },
                           { value: "all", label: "全员" },
                           { value: "all_newcomers", label: "仅新人" },
@@ -876,18 +904,12 @@ export default function ReadingContentFormModal({
                     ) : null}
                     {item.target_type === "department" ? (
                   <div style={{ width: "100%", minWidth: 0 }}>
-                    <Select
-                      mode="multiple"
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                      style={{ width: "100%" }}
-                      maxTagCount="responsive"
+                    <DepartmentUserTreeSelect
+                      users={employeeUsers}
                       value={item.target_department_ids}
                       disabled={lockedEditing}
                       onChange={(value) => updateItem(item.reading_date, { target_department_ids: value, targets: [] })}
-                      options={employeeDepartmentOptions}
-                      placeholder="选择部门"
+                      placeholder="选择部门会自动包含下级员工，可展开后取消个人"
                     />
                   </div>
                     ) : null}
@@ -905,6 +927,21 @@ export default function ReadingContentFormModal({
                       onChange={(value) => updateItem(item.reading_date, { target_position_ids: value, targets: [] })}
                       options={employeePositionOptions}
                       placeholder="选择岗位"
+                    />
+                  </div>
+                    ) : null}
+                    {item.target_type === "job_level" ? (
+                  <div style={{ width: "100%", minWidth: 0 }}>
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      style={{ width: "100%" }}
+                      maxTagCount="responsive"
+                      value={item.target_job_level_ids}
+                      disabled={lockedEditing}
+                      onChange={(value) => updateItem(item.reading_date, { target_job_level_ids: value, targets: [] })}
+                      options={JOB_LEVEL_OPTIONS}
+                      placeholder="选择 M线 / P线"
                     />
                   </div>
                     ) : null}

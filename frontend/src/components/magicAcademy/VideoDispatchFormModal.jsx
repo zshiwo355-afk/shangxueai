@@ -7,6 +7,7 @@ import {
   Form,
   Image,
   Input,
+  InputNumber,
   Modal,
   Progress,
   Radio,
@@ -20,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../../lib/api.materials";
 import { generateMagicVideoCover, uploadMagicVideoCover } from "../../lib/api.magic";
 import { fetchOptions } from "../../lib/api.options";
+import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../common/DepartmentUserTreeSelect";
 import MaterialAssetPickerModal from "../common/MaterialAssetPickerModal";
 import {
   buildVideoDispatchFormValues,
@@ -29,6 +31,10 @@ import {
 } from "./magicAcademyShared";
 
 const { Text } = Typography;
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
 
 export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editing, users, submitting, uploadProgress }) {
   const [form] = Form.useForm();
@@ -45,18 +51,14 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const [aiReferenceFile, setAiReferenceFile] = useState(null);
   const [employmentStatusOptions, setEmploymentStatusOptions] = useState([]);
   const { message } = AntdApp.useApp();
-  const optionSource = useMemo(() => targetsToOptions(users), [users]);
-  const employeeUsers = useMemo(() => users.filter((item) => item.role === "user"), [users]);
+  const employeeUsers = useMemo(() => users.filter((item) => item.role === "user" || item.role === "admin"), [users]);
+  const optionSource = useMemo(() => targetsToOptions(employeeUsers), [employeeUsers]);
   const userOptions = useMemo(
     () => employeeUsers.map((item) => ({
       value: String(item.id),
       label: `${item.real_name || item.display_name || item.username} (${item.username})`,
     })),
     [employeeUsers],
-  );
-  const departmentOptions = useMemo(
-    () => optionSource.departments.map((item) => ({ value: item, label: item })),
-    [optionSource.departments],
   );
   const positionOptions = useMemo(
     () => optionSource.positions.map((item) => ({ value: item, label: item })),
@@ -71,6 +73,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   const targetUserIds = Form.useWatch("target_user_ids", form);
   const targetDepartmentIds = Form.useWatch("target_department_ids", form);
   const targetPositions = Form.useWatch("target_positions", form);
+  const targetJobLevels = Form.useWatch("target_job_levels", form);
   const targetEmploymentStatuses = Form.useWatch("target_employment_statuses", form);
   const newcomerOnly = Form.useWatch("newcomer_only", form);
   const selectedMaterialAsset = useMemo(
@@ -83,8 +86,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
   );
   const resolvedTargetCount = useMemo(() => {
     if (dispatchMode === "department") {
-      const values = new Set(targetDepartmentIds || []);
-      return employeeUsers.filter((item) => values.has(item.department)).length;
+      return resolveDepartmentSelectionUserIds(targetDepartmentIds, employeeUsers).length;
     }
     if (dispatchMode === "position") {
       const values = new Set(targetPositions || []);
@@ -94,11 +96,15 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       const values = new Set(targetEmploymentStatuses || []);
       return employeeUsers.filter((item) => values.has(item.employment_status)).length;
     }
+    if (dispatchMode === "job_level") {
+      const values = new Set(targetJobLevels || []);
+      return employeeUsers.filter((item) => values.has(item.job_level || "M线")).length;
+    }
     if (dispatchMode === "all") {
       return employeeUsers.filter((item) => (newcomerOnly ? item.is_newcomer : true)).length;
     }
     return Array.isArray(targetUserIds) ? targetUserIds.length : 0;
-  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetEmploymentStatuses, targetUserIds]);
+  }, [dispatchMode, employeeUsers, newcomerOnly, targetDepartmentIds, targetPositions, targetJobLevels, targetEmploymentStatuses, targetUserIds]);
 
   const fillVideoForm = () => {
     const dispatchValues = buildVideoDispatchFormValues(editing?.targets);
@@ -110,6 +116,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
         category: "",
         is_required: false,
         is_newcomer_required: false,
+        reward_points: 15,
         duration_seconds: undefined,
         status: "draft",
         video_source: "upload",
@@ -133,6 +140,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       category: editing?.category || "",
       is_required: !!editing?.is_required,
       is_newcomer_required: !!editing?.is_newcomer_required,
+      reward_points: editing?.reward_points ?? 15,
       duration_seconds: editing?.duration_seconds || editing?.duration || undefined,
       status: editing?.status || "draft",
       video_source: "upload",
@@ -228,6 +236,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
       duration_seconds: Number(values.duration_seconds || uploadMeta?.duration_seconds || 0),
       is_required: !!values.is_required,
       is_newcomer_required: !!values.is_newcomer_required,
+      reward_points: Number(values.reward_points ?? 15),
       status: values.status,
       cover_url: values.cover_source === "upload"
           || values.cover_source === "ai"
@@ -522,6 +531,13 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
           <Form.Item label="是否新人默认必修" name="is_newcomer_required" valuePropName="checked">
             <Switch />
           </Form.Item>
+          <Form.Item
+            label="完成奖励积分"
+            name="reward_points"
+            rules={[{ required: true, message: "请填写奖励积分" }]}
+          >
+            <InputNumber min={0} max={100000} step={1} precision={0} style={{ width: 160 }} />
+          </Form.Item>
         </Space>
         <Card size="small" title="派发范围">
           <Form.Item label="派发维度" name="dispatch_mode">
@@ -530,6 +546,7 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                 { value: "user", label: "指定员工" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "job_level", label: "按职级" },
                 { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员" },
               ]}
@@ -550,15 +567,10 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
             </Form.Item>
           ) : null}
           {dispatchMode === "department" ? (
-            <Form.Item label="部门" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门" }]}>
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={departmentOptions}
-                placeholder={departmentOptions.length ? "选择部门" : "当前暂无可选部门"}
-                disabled={!departmentOptions.length}
-                maxTagCount="responsive"
+            <Form.Item label="部门 / 员工" name="target_department_ids" rules={[{ required: true, message: "请选择至少一个部门或员工" }]}>
+              <DepartmentUserTreeSelect
+                users={employeeUsers}
+                placeholder="选择部门会自动包含下级员工，可展开后取消个人"
               />
             </Form.Item>
           ) : null}
@@ -583,6 +595,16 @@ export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editi
                 options={employmentStatusOptions.map((s) => ({ value: s, label: s }))}
                 placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用状态（请先到「配置管理 → 在职状态」添加）"}
                 disabled={!employmentStatusOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+          {dispatchMode === "job_level" ? (
+            <Form.Item label="职级" name="target_job_levels" rules={[{ required: true, message: "请选择至少一个职级" }]}>
+              <Select
+                mode="multiple"
+                options={JOB_LEVEL_OPTIONS}
+                placeholder="选择 M线 / P线"
                 maxTagCount="responsive"
               />
             </Form.Item>

@@ -65,7 +65,7 @@ async def _get_enabled_whitelist_users(
         .join(UserWhitelist, UserWhitelist.user_id == User.id)
         .where(
             User.id.in_(target_user_ids),
-            User.role == "user",
+            User.role.in_(["user", "admin"]),
             User.disabled.is_(False),
             UserWhitelist.enabled.is_(True),
             getattr(UserWhitelist, flag_name).is_(True),
@@ -82,7 +82,7 @@ async def _collect_reading_target_users(
     if not targets:
         return []
     result = await db.execute(
-        select(User).where(User.role == "user", User.disabled.is_(False)).order_by(User.id.asc())
+        select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False)).order_by(User.id.asc())
     )
     users = result.scalars().all()
 
@@ -97,6 +97,8 @@ async def _collect_reading_target_users(
             return (user.department or "").strip() == target_id
         if target_type == "position":
             return (user.position or "").strip() == target_id
+        if target_type == "job_level":
+            return (user.job_level or "M线").strip() == target_id
         if target_type == "employment_status":
             return (user.employment_status or "").strip() == target_id
         if target_type == "user":
@@ -121,6 +123,8 @@ def _video_target_matches_user(user: User, target: MagicVideoTarget) -> bool:
         return (user.department or "").strip() == target_value
     if target_type == "position":
         return (user.position or "").strip() == target_value
+    if target_type == "job_level":
+        return (user.job_level or "M线").strip() == target_value
     if target_type == "employment_status":
         return (user.employment_status or "").strip() == target_value
     if target_type == "role":
@@ -136,7 +140,7 @@ async def _collect_video_target_users(
     targets: list[MagicVideoTarget],
 ) -> list[User]:
     result = await db.execute(
-        select(User).where(User.role == "user", User.disabled.is_(False)).order_by(User.id.asc())
+        select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False)).order_by(User.id.asc())
     )
     users = result.scalars().all()
     if not targets and not video.is_newcomer_required:

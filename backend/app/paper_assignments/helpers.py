@@ -49,6 +49,7 @@ def _assignment_to_dto(
     *,
     paper_title: str = "",
     user: User | None = None,
+    reviewer: User | None = None,
     sub_count: int = 0,
     pending: int = 0,
     last: PaperSubmission | None = None,
@@ -60,6 +61,9 @@ def _assignment_to_dto(
         user_id=row.user_id,
         user_username=user.username if user else "",
         user_display_name=(user.real_name or user.display_name or user.username) if user else "",
+        reviewer_id=int(row.reviewer_id) if row.reviewer_id else None,
+        reviewer_display_name=(reviewer.real_name or reviewer.display_name or reviewer.username) if reviewer else "",
+        reward_points=int(row.reward_points) if row.reward_points is not None else None,
         max_attempts=int(row.max_attempts or 1),
         attempt_count=int(row.attempt_count or 0),
         deadline_at=row.deadline_at.isoformat() if row.deadline_at else None,
@@ -80,7 +84,9 @@ async def _build_assignment_dtos(rows: list[PaperAssignment], db: AsyncSession) 
         return []
     assignment_ids = [row.id for row in rows]
     paper_ids = sorted({row.paper_id for row in rows})
-    user_ids = sorted({row.user_id for row in rows})
+    user_ids = sorted(
+        {row.user_id for row in rows} | {row.reviewer_id for row in rows if row.reviewer_id}
+    )
 
     paper_map: dict[int, str] = {}
     if paper_ids:
@@ -136,6 +142,7 @@ async def _build_assignment_dtos(rows: list[PaperAssignment], db: AsyncSession) 
             row,
             paper_title=paper_map.get(int(row.paper_id), ""),
             user=user_map.get(int(row.user_id)),
+            reviewer=user_map.get(int(row.reviewer_id)) if row.reviewer_id else None,
             sub_count=sub_count_map.get(int(row.id), 0),
             pending=pending_map.get(int(row.id), 0),
             last=last_map.get(int(row.id)),
@@ -203,6 +210,7 @@ def _user_assignment_to_dto(
         duration_minutes=int(paper.duration_minutes or 0) if paper else 0,
         question_count=int(paper.question_count or 0) if paper else 0,
         manual_review_subjective=bool(paper.manual_review_subjective) if paper else False,
+        reward_points=int(assignment.reward_points) if assignment.reward_points is not None else None,
         max_attempts=int(assignment.max_attempts or 1),
         attempt_count=int(assignment.attempt_count or 0),
         deadline_at=assignment.deadline_at.isoformat() if assignment.deadline_at else None,

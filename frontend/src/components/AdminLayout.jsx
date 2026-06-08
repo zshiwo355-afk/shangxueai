@@ -7,6 +7,7 @@ import {
   FolderOpenOutlined,
   FormOutlined,
   GiftOutlined,
+  HomeOutlined,
   LogoutOutlined,
   ReadOutlined,
   SafetyCertificateOutlined,
@@ -16,7 +17,7 @@ import {
   TrophyOutlined,
   UserSwitchOutlined,
 } from "@ant-design/icons";
-import { Button, Layout, Menu, Spin } from "antd";
+import { Button, Layout, Menu, Space, Spin } from "antd";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
@@ -227,13 +228,18 @@ export default function AdminLayout() {
             <span className="admin-header__eyebrow">{headerEyebrow}</span>
             <span className="admin-header__name">{activeLeaf?.label || "管理后台"}</span>
           </div>
-          <Button
-            icon={<LogoutOutlined />}
-            onClick={handleLogout}
-            className="admin-header__logout"
-          >
-            退出
-          </Button>
+          <Space size={8}>
+            <Button icon={<HomeOutlined />} onClick={() => navigate("/todo")}>
+              用户端
+            </Button>
+            <Button
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+              className="admin-header__logout"
+            >
+              退出
+            </Button>
+          </Space>
         </Header>
 
         <div className="admin-tabs">

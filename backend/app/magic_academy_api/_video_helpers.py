@@ -413,6 +413,8 @@ def _user_matches_target(user: User, target: MagicVideoTarget) -> bool:
         return (user.department or "").strip() == tvalue
     if ttype == "position":
         return (user.position or "").strip() == tvalue
+    if ttype == "job_level":
+        return (user.job_level or "M线").strip() == tvalue
     if ttype == "employment_status":
         return (user.employment_status or "").strip() == tvalue
     if ttype == "role":
@@ -477,6 +479,7 @@ def _video_to_dict(
         "is_required": bool(video.is_required),
         "is_newcomer_required": bool(video.is_newcomer_required),
         "deadline_at": _iso(video.deadline_at),
+        "reward_points": int(video.reward_points) if video.reward_points is not None else None,
         "status": status,
         "status_label": _video_status_label(video),
         "upload_status": upload_status,
@@ -540,7 +543,7 @@ async def _get_material_asset_or_403(
 
 async def _collect_target_users(db: AsyncSession, video: MagicVideo, targets: list[MagicVideoTarget]) -> list[User]:
     result = await db.execute(
-        select(User).where(User.role == "user", User.disabled.is_(False)).order_by(User.id.asc())
+        select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False)).order_by(User.id.asc())
     )
     users = result.scalars().all()
     if not targets and not video.is_newcomer_required:

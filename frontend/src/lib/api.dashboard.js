@@ -43,9 +43,9 @@ export async function fetchDashboardLeaderboardPreview(limit = 10) {
   );
 }
 
-export async function fetchDashboardPointsBreakdown() {
+export async function fetchDashboardPointsBreakdown(params = {}) {
   return getJson(
-    "/api/admin/dashboard/points-breakdown",
+    `/api/admin/dashboard/points-breakdown${buildQuery(params)}`,
     "积分构成加载失败。",
   );
 }

@@ -138,6 +138,7 @@ async def ensure_builtin_super_admin(db: AsyncSession) -> None:
         real_name=display_name or username,
         department="",
         position="",
+        job_level="M线",
         role="super_admin",
         is_newcomer=False,
         status="active",
@@ -185,6 +186,7 @@ class MeResponse(BaseModel):
     real_name: str = ""
     department: str = ""
     position: str = ""
+    job_level: str = "M线"
     role: str
     is_newcomer: bool = False
     employment_status: str = ""
@@ -229,6 +231,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
             "real_name": user.real_name or "",
             "department": user.department or "",
             "position": user.position or "",
+            "job_level": user.job_level or "M线",
             "role": user.role,
             "is_newcomer": bool(user.is_newcomer),
             "employment_status": user.employment_status or "",
@@ -248,6 +251,7 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
         real_name=user.real_name or "",
         department=user.department or "",
         position=user.position or "",
+        job_level=user.job_level or "M线",
         role=user.role,
         is_newcomer=bool(user.is_newcomer),
         employment_status=user.employment_status or "",

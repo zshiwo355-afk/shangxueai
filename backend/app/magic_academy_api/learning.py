@@ -282,6 +282,7 @@ async def save_my_video_progress(
                 business_id=int(video_id),
                 dedupe_extra=f"v{video_id}",
                 remark=f"完成视频#{video_id}",
+                points_override=int(video.reward_points) if video.reward_points is not None else None,
             )
         except Exception:  # noqa: BLE001
             pass
@@ -432,6 +433,7 @@ async def submit_my_video_quiz(
                 business_id=int(video_id),
                 dedupe_extra=f"v{video_id}",
                 remark=f"完成视频#{video_id}",
+                points_override=int(video.reward_points) if video.reward_points is not None else None,
             )
         except Exception:  # noqa: BLE001
             pass

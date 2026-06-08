@@ -36,6 +36,7 @@ class UserDTO(BaseModel):
     real_name: str
     department: str
     position: str
+    job_level: str = "M线"
     role: str
     is_newcomer: bool
     employment_status: str = ""
@@ -56,16 +57,27 @@ class UserCreateRequest(BaseModel):
     real_name: str = Field(default="", max_length=128)
     department: str = Field(default="", max_length=128)
     position: str = Field(default="", max_length=128)
+    job_level: str = Field(default="M线", max_length=16)
     role: str = Field(default="user", max_length=16)
     is_newcomer: bool = False
     employment_status: str = Field(default="", max_length=32)
     status: str = Field(default="active", max_length=16)
     disabled: bool = False
 
-    @field_validator("username", "display_name", "real_name", "department", "position", "employment_status", mode="before")
+    @field_validator("username", "display_name", "real_name", "department", "position", "job_level", "employment_status", mode="before")
     @classmethod
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
+
+    @field_validator("job_level")
+    @classmethod
+    def _job_level(cls, v: str) -> str:
+        text = (v or "M线").strip().upper()
+        if text in {"M", "M线", "M-LINE", "MLINE"}:
+            return "M线"
+        if text in {"P", "P线", "P-LINE", "PLINE"}:
+            return "P线"
+        return "M线"
 
     @field_validator("role")
     @classmethod
@@ -87,6 +99,7 @@ class UserUpdateRequest(BaseModel):
     real_name: str | None = Field(default=None, max_length=128)
     department: str | None = Field(default=None, max_length=128)
     position: str | None = Field(default=None, max_length=128)
+    job_level: str | None = Field(default=None, max_length=16)
     role: str | None = None
     is_newcomer: bool | None = None
     employment_status: str | None = Field(default=None, max_length=32)
@@ -100,6 +113,18 @@ class UserUpdateRequest(BaseModel):
             return None
         v = v.strip().lower()
         return v if v in ("super_admin", "admin", "user") else "user"
+
+    @field_validator("job_level")
+    @classmethod
+    def _job_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        text = (v or "M线").strip().upper()
+        if text in {"M", "M线", "M-LINE", "MLINE"}:
+            return "M线"
+        if text in {"P", "P线", "P-LINE", "PLINE"}:
+            return "P线"
+        return "M线"
 
     @field_validator("status")
     @classmethod
@@ -191,6 +216,7 @@ def _to_dto(user: User) -> UserDTO:
         real_name=user.real_name or "",
         department=user.department or "",
         position=user.position or "",
+        job_level=user.job_level or "M线",
         role=user.role or "user",
         is_newcomer=bool(user.is_newcomer),
         employment_status=user.employment_status or "",
@@ -348,7 +374,7 @@ async def list_departments(
 
 _USER_TEMPLATE_HEADERS = [
     "用户名*", "密码*", "真实姓名", "显示名",
-    "部门", "岗位", "角色", "是否新人", "在职状态",
+    "部门", "岗位", "职级", "角色", "是否新人", "在职状态",
 ]
 
 
@@ -370,9 +396,9 @@ def _build_user_template() -> bytes:
         ws.column_dimensions[get_column_letter(col_idx)].width = 16
 
     samples = [
-        ["zhangsan", "123456", "张三", "三哥", "销售一部", "招商主管", "普通用户", "否", "转正"],
-        ["lisi",     "123456", "李四", "",     "销售一部", "招商专员", "普通用户", "是", "试岗"],
-        ["wangwu",   "abcd1234", "王五", "",   "运营部",   "运营经理", "管理员",   "否", "试用"],
+        ["zhangsan", "123456", "张三", "三哥", "销售一部", "招商主管", "M线", "普通用户", "否", "转正"],
+        ["lisi",     "123456", "李四", "",     "销售一部", "招商专员", "P线", "普通用户", "是", "试岗"],
+        ["wangwu",   "abcd1234", "王五", "",   "运营部",   "运营经理", "M线", "管理员",   "否", "试用"],
     ]
     for r, row in enumerate(samples, start=2):
         for c, value in enumerate(row, start=1):
@@ -382,11 +408,12 @@ def _build_user_template() -> bytes:
         "",
         "填写说明：",
         "1) 用户名 / 密码必填，用户名重复将自动跳过。",
-        "2) 角色：普通用户 / 管理员（也可写英文 user / admin），默认普通用户。",
-        "3) 是否新人：是 / 否（默认 否）。",
-        "4) 在职状态可填写：试岗 / 试用 / 转正 / 离职；为空则不设置。",
-        "5) 部门 / 岗位 / 显示名 可空；显示名为空时会取真实姓名或用户名。",
-        "6) 密码以明文写入，后端会做 md5 后入库。",
+        "2) 职级：M线 / P线，默认 M线。",
+        "3) 角色：普通用户 / 管理员（也可写英文 user / admin），默认普通用户。",
+        "4) 是否新人：是 / 否（默认 否）。",
+        "5) 在职状态可填写：试岗 / 试用 / 转正 / 离职；为空则不设置。",
+        "6) 部门 / 岗位 / 显示名 可空；显示名为空时会取真实姓名或用户名。",
+        "7) 密码以明文写入，后端会做 md5 后入库。",
     ]
     for i, line in enumerate(notes, start=len(samples) + 3):
         cell = ws.cell(row=i, column=1, value=line)
@@ -433,6 +460,17 @@ _EMPLOYMENT_STATUS_ALIASES = {
     "离职": "离职",
     "禁用": "离职",
 }
+_JOB_LEVEL_ALIASES = {
+    "": "M线",
+    "m": "M线",
+    "m线": "M线",
+    "m-line": "M线",
+    "mline": "M线",
+    "p": "P线",
+    "p线": "P线",
+    "p-line": "P线",
+    "pline": "P线",
+}
 
 
 def _norm_role(raw: Any) -> str:
@@ -448,6 +486,11 @@ def _norm_bool(raw: Any) -> bool:
 def _norm_employment_status(raw: Any) -> str:
     text = str(raw or "").strip()
     return _EMPLOYMENT_STATUS_ALIASES.get(text, text)
+
+
+def _norm_job_level(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    return _JOB_LEVEL_ALIASES.get(text, "M线")
 
 
 def _is_left_employment_status(value: str | None) -> bool:
@@ -511,7 +554,12 @@ async def bulk_import_users(
             continue
         summary.total += 1
         cells = list(row) + [None] * max(0, len(_USER_TEMPLATE_HEADERS) - len(row))
-        username, password, real_name, display_name, department, position, role_raw, newcomer_raw, employment_status = cells[:9]
+        username, password, real_name, display_name, department, position = cells[:6]
+        if len(row) >= 10:
+            job_level_raw, role_raw, newcomer_raw, employment_status = cells[6:10]
+        else:
+            job_level_raw = "M线"
+            role_raw, newcomer_raw, employment_status = cells[6:9]
 
         username = str(username or "").strip()
         password = str(password or "").strip()
@@ -533,6 +581,7 @@ async def bulk_import_users(
         display_name = str(display_name or "").strip() or real_name or username
         department = str(department or "").strip()
         position = str(position or "").strip()
+        job_level = _norm_job_level(job_level_raw)
         role = _norm_role(role_raw)
         is_newcomer = _norm_bool(newcomer_raw)
         employment_status = _norm_employment_status(employment_status)
@@ -548,6 +597,7 @@ async def bulk_import_users(
                     real_name=real_name or display_name,
                     department=department,
                     position=position,
+                    job_level=job_level,
                     role=role,
                     is_newcomer=is_newcomer,
                     employment_status=employment_status,
@@ -719,6 +769,7 @@ async def create_user(
         real_name=payload.real_name or payload.display_name or payload.username,
         department=payload.department or "",
         position=payload.position or "",
+        job_level=payload.job_level or "M线",
         role=payload.role,
         is_newcomer=payload.is_newcomer,
         employment_status=employment_status,
@@ -756,6 +807,8 @@ async def update_user(
         user.department = payload.department.strip()
     if payload.position is not None:
         user.position = payload.position.strip()
+    if payload.job_level is not None:
+        user.job_level = payload.job_level or "M线"
     if payload.role is not None:
         if payload.role == "super_admin" and not is_super_admin(admin):
             raise HTTPException(status_code=403, detail="仅超级管理员可设置超级管理员角色。")

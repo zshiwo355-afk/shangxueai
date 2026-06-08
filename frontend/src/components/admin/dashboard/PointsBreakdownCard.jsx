@@ -1,6 +1,7 @@
-import { Card, Empty, Spin } from "antd";
+import { Card, Empty, Select, Spin } from "antd";
 import { useEffect, useState } from "react";
 
+import { adminListDepartments } from "../../../lib/api.admin";
 import { fetchDashboardPointsBreakdown } from "../../../lib/api.dashboard";
 import DonutChart from "./DonutChart";
 import { CATEGORY_COLORS } from "./palette";
@@ -17,13 +18,24 @@ const CATEGORY_META = [
 export default function PointsBreakdownCard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState([]);
+  const [department, setDepartment] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    fetchDashboardPointsBreakdown()
+    setLoading(true);
+    fetchDashboardPointsBreakdown({ department })
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [department]);
+
+  useEffect(() => {
+    let cancelled = false;
+    adminListDepartments()
+      .then((rows) => { if (!cancelled) setDepartments(Array.isArray(rows) ? rows : []); })
+      .catch(() => { if (!cancelled) setDepartments([]); });
     return () => { cancelled = true; };
   }, []);
 
@@ -43,6 +55,18 @@ export default function PointsBreakdownCard() {
           <span className="dash-card__title-eyebrow">Composition</span>
           <span className="dash-card__title-text">积分分类构成</span>
         </div>
+      )}
+      extra={(
+        <Select
+          size="small"
+          value={department}
+          style={{ minWidth: 140 }}
+          onChange={setDepartment}
+          options={[
+            { value: "", label: "全部部门" },
+            ...departments.map((item) => ({ value: item, label: item })),
+          ]}
+        />
       )}
     >
       <Spin spinning={loading}>

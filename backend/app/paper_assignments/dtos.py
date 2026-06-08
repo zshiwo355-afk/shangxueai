@@ -20,6 +20,9 @@ class AssignmentDTO(BaseModel):
     user_id: int
     user_username: str
     user_display_name: str
+    reviewer_id: int | None = None
+    reviewer_display_name: str = ""
+    reward_points: int | None = None
     max_attempts: int
     attempt_count: int
     deadline_at: str | None = None
@@ -44,6 +47,8 @@ class AssignmentListResponse(BaseModel):
 class CreateAssignmentsPayload(BaseModel):
     paper_id: int
     user_ids: list[int] = Field(..., min_length=1)
+    reviewer_id: int | None = None
+    reward_points: int | None = Field(default=None, ge=0, le=100000)
     max_attempts: int = 1
     deadline_at: str | None = None  # ISO 字符串
 
@@ -146,6 +151,7 @@ class UserAssignmentDTO(BaseModel):
     duration_minutes: int = 0
     question_count: int = 0
     manual_review_subjective: bool = False
+    reward_points: int | None = None
     max_attempts: int = 1
     attempt_count: int = 0
     deadline_at: str | None = None

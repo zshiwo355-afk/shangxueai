@@ -34,6 +34,7 @@ import {
   listSubmissions,
   pushAssignmentWeCom,
 } from "../../../lib/api.papers";
+import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../../common/DepartmentUserTreeSelect";
 import GradeSubmissionDrawer from "./GradeSubmissionDrawer";
 
 const STATUS_TAG = {
@@ -56,6 +57,10 @@ const SUB_STATUS_TAG = {
   submitted: { color: "gold", text: "待复核" },
   graded: { color: "success", text: "已评分" },
 };
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
 
 export default function AssignmentsPanel() {
   const { message, modal } = AntdApp.useApp();
@@ -98,33 +103,33 @@ export default function AssignmentsPanel() {
 
   useEffect(() => { reload(); }, [page, pageSize]);
 
-  const userOptions = useMemo(
-    () => users.filter((u) => u.role === "user").map((u) => ({
-      value: u.id,
-      label: `${u.real_name || u.display_name || u.username}（${u.username}）${u.department ? ` · ${u.department}` : ""}`,
-    })),
+  const assignableUsers = useMemo(
+    () => users.filter((u) => u.role === "user" || u.role === "admin"),
     [users],
   );
 
-  // 普通用户池
-  const userPool = useMemo(() => users.filter((u) => u.role === "user"), [users]);
+  const userOptions = useMemo(
+    () => assignableUsers.map((u) => ({
+      value: u.id,
+      label: `${u.real_name || u.display_name || u.username}（${u.username}）${u.department ? ` · ${u.department}` : ""}`,
+    })),
+    [assignableUsers],
+  );
 
-  const departmentOptions = useMemo(() => {
-    const counts = new Map();
-    userPool.forEach((u) => {
-      const dept = (u.department || "").trim();
-      if (!dept) return;
-      counts.set(dept, (counts.get(dept) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([value, n]) => ({
-      value,
-      label: `${value}（${n}人）`,
-    }));
-  }, [userPool]);
+  // 阅卷人仅允许管理员账号
+  const reviewerOptions = useMemo(
+    () => users
+      .filter((u) => u.role === "admin")
+      .map((u) => ({
+        value: u.id,
+        label: `${u.real_name || u.display_name || u.username} (${u.username})${u.department ? ` · ${u.department}` : ""}`,
+      })),
+    [users],
+  );
 
   const positionOptions = useMemo(() => {
     const counts = new Map();
-    userPool.forEach((u) => {
+    assignableUsers.forEach((u) => {
       const pos = (u.position || "").trim();
       if (!pos) return;
       counts.set(pos, (counts.get(pos) || 0) + 1);
@@ -133,44 +138,48 @@ export default function AssignmentsPanel() {
       value,
       label: `${value}（${n}人）`,
     }));
-  }, [userPool]);
+  }, [assignableUsers]);
 
   const dispatchMode = Form.useWatch("dispatch_mode", createForm);
   const watchedUserIds = Form.useWatch("user_ids", createForm);
   const watchedDepartments = Form.useWatch("departments", createForm);
   const watchedPositions = Form.useWatch("positions", createForm);
+  const watchedJobLevels = Form.useWatch("job_levels", createForm);
   const watchedEmploymentStatuses = Form.useWatch("employment_statuses", createForm);
   const watchedNewcomerOnly = Form.useWatch("newcomer_only", createForm);
 
   const resolvedUserIds = useMemo(() => {
     if (dispatchMode === "department") {
-      const set = new Set(watchedDepartments || []);
-      if (!set.size) return [];
-      return userPool
-        .filter((u) => set.has((u.department || "").trim()))
-        .map((u) => u.id);
+      return resolveDepartmentSelectionUserIds(watchedDepartments, assignableUsers);
     }
     if (dispatchMode === "position") {
       const set = new Set(watchedPositions || []);
       if (!set.size) return [];
-      return userPool
+      return assignableUsers
         .filter((u) => set.has((u.position || "").trim()))
         .map((u) => u.id);
     }
     if (dispatchMode === "employment_status") {
       const set = new Set(watchedEmploymentStatuses || []);
       if (!set.size) return [];
-      return userPool
+      return assignableUsers
         .filter((u) => set.has((u.employment_status || "").trim()))
         .map((u) => u.id);
     }
+    if (dispatchMode === "job_level") {
+      const set = new Set(watchedJobLevels || []);
+      if (!set.size) return [];
+      return assignableUsers
+        .filter((u) => set.has(u.job_level || "M线"))
+        .map((u) => u.id);
+    }
     if (dispatchMode === "all") {
-      return userPool
+      return assignableUsers
         .filter((u) => (watchedNewcomerOnly ? u.is_newcomer : true))
         .map((u) => u.id);
     }
     return Array.isArray(watchedUserIds) ? watchedUserIds : [];
-  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedEmploymentStatuses, watchedNewcomerOnly]);
+  }, [dispatchMode, assignableUsers, watchedUserIds, watchedDepartments, watchedPositions, watchedJobLevels, watchedEmploymentStatuses, watchedNewcomerOnly]);
 
   const submitCreate = async () => {
     const values = await createForm.validateFields();
@@ -182,6 +191,8 @@ export default function AssignmentsPanel() {
       await createAssignments({
         paper_id: values.paper_id,
         user_ids: resolvedUserIds,
+        reviewer_id: values.reviewer_id || null,
+        reward_points: Number(values.reward_points ?? 30),
         max_attempts: values.max_attempts,
         deadline_at: values.deadline_at ? dayjs(values.deadline_at).toISOString() : null,
       });
@@ -311,6 +322,19 @@ export default function AssignmentsPanel() {
     { title: "ID", dataIndex: "id", width: 70 },
     { title: "试卷", dataIndex: "paper_title", ellipsis: true },
     { title: "应试者", dataIndex: "user_display_name", width: 150 },
+    {
+      title: "奖励积分",
+      dataIndex: "reward_points",
+      width: 100,
+      render: (value) => value ?? "规则默认",
+    },
+    {
+      key: "reviewer",
+      title: "阅卷人",
+      dataIndex: "reviewer_display_name",
+      width: 130,
+      render: (value) => value || "未指定",
+    },
     {
       title: "尝试",
       key: "attempts",
@@ -519,7 +543,7 @@ export default function AssignmentsPanel() {
           form={createForm}
           layout="vertical"
           preserve={false}
-          initialValues={{ max_attempts: 1, dispatch_mode: "user", newcomer_only: false }}
+          initialValues={{ max_attempts: 1, reward_points: 30, dispatch_mode: "user", newcomer_only: false }}
         >
           <Form.Item label="选择试卷（仅已发布）" name="paper_id" rules={[{ required: true }]}>
             <Select
@@ -530,12 +554,26 @@ export default function AssignmentsPanel() {
             />
           </Form.Item>
 
+          <Form.Item
+            label="阅卷人"
+            name="reviewer_id"
+            rules={[{ required: true, message: "请选择阅卷人" }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={reviewerOptions}
+              placeholder="选择提交提醒接收人"
+            />
+          </Form.Item>
+
           <Form.Item label="派发维度" name="dispatch_mode">
             <Radio.Group
               options={[
                 { value: "user", label: "指定用户" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "job_level", label: "按职级" },
                 { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员普通用户" },
               ]}
@@ -563,18 +601,13 @@ export default function AssignmentsPanel() {
 
           {dispatchMode === "department" ? (
             <Form.Item
-              label="选择部门（可多选）"
+              label="选择部门 / 员工"
               name="departments"
-              rules={[{ required: true, message: "请选择至少 1 个部门" }]}
+              rules={[{ required: true, message: "请选择至少 1 个部门或员工" }]}
             >
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={departmentOptions}
-                placeholder={departmentOptions.length ? "选择部门，按部门批量推送" : "暂无可用部门（用户的「部门」字段为空）"}
-                disabled={!departmentOptions.length}
-                maxTagCount="responsive"
+              <DepartmentUserTreeSelect
+                users={assignableUsers}
+                placeholder="选择部门会自动包含下级员工，可展开后取消个人"
               />
             </Form.Item>
           ) : null}
@@ -614,6 +647,21 @@ export default function AssignmentsPanel() {
             </Form.Item>
           ) : null}
 
+          {dispatchMode === "job_level" ? (
+            <Form.Item
+              label="选择职级（可多选）"
+              name="job_levels"
+              rules={[{ required: true, message: "请选择至少 1 个职级" }]}
+            >
+              <Select
+                mode="multiple"
+                options={JOB_LEVEL_OPTIONS}
+                placeholder="选择 M线 / P线"
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
           {dispatchMode === "all" ? (
             <Form.Item
               label="范围"
@@ -641,12 +689,21 @@ export default function AssignmentsPanel() {
           />
 
           <Row gutter={12}>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={8}>
               <Form.Item label="最大答题次数" name="max_attempts">
                 <InputNumber min={1} max={10} step={1} style={{ width: "100%" }} />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                label="通过奖励积分"
+                name="reward_points"
+                rules={[{ required: true, message: "请填写奖励积分" }]}
+              >
+                <InputNumber min={0} max={100000} step={1} precision={0} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
               <Form.Item label="截止时间（可空）" name="deadline_at">
                 <DatePicker showTime style={{ width: "100%" }} />
               </Form.Item>

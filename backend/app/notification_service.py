@@ -298,9 +298,16 @@ async def notify_submission_received(db: AsyncSession, submission: PaperSubmissi
     if not assignment or not paper:
         return None
 
-    admins = await _admin_recipients(db)
-    fixed_admin_userids = _configured_admin_wecom_userids()
-    if not admins and not fixed_admin_userids:
+    reviewers: list[User] = []
+    fixed_admin_userids: list[str] = []
+    if assignment.reviewer_id:
+        reviewer = await db.get(User, int(assignment.reviewer_id))
+        if reviewer is not None and not bool(reviewer.disabled):
+            reviewers = [reviewer]
+    else:
+        reviewers = await _admin_recipients(db)
+        fixed_admin_userids = _configured_admin_wecom_userids()
+    if not reviewers and not fixed_admin_userids:
         return None
 
     total_assigned = int(
@@ -336,7 +343,7 @@ async def notify_submission_received(db: AsyncSession, submission: PaperSubmissi
     return await send_wecom_message(
         db,
         event_type="paper_submission_received",
-        recipients=admins,
+        recipients=reviewers,
         extra_wecom_userids=fixed_admin_userids,
         business_type="paper_submission",
         business_id=int(submission.id),

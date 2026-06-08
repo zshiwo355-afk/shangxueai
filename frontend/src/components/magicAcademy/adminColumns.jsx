@@ -77,6 +77,7 @@ export function buildAdminVideoColumns({
       render: (_, row) => row.series_id ? `${row.series_title} / 第 ${row.series_order} 节` : "—",
     },
     { title: "时长", dataIndex: "duration_seconds", render: (v) => formatTime(v) },
+    { title: "奖励积分", dataIndex: "reward_points", width: 90, render: (v) => v ?? "规则默认" },
     {
       title: "状态",
       dataIndex: "status",

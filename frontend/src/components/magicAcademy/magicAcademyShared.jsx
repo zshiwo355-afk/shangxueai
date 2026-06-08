@@ -93,6 +93,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: departments,
       target_positions: [],
+      target_job_levels: [],
       target_employment_statuses: [],
       newcomer_only: false,
     };
@@ -106,6 +107,21 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: positions,
+      target_job_levels: [],
+      target_employment_statuses: [],
+      newcomer_only: false,
+    };
+  }
+  const jobLevels = safeTargets
+    .filter((item) => item.target_type === "job_level" && item.target_value)
+    .map((item) => item.target_value);
+  if (jobLevels.length) {
+    return {
+      dispatch_mode: "job_level",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_positions: [],
+      target_job_levels: jobLevels,
       target_employment_statuses: [],
       newcomer_only: false,
     };
@@ -119,6 +135,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: [],
+      target_job_levels: [],
       target_employment_statuses: employmentStatuses,
       newcomer_only: false,
     };
@@ -129,6 +146,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: [],
+      target_job_levels: [],
       target_employment_statuses: [],
       newcomer_only: true,
     };
@@ -139,6 +157,7 @@ export function buildVideoDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_positions: [],
+      target_job_levels: [],
       target_employment_statuses: [],
       newcomer_only: false,
     };
@@ -150,6 +169,7 @@ export function buildVideoDispatchFormValues(targets) {
       .map((item) => String(item.target_value)),
     target_department_ids: [],
     target_positions: [],
+    target_job_levels: [],
     target_employment_statuses: [],
     newcomer_only: false,
   };
@@ -157,10 +177,19 @@ export function buildVideoDispatchFormValues(targets) {
 
 export function buildVideoTargetsFromDispatch(values) {
   if (values.dispatch_mode === "department") {
-    return (values.target_department_ids || []).map((item) => ({
-      target_type: "department",
-      target_value: item,
-    }));
+    return (values.target_department_ids || []).map((item) => {
+      const numericId = Number(item);
+      if (Number.isFinite(numericId) && String(item || "").trim() !== "") {
+        return {
+          target_type: "user",
+          target_value: String(numericId),
+        };
+      }
+      return {
+        target_type: "department",
+        target_value: item,
+      };
+    });
   }
   if (values.dispatch_mode === "position") {
     return (values.target_positions || []).map((item) => ({
@@ -171,6 +200,12 @@ export function buildVideoTargetsFromDispatch(values) {
   if (values.dispatch_mode === "employment_status") {
     return (values.target_employment_statuses || []).map((item) => ({
       target_type: "employment_status",
+      target_value: item,
+    }));
+  }
+  if (values.dispatch_mode === "job_level") {
+    return (values.target_job_levels || []).map((item) => ({
+      target_type: "job_level",
       target_value: item,
     }));
   }
@@ -199,6 +234,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: departments,
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
       newcomer_only: false,
     };
@@ -212,6 +248,21 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: positions,
+      target_job_level_ids: [],
+      target_employment_status_ids: [],
+      newcomer_only: false,
+    };
+  }
+  const jobLevels = safeTargets
+    .filter((item) => item.target_type === "job_level" && item.target_id)
+    .map((item) => item.target_id);
+  if (jobLevels.length) {
+    return {
+      dispatch_mode: "job_level",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_position_ids: [],
+      target_job_level_ids: jobLevels,
       target_employment_status_ids: [],
       newcomer_only: false,
     };
@@ -225,6 +276,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: employmentStatuses,
       newcomer_only: false,
     };
@@ -235,6 +287,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
       newcomer_only: true,
     };
@@ -245,6 +298,7 @@ export function buildReadingDispatchFormValues(targets) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
       newcomer_only: false,
     };
@@ -256,6 +310,7 @@ export function buildReadingDispatchFormValues(targets) {
       .map((item) => Number(item.target_id)),
     target_department_ids: [],
     target_position_ids: [],
+    target_job_level_ids: [],
     target_employment_status_ids: [],
     newcomer_only: false,
   };
@@ -263,11 +318,25 @@ export function buildReadingDispatchFormValues(targets) {
 
 export function buildReadingDispatchPayload(values) {
   if (values.dispatch_mode === "department") {
+    const userIds = (values.target_department_ids || [])
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item));
+    if (userIds.length) {
+      return {
+        target_type: "user",
+        target_user_ids: userIds,
+        target_department_ids: [],
+        target_position_ids: [],
+        target_job_level_ids: [],
+        target_employment_status_ids: [],
+      };
+    }
     return {
       target_type: "department",
       target_user_ids: [],
       target_department_ids: values.target_department_ids || [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
     };
   }
@@ -277,6 +346,7 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: values.target_position_ids || [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
     };
   }
@@ -286,7 +356,18 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: values.target_employment_status_ids || [],
+    };
+  }
+  if (values.dispatch_mode === "job_level") {
+    return {
+      target_type: "job_level",
+      target_user_ids: [],
+      target_department_ids: [],
+      target_position_ids: [],
+      target_job_level_ids: values.target_job_level_ids || [],
+      target_employment_status_ids: [],
     };
   }
   if (values.dispatch_mode === "all") {
@@ -295,6 +376,7 @@ export function buildReadingDispatchPayload(values) {
       target_user_ids: [],
       target_department_ids: [],
       target_position_ids: [],
+      target_job_level_ids: [],
       target_employment_status_ids: [],
     };
   }
@@ -303,6 +385,7 @@ export function buildReadingDispatchPayload(values) {
     target_user_ids: values.target_user_ids || [],
     target_department_ids: [],
     target_position_ids: [],
+    target_job_level_ids: [],
     target_employment_status_ids: [],
   };
 }
@@ -404,6 +487,8 @@ export function getReadingTargetSummary(content) {
   if (departments.length) return `部门：${departments.join("、")}`;
   const positions = targets.filter((item) => item.target_type === "position").map((item) => item.target_id).filter(Boolean);
   if (positions.length) return `岗位：${positions.join("、")}`;
+  const jobLevels = targets.filter((item) => item.target_type === "job_level").map((item) => item.target_id).filter(Boolean);
+  if (jobLevels.length) return `职级：${jobLevels.join("、")}`;
   const users = targets.filter((item) => item.target_type === "user");
   if (users.length) return `指定员工 ${users.length} 人`;
   return "未设置";

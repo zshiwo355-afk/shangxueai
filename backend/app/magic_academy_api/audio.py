@@ -138,14 +138,19 @@ def _build_reading_audio_export_filename(month: str | None) -> str:
 def _reading_target_matches_user(user: User, target: MagicReadingContentTarget) -> bool:
     target_type = (target.target_type or "").strip().lower()
     target_id = (target.target_id or "").strip()
+    is_employee_role = user.role in {"user", "admin"}
     if target_type == "all":
-        return user.role == "user"
+        return is_employee_role
     if target_type == "all_newcomers":
-        return user.role == "user" and bool(user.is_newcomer)
+        return is_employee_role and bool(user.is_newcomer)
     if target_type == "department":
         return (user.department or "").strip() == target_id
     if target_type == "position":
         return (user.position or "").strip() == target_id
+    if target_type == "job_level":
+        return (user.job_level or "M线").strip() == target_id
+    if target_type == "employment_status":
+        return (user.employment_status or "").strip() == target_id
     if target_type == "user":
         return str(user.id) == target_id
     return False
@@ -168,6 +173,12 @@ def _reading_target_summary(targets: list[MagicReadingContentTarget]) -> str:
     positions = [(item.target_id or "").strip() for item in targets if (item.target_type or "").lower() == "position" and (item.target_id or "").strip()]
     if positions:
         return f"岗位：{'、'.join(positions)}"
+    job_levels = [(item.target_id or "").strip() for item in targets if (item.target_type or "").lower() == "job_level" and (item.target_id or "").strip()]
+    if job_levels:
+        return f"职级：{'、'.join(job_levels)}"
+    employment_statuses = [(item.target_id or "").strip() for item in targets if (item.target_type or "").lower() == "employment_status" and (item.target_id or "").strip()]
+    if employment_statuses:
+        return f"在职状态：{'、'.join(employment_statuses)}"
     user_count = sum(1 for item in targets if (item.target_type or "").lower() == "user" and (item.target_id or "").strip())
     if user_count:
         return f"指定员工 {user_count} 人"
@@ -358,7 +369,7 @@ async def _list_filtered_employee_users(
     department: str | None,
     user_id: int | None,
 ) -> list[User]:
-    stmt = select(User).where(User.role == "user", User.disabled.is_(False))
+    stmt = select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False))
     if department:
         stmt = stmt.where(User.department == department)
     if user_id:
@@ -1195,7 +1206,7 @@ async def _build_audio_stats(
 ) -> list[dict[str, Any]]:
     month_start, month_end = _parse_month(month_text)
     expected = _expected_days(month_start, month_end)
-    user_stmt = select(User).where(User.role == "user", User.disabled.is_(False))
+    user_stmt = select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False))
     if department:
         user_stmt = user_stmt.where(User.department == department)
     if user_id:
@@ -1266,7 +1277,7 @@ async def get_admin_audio_calendar(
     month_start, _ = _parse_month(month)
     month_last_day_value = _month_last_day(month_start)
     reveal_whitelist = is_super_admin(admin)
-    user_stmt = select(User).where(User.role == "user", User.disabled.is_(False))
+    user_stmt = select(User).where(User.role.in_(["user", "admin"]), User.disabled.is_(False))
     if department:
         user_stmt = user_stmt.where(User.department == department)
     if user_id:

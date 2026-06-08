@@ -760,6 +760,7 @@ async def execute_employee_sync(
                     real_name=item.get("source_name") or mobile,
                     department=item.get("department") or "",
                     position=item.get("position") or "",
+                    job_level="M线",
                     role="user",
                     is_newcomer=False,
                     employment_status=_source_local_employment_status(employee),

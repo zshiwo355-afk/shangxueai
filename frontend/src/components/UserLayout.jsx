@@ -135,6 +135,7 @@ export default function UserLayout() {
                 <strong>{user?.display_name || user?.username || "学员"}</strong>
                 <Space size={6} wrap>
                   {user?.department ? <Tag bordered={false}>{user.department}</Tag> : null}
+                  <Tag bordered={false} color={user?.job_level === "P线" ? "geekblue" : "cyan"}>{user?.job_level || "M线"}</Tag>
                   <span>{user?.position || "学习中"}</span>
                 </Space>
               </div>
@@ -171,6 +172,7 @@ export default function UserLayout() {
               <strong>{user?.display_name || user?.username || "学员"}</strong>
               <div className="user-layout-drawer__user-meta">
                 {user?.department ? <Tag bordered={false}>{user.department}</Tag> : null}
+                <Tag bordered={false} color={user?.job_level === "P线" ? "geekblue" : "cyan"}>{user?.job_level || "M线"}</Tag>
                 <span>{user?.position || "学习中"}</span>
               </div>
             </div>

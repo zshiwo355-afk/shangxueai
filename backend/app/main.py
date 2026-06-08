@@ -17,6 +17,7 @@ from .config import get_settings
 from .db import session_scope
 from .deadline_reminder_worker import deadline_reminder_worker
 from .employee_open_client import EmployeeOpenClient
+from .employee_sync_worker import employee_sync_worker
 from .magic_auto_actions import auto_action_worker
 from .exams_api import (
     admin_router as exams_admin_router,
@@ -67,6 +68,8 @@ _reading_push_stop_event = asyncio.Event()
 _reading_push_task: asyncio.Task | None = None
 _deadline_reminder_stop_event = asyncio.Event()
 _deadline_reminder_task: asyncio.Task | None = None
+_employee_sync_stop_event = asyncio.Event()
+_employee_sync_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -131,7 +134,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _employee_sync_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -154,15 +157,19 @@ async def _preload_rules() -> None:
     if _deadline_reminder_task is None or _deadline_reminder_task.done():
         _deadline_reminder_stop_event.clear()
         _deadline_reminder_task = asyncio.create_task(deadline_reminder_worker(_deadline_reminder_stop_event))
+    if _employee_sync_task is None or _employee_sync_task.done():
+        _employee_sync_stop_event.clear()
+        _employee_sync_task = asyncio.create_task(employee_sync_worker(_employee_sync_stop_event))
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _employee_sync_task
     _auto_action_stop_event.set()
     _paper_ai_stop_event.set()
     _reading_push_stop_event.set()
     _deadline_reminder_stop_event.set()
+    _employee_sync_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -199,6 +206,15 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("deadline reminder worker stopped with error")
         finally:
             _deadline_reminder_task = None
+    if _employee_sync_task is None:
+        pass
+    else:
+        try:
+            await _employee_sync_task
+        except Exception:  # noqa: BLE001
+            logger.exception("employee sync worker stopped with error")
+        finally:
+            _employee_sync_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

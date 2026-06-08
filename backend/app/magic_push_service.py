@@ -80,7 +80,7 @@ async def list_effective_users(db: AsyncSession) -> list[User]:
     result = await db.execute(
         select(User)
         .where(
-            User.role == "user",
+            User.role.in_(["user", "admin"]),
             User.disabled.is_(False),
             User.status == "active",
         )
@@ -118,6 +118,8 @@ def _video_target_matches_user(user: User, target: MagicVideoTarget) -> bool:
         return (user.department or "").strip() == target_value
     if target_type == "position":
         return (user.position or "").strip() == target_value
+    if target_type == "job_level":
+        return (user.job_level or "M线").strip() == target_value
     if target_type == "employment_status":
         return (user.employment_status or "").strip() == target_value
     if target_type == "role":
@@ -138,6 +140,8 @@ def _reading_target_matches_user(user: User, target: MagicReadingContentTarget) 
         return (user.department or "").strip() == target_id
     if target_type == "position":
         return (user.position or "").strip() == target_id
+    if target_type == "job_level":
+        return (user.job_level or "M线").strip() == target_id
     if target_type == "employment_status":
         return (user.employment_status or "").strip() == target_id
     if target_type == "user":

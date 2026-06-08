@@ -474,6 +474,7 @@ async def init_magic_video_upload(
         is_required=payload.is_required,
         is_newcomer_required=payload.is_newcomer_required,
         deadline_at=payload.deadline_at,
+        reward_points=payload.reward_points,
         status=payload.status,
         upload_status="pending",
         upload_id=upload_plan["upload_id"],
@@ -701,6 +702,7 @@ async def complete_magic_video_replace_upload(
         video.is_required = payload.is_required
         video.is_newcomer_required = payload.is_newcomer_required
         video.deadline_at = payload.deadline_at
+        video.reward_points = payload.reward_points
         video.status = payload.status
         video.cover_url = resolved_cover_url or None
         video.cover_asset_id = _cover_asset_id
@@ -996,6 +998,7 @@ async def create_video(
         is_required=payload.is_required,
         is_newcomer_required=payload.is_newcomer_required,
         deadline_at=payload.deadline_at,
+        reward_points=payload.reward_points,
         status=payload.status,
         upload_status="completed",
         upload_error="",
@@ -1169,6 +1172,7 @@ async def update_video(
         video.is_required = payload.is_required
         video.is_newcomer_required = payload.is_newcomer_required
         video.deadline_at = payload.deadline_at
+        video.reward_points = payload.reward_points
         if payload.status == "published" and not _is_video_upload_ready(video):
             raise HTTPException(status_code=400, detail="视频尚未上传完成，不能通过编辑直接发布。")
         video.status = payload.status

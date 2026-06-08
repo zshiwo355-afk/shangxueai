@@ -102,7 +102,7 @@ export default function AdminAudioStatsPanel({
             placeholder="按员工筛选"
             value={audioUserId || undefined}
             onChange={(value) => setAudioUserId(value || null)}
-            options={users.filter((item) => item.role === "user").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))}
+            options={users.filter((item) => item.role === "user" || item.role === "admin").map((item) => ({ value: item.id, label: `${item.real_name || item.display_name || item.username} (${item.username})` }))}
           />
           <Select
             style={{ width: 180 }}

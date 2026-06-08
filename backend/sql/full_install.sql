@@ -573,6 +573,7 @@ CREATE TABLE `magic_videos` (
   `is_required` tinyint(1) NOT NULL DEFAULT '0',
   `is_newcomer_required` tinyint(1) NOT NULL DEFAULT '0',
   `deadline_at` datetime DEFAULT NULL,
+  `reward_points` int DEFAULT NULL COMMENT '完成奖励积分，NULL表示使用积分规则默认值',
   `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft' COMMENT 'draft / published / disabled',
   `upload_status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'completed' COMMENT 'pending / uploading / completed / failed / deleted',
   `upload_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
@@ -698,6 +699,8 @@ CREATE TABLE `paper_assignments` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `paper_id` bigint NOT NULL,
   `user_id` bigint NOT NULL,
+  `reviewer_id` bigint DEFAULT NULL COMMENT '阅卷人用户ID',
+  `reward_points` int DEFAULT NULL COMMENT '通过奖励积分，NULL表示使用积分规则默认值',
   `max_attempts` int NOT NULL DEFAULT '1',
   `attempt_count` int NOT NULL DEFAULT '0',
   `deadline_at` datetime DEFAULT NULL,
@@ -712,6 +715,7 @@ CREATE TABLE `paper_assignments` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_paper_assignments_paper_user` (`paper_id`,`user_id`) USING BTREE,
   KEY `idx_paper_assignments_user_status` (`user_id`,`status`) USING BTREE,
+  KEY `idx_paper_assignments_reviewer` (`reviewer_id`) USING BTREE,
   KEY `idx_paper_assignments_paper_status` (`paper_id`,`status`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='试卷派发任务';
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -936,6 +940,7 @@ CREATE TABLE `users` (
   `real_name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `department` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `position` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `job_level` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'M线' COMMENT 'M线 / P线',
   `role` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'user' COMMENT 'super_admin / admin / user',
   `is_newcomer` tinyint(1) NOT NULL DEFAULT '0',
   `employment_status` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',

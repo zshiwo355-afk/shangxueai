@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "role", "user"}
+TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "job_level", "employment_status", "role", "user"}
 VIDEO_STATUSES = {"draft", "published", "disabled"}
 VIDEO_SOURCE_TYPES = {"upload", "material"}
 QUESTION_TYPES = {"single", "multiple", "judge", "blank", "short_answer"}
@@ -73,6 +73,7 @@ class MagicVideoPayload(BaseModel):
     is_required: bool = False
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
+    reward_points: int | None = Field(default=None, ge=0, le=100000)
     status: str = "draft"
     video_source: str = "upload"
     material_asset_id: int | None = Field(default=None, ge=1)
@@ -102,6 +103,7 @@ class MagicVideoUploadInitPayload(BaseModel):
     is_required: bool = False
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
+    reward_points: int | None = Field(default=None, ge=0, le=100000)
     status: str = "draft"
     cover_asset_id: int | None = Field(default=None, ge=1)
     cover_url: str = Field(default="", max_length=2048)
@@ -152,6 +154,7 @@ class MagicVideoReplaceCompletePayload(BaseModel):
     is_required: bool = False
     is_newcomer_required: bool = False
     deadline_at: datetime | None = None
+    reward_points: int | None = Field(default=None, ge=0, le=100000)
     status: str = "draft"
     cover_asset_id: int | None = Field(default=None, ge=1)
     cover_url: str = Field(default="", max_length=2048)
@@ -297,6 +300,7 @@ class ReadingContentImportRowPayload(BaseModel):
     target_user_ids: list[int] = Field(default_factory=list)
     target_department_ids: list[str] = Field(default_factory=list)
     target_position_ids: list[str] = Field(default_factory=list)
+    target_job_level_ids: list[str] = Field(default_factory=list)
     target_employment_status_ids: list[str] = Field(default_factory=list)
     makeup_deadline_at: datetime | None = None
 
@@ -323,7 +327,7 @@ class ReadingContentImportJobResponse(BaseModel):
 
 
 READING_SERIES_STATUSES = {"draft", "active", "paused", "archived"}
-READING_SERIES_TARGET_TYPES = {"all", "department", "position", "employment_status", "user"}
+READING_SERIES_TARGET_TYPES = {"all", "department", "position", "job_level", "employment_status", "user"}
 
 
 class ReadingSeriesTargetPayload(BaseModel):

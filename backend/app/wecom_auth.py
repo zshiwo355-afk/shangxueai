@@ -41,6 +41,7 @@ def build_auth_user_payload(user: User) -> dict[str, Any]:
         "real_name": user.real_name or "",
         "department": user.department or "",
         "position": user.position or "",
+        "job_level": user.job_level or "M线",
         "role": user.role,
         "is_newcomer": bool(user.is_newcomer),
         "employment_status": user.employment_status or "",

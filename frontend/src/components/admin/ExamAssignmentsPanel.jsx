@@ -16,6 +16,7 @@ import {
 } from "../../lib/api.admin";
 import { adminListOptions } from "../../lib/api.options";
 import ChatHistoryView from "../ChatHistoryView";
+import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../common/DepartmentUserTreeSelect";
 import ReviewView from "../ReviewView";
 
 const { Paragraph, Text } = Typography;
@@ -29,6 +30,10 @@ const STATUS_TAGS = {
 };
 
 const RANDOM_SENTINEL = "__random__";
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
 
 function statusTag(status) {
   const cfg = STATUS_TAGS[status] || { color: "default", text: status };
@@ -270,28 +275,20 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     }
   };
 
-  const userOptions = useMemo(
-    () => users.filter((u) => u.role === "user").map((u) => ({
-      value: u.id,
-      label: `${u.display_name || u.username} (${u.username})`,
-    })),
+  const assignableUsers = useMemo(
+    () => users.filter((u) => u.role === "user" || u.role === "admin"),
     [users],
   );
 
-  const userPool = useMemo(() => users.filter((u) => u.role === "user"), [users]);
+  const userOptions = useMemo(
+    () => assignableUsers.map((u) => ({
+      value: u.id,
+      label: `${u.display_name || u.username} (${u.username})`,
+    })),
+    [assignableUsers],
+  );
 
-  const departmentOptions = useMemo(() => {
-    const counts = new Map();
-    userPool.forEach((u) => {
-      const dept = (u.department || "").trim();
-      if (!dept) return;
-      counts.set(dept, (counts.get(dept) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([value, n]) => ({
-      value,
-      label: `${value}（${n}人）`,
-    }));
-  }, [userPool]);
+  const userPool = assignableUsers;
 
   const positionOptions = useMemo(() => {
     const counts = new Map();
@@ -328,16 +325,13 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const watchedUserIds = Form.useWatch("user_ids", createForm);
   const watchedDepartments = Form.useWatch("departments", createForm);
   const watchedPositions = Form.useWatch("positions", createForm);
+  const watchedJobLevels = Form.useWatch("job_levels", createForm);
   const watchedEmploymentStatuses = Form.useWatch("employment_statuses", createForm);
   const watchedNewcomerOnly = Form.useWatch("newcomer_only", createForm);
 
   const resolvedUserIds = useMemo(() => {
     if (dispatchMode === "department") {
-      const set = new Set(watchedDepartments || []);
-      if (!set.size) return [];
-      return userPool
-        .filter((u) => set.has((u.department || "").trim()))
-        .map((u) => u.id);
+      return resolveDepartmentSelectionUserIds(watchedDepartments, userPool);
     }
     if (dispatchMode === "position") {
       const set = new Set(watchedPositions || []);
@@ -353,13 +347,20 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         .filter((u) => set.has((u.employment_status || "").trim()))
         .map((u) => u.id);
     }
+    if (dispatchMode === "job_level") {
+      const set = new Set(watchedJobLevels || []);
+      if (!set.size) return [];
+      return userPool
+        .filter((u) => set.has(u.job_level || "M线"))
+        .map((u) => u.id);
+    }
     if (dispatchMode === "all") {
       return userPool
         .filter((u) => (watchedNewcomerOnly ? u.is_newcomer : true))
         .map((u) => u.id);
     }
     return Array.isArray(watchedUserIds) ? watchedUserIds : [];
-  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedEmploymentStatuses, watchedNewcomerOnly]);
+  }, [dispatchMode, userPool, watchedUserIds, watchedDepartments, watchedPositions, watchedJobLevels, watchedEmploymentStatuses, watchedNewcomerOnly]);
 
   const buildOptionList = (values, label) => [
     { value: RANDOM_SENTINEL, label: `随机（每次重新抽取）` },
@@ -547,6 +548,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                 { value: "user", label: "指定用户" },
                 { value: "department", label: "按部门" },
                 { value: "position", label: "按岗位" },
+                { value: "job_level", label: "按职级" },
                 { value: "employment_status", label: "按在职状态" },
                 { value: "all", label: "全员普通用户" },
               ]}
@@ -574,18 +576,13 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
 
           {dispatchMode === "department" ? (
             <Form.Item
-              label="选择部门（可多选）"
+              label="选择部门 / 员工"
               name="departments"
-              rules={[{ required: true, message: "请选择至少 1 个部门" }]}
+              rules={[{ required: true, message: "请选择至少 1 个部门或员工" }]}
             >
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                options={departmentOptions}
-                placeholder={departmentOptions.length ? "选择部门，按部门批量推送" : "暂无可用部门（用户的「部门」字段为空）"}
-                disabled={!departmentOptions.length}
-                maxTagCount="responsive"
+              <DepartmentUserTreeSelect
+                users={userPool}
+                placeholder="选择部门会自动包含下级员工，可展开后取消个人"
               />
             </Form.Item>
           ) : null}
@@ -621,6 +618,21 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                 options={employmentStatusOptions}
                 placeholder={employmentStatusOptions.length ? "选择在职状态" : "暂无可用状态（请先到「配置管理 → 在职状态」添加）"}
                 disabled={!employmentStatusOptions.length}
+                maxTagCount="responsive"
+              />
+            </Form.Item>
+          ) : null}
+
+          {dispatchMode === "job_level" ? (
+            <Form.Item
+              label="选择职级（可多选）"
+              name="job_levels"
+              rules={[{ required: true, message: "请选择至少 1 个职级" }]}
+            >
+              <Select
+                mode="multiple"
+                options={JOB_LEVEL_OPTIONS}
+                placeholder="选择 M线 / P线"
                 maxTagCount="responsive"
               />
             </Form.Item>

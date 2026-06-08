@@ -102,6 +102,11 @@ const USER_SYNC_DISPLAY_COLORS = {
   mark_left: "orange",
 };
 
+const JOB_LEVEL_OPTIONS = [
+  { value: "M线", label: "M线" },
+  { value: "P线", label: "P线" },
+];
+
 export default function UsersTab() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -194,6 +199,7 @@ export default function UsersTab() {
         real_name: "",
         department: "",
         position: "",
+        job_level: "M线",
         role: "user",
         is_newcomer: false,
         employment_status: "",
@@ -214,6 +220,7 @@ export default function UsersTab() {
         real_name: editingUser.real_name || "",
         department: editingUser.department || "",
         position: editingUser.position || "",
+        job_level: editingUser.job_level || "M线",
         role: editingUser.role || "user",
         is_newcomer: Boolean(editingUser.is_newcomer),
         employment_status: editingUser.employment_status || "",
@@ -405,6 +412,7 @@ export default function UsersTab() {
     },
     { title: "部门", dataIndex: "department", width: 130, render: (v) => v || "—" },
     { title: "岗位", dataIndex: "position", width: 130, render: (v) => v || "—" },
+    { title: "职级", dataIndex: "job_level", width: 80, render: (v) => <Tag bordered={false} color={v === "P线" ? "geekblue" : "cyan"}>{v || "M线"}</Tag> },
     {
       title: "角色",
       dataIndex: "role",
@@ -728,6 +736,9 @@ export default function UsersTab() {
           </Form.Item>
           <Form.Item label="岗位" name="position">
             <Input placeholder="例如：招商主管" />
+          </Form.Item>
+          <Form.Item label="职级" name="job_level" rules={[{ required: true, message: "请选择职级" }]}>
+            <Select options={JOB_LEVEL_OPTIONS} />
           </Form.Item>
           <Form.Item label="角色" name="role">
             <Select
