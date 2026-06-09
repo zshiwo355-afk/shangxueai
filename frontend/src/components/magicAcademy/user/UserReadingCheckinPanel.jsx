@@ -86,13 +86,12 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                       statusColor={item.current_status === "已完成" ? "success" : item.current_status === "已过补卡时间" ? "default" : "processing"}
                       canMakeup={!!support.myAudioMakeupMap[item.id]?.can_makeup}
                       makeupReason={support.myAudioMakeupMap[item.id]?.reason || ""}
-                      onUploadRequest={({ file, onSuccess, onError }) => support.handleUploadAudioRecord({
+                      onSubmit={({ audioFile, imageFile }) => support.handleUploadAudioRecord({
                         readingItem: item,
-                        file,
-                        onSuccess,
-                        onError,
+                        audioFile,
+                        imageFile,
                       })}
-                      onSubmitMakeup={() => support.handleSubmitAudioMakeup(item)}
+                      onSubmitMakeup={({ audioFile, imageFile }) => support.handleSubmitAudioMakeup(item, { audioFile, imageFile })}
                     />
                   ))}
                 </Space>
@@ -117,7 +116,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                 value={support.audioRemark}
                 onChange={(e) => support.setAudioRemark(e.target.value)}
               />
-              <Text type="secondary">在每条读书内容卡片里单独提交。支持 mp3、m4a、wav、aac、amr、webm、ogg；单文件不超过 50MB。</Text>
+              <Text type="secondary">在每条读书内容卡片里单独提交，录音和图片至少传一项。录音支持 mp3、m4a、wav、aac、amr、webm、ogg（≤50MB）；图片支持 jpg、png、webp（≤10MB）。</Text>
             </Space>
           </section>
 

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -16,7 +17,7 @@ from sqlalchemy import and_, case, distinct, func, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import require_admin
-from .db import get_db
+from .db import get_db, session_scope
 from .models import (
     Exam,
     ExamAttempt,
@@ -228,92 +229,109 @@ async def trend(
 @router.get("/department-stats")
 async def department_stats(
     days: int = Query(default=30, ge=7, le=90),
-    db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict[str, Any]]:
-    """各部门：人数 / 活跃数 / 训练次数 / 平均训练分 / 打卡数 / 累计积分。"""
+    """各部门：人数 / 活跃数 / 训练次数 / 平均训练分 / 打卡数 / 累计积分。
+
+    6 条聚合查询互相独立，各开一个 session 并发执行（asyncio.gather），
+    总耗时从"6 条串行相加"降到"最慢的一条"。
+    """
     del admin
     range_start = datetime.combine(date.today() - timedelta(days=days - 1), datetime.min.time())
 
-    # 部门 → 人数
-    head_result = await db.execute(
-        select(User.department, func.count(User.id))
-        .where(User.disabled.is_(False))
-        .group_by(User.department)
-    )
-    dept_head: dict[str, int] = {}
-    for dept, cnt in head_result.all():
-        key = dept or "未分配"
-        dept_head[key] = int(cnt or 0)
+    async def _q_head() -> dict[str, int]:
+        # 部门 → 人数
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.count(User.id))
+                .where(User.disabled.is_(False))
+                .group_by(User.department)
+            )
+            return {(d or "未分配"): int(c or 0) for d, c in res.all()}
 
-    # 部门 → 活跃数：UNION ALL 五个来源 join users 后 GROUP BY 部门 + COUNT DISTINCT
-    # 口径与 /kpi 的 today_active 保持一致（训练 / 视频 / 音频 / 试卷 / 通关）
-    active_union = union_all(
-        select(TrainingRecord.user_id.label("uid"))
-        .where(TrainingRecord.created_at >= range_start),
-        select(MagicVideoProgress.user_id.label("uid"))
-        .where(MagicVideoProgress.last_watched_at >= range_start),
-        select(MagicAudioUpload.user_id.label("uid"))
-        .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False)),
-        select(PaperSubmission.user_id.label("uid"))
-        .where(PaperSubmission.started_at >= range_start),
-        select(Exam.user_id.label("uid"))
-        .join(ExamAttempt, ExamAttempt.exam_id == Exam.id)
-        .where(ExamAttempt.started_at >= range_start),
-    ).subquery()
-    active_result = await db.execute(
-        select(User.department, func.count(distinct(active_union.c.uid)))
-        .join(User, User.id == active_union.c.uid)
-        .group_by(User.department)
-    )
-    dept_active = {(d or "未分配"): int(c or 0) for d, c in active_result.all()}
+    async def _q_active() -> dict[str, int]:
+        # 部门 → 活跃数：UNION ALL 五个来源 join users 后 GROUP BY 部门 + COUNT DISTINCT
+        # 口径与 /kpi 的 today_active 保持一致（训练 / 视频 / 音频 / 试卷 / 通关）
+        active_union = union_all(
+            select(TrainingRecord.user_id.label("uid"))
+            .where(TrainingRecord.created_at >= range_start),
+            select(MagicVideoProgress.user_id.label("uid"))
+            .where(MagicVideoProgress.last_watched_at >= range_start),
+            select(MagicAudioUpload.user_id.label("uid"))
+            .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False)),
+            select(PaperSubmission.user_id.label("uid"))
+            .where(PaperSubmission.started_at >= range_start),
+            select(Exam.user_id.label("uid"))
+            .join(ExamAttempt, ExamAttempt.exam_id == Exam.id)
+            .where(ExamAttempt.started_at >= range_start),
+        ).subquery()
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.count(distinct(active_union.c.uid)))
+                .join(User, User.id == active_union.c.uid)
+                .group_by(User.department)
+            )
+            return {(d or "未分配"): int(c or 0) for d, c in res.all()}
 
-    # 部门 → 训练次数 + 平均分：自由训练
-    training_result = await db.execute(
-        select(User.department, func.count(TrainingRecord.id), func.avg(TrainingRecord.score))
-        .join(User, User.id == TrainingRecord.user_id)
-        .where(TrainingRecord.created_at >= range_start)
-        .group_by(User.department)
-    )
-    dept_training: dict[str, dict[str, Any]] = {}
-    for dept, cnt, avg_score in training_result.all():
-        key = dept or "未分配"
-        dept_training[key] = {
-            "count": int(cnt or 0),
-            "score_sum": float(avg_score or 0) * int(cnt or 0),
-        }
+    async def _q_training() -> dict[str, dict[str, Any]]:
+        # 部门 → 训练次数 + 平均分：自由训练
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.count(TrainingRecord.id), func.avg(TrainingRecord.score))
+                .join(User, User.id == TrainingRecord.user_id)
+                .where(TrainingRecord.created_at >= range_start)
+                .group_by(User.department)
+            )
+            out: dict[str, dict[str, Any]] = {}
+            for dept, cnt, avg_score in res.all():
+                key = dept or "未分配"
+                out[key] = {"count": int(cnt or 0), "score_sum": float(avg_score or 0) * int(cnt or 0)}
+            return out
 
-    # 部门 → 通关 attempt 次数 + 平均 AI 分（用 exam→user 关联部门）
-    exam_attempt_result = await db.execute(
-        select(User.department, func.count(ExamAttempt.id), func.avg(ExamAttempt.score))
-        .join(Exam, Exam.id == ExamAttempt.exam_id)
-        .join(User, User.id == Exam.user_id)
-        .where(ExamAttempt.started_at >= range_start)
-        .group_by(User.department)
+    async def _q_exam() -> list[tuple]:
+        # 部门 → 通关 attempt 次数 + 平均 AI 分（用 exam→user 关联部门）
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.count(ExamAttempt.id), func.avg(ExamAttempt.score))
+                .join(Exam, Exam.id == ExamAttempt.exam_id)
+                .join(User, User.id == Exam.user_id)
+                .where(ExamAttempt.started_at >= range_start)
+                .group_by(User.department)
+            )
+            return res.all()
+
+    async def _q_audio() -> dict[str, int]:
+        # 部门 → 打卡次数
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.count(MagicAudioUpload.id))
+                .join(User, User.id == MagicAudioUpload.user_id)
+                .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False))
+                .group_by(User.department)
+            )
+            return {(d or "未分配"): int(c or 0) for d, c in res.all()}
+
+    async def _q_points() -> dict[str, int]:
+        # 部门 → 累计积分
+        async with session_scope() as s:
+            res = await s.execute(
+                select(User.department, func.sum(UserPointSummary.total_points))
+                .join(User, User.id == UserPointSummary.user_id)
+                .where(User.disabled.is_(False))
+                .group_by(User.department)
+            )
+            return {(d or "未分配"): int(p or 0) for d, p in res.all()}
+
+    dept_head, dept_active, dept_training, exam_rows, dept_audio, dept_points = await asyncio.gather(
+        _q_head(), _q_active(), _q_training(), _q_exam(), _q_audio(), _q_points()
     )
-    for dept, cnt, avg_score in exam_attempt_result.all():
+
+    # 通关 attempt 并入训练桶（次数 + 分数和）
+    for dept, cnt, avg_score in exam_rows:
         key = dept or "未分配"
         bucket = dept_training.setdefault(key, {"count": 0, "score_sum": 0.0})
         bucket["count"] += int(cnt or 0)
         bucket["score_sum"] += float(avg_score or 0) * int(cnt or 0)
-
-    # 部门 → 打卡次数
-    audio_result = await db.execute(
-        select(User.department, func.count(MagicAudioUpload.id))
-        .join(User, User.id == MagicAudioUpload.user_id)
-        .where(MagicAudioUpload.uploaded_on >= range_start, MagicAudioUpload.is_deleted.is_(False))
-        .group_by(User.department)
-    )
-    dept_audio = {(d or "未分配"): int(c or 0) for d, c in audio_result.all()}
-
-    # 部门 → 累计积分
-    points_result = await db.execute(
-        select(User.department, func.sum(UserPointSummary.total_points))
-        .join(User, User.id == UserPointSummary.user_id)
-        .where(User.disabled.is_(False))
-        .group_by(User.department)
-    )
-    dept_points = {(d or "未分配"): int(p or 0) for d, p in points_result.all()}
 
     items = []
     for dept, head in dept_head.items():

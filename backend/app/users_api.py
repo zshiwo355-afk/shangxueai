@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -24,7 +25,7 @@ from .employee_sync import (
     consume_preview,
     execute_employee_sync,
 )
-from .models import User, WecomSyncEntry
+from .models import User, WecomSyncBatch, WecomSyncEntry
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
@@ -37,6 +38,7 @@ class UserDTO(BaseModel):
     department: str
     position: str
     job_level: str = "M线"
+    rank_name: str = ""
     role: str
     is_newcomer: bool
     employment_status: str = ""
@@ -58,13 +60,14 @@ class UserCreateRequest(BaseModel):
     department: str = Field(default="", max_length=128)
     position: str = Field(default="", max_length=128)
     job_level: str = Field(default="M线", max_length=16)
+    rank_name: str = Field(default="", max_length=32)
     role: str = Field(default="user", max_length=16)
     is_newcomer: bool = False
     employment_status: str = Field(default="", max_length=32)
     status: str = Field(default="active", max_length=16)
     disabled: bool = False
 
-    @field_validator("username", "display_name", "real_name", "department", "position", "job_level", "employment_status", mode="before")
+    @field_validator("username", "display_name", "real_name", "department", "position", "job_level", "rank_name", "employment_status", mode="before")
     @classmethod
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
@@ -100,6 +103,7 @@ class UserUpdateRequest(BaseModel):
     department: str | None = Field(default=None, max_length=128)
     position: str | None = Field(default=None, max_length=128)
     job_level: str | None = Field(default=None, max_length=16)
+    rank_name: str | None = Field(default=None, max_length=32)
     role: str | None = None
     is_newcomer: bool | None = None
     employment_status: str | None = Field(default=None, max_length=32)
@@ -175,6 +179,9 @@ class EmployeeSyncItemDTO(BaseModel):
     mobile: str = ""
     department: str = ""
     position: str = ""
+    rank_name: str = ""
+    job_level: str = ""
+    local_snapshot: dict[str, Any] | None = None
 
 
 class EmployeeSyncPreviewResponse(BaseModel):
@@ -201,6 +208,56 @@ class EmployeeSearchResponse(BaseModel):
     items: list[dict[str, object]]
 
 
+class SyncBatchDTO(BaseModel):
+    id: int
+    mode: str
+    initial_mode: bool
+    total_wecom_users: int
+    matched_count: int
+    bound_count: int
+    updated_count: int
+    created_count: int
+    left_count: int
+    disabled_count: int
+    conflict_count: int
+    skipped_count: int
+    executed_by: int | None = None
+    executed_by_name: str = ""
+    started_at: str = ""
+    finished_at: str | None = None
+
+
+class SyncBatchPageResponse(BaseModel):
+    items: list[SyncBatchDTO]
+    total: int
+    page: int
+    page_size: int
+
+
+class SyncEntryDTO(BaseModel):
+    id: int
+    user_id: int | None = None
+    wecom_userid: str = ""
+    mobile: str = ""
+    match_type: str = ""
+    action: str
+    status: str
+    reason: str = ""
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    created_at: str = ""
+
+
+def _parse_snapshot(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _digest(raw: str) -> str:
     raw = (raw or "").strip()
     if len(raw) == 32 and all(c in "0123456789abcdefABCDEF" for c in raw):
@@ -217,6 +274,7 @@ def _to_dto(user: User) -> UserDTO:
         department=user.department or "",
         position=user.position or "",
         job_level=user.job_level or "M线",
+        rank_name=user.rank_name or "",
         role=user.role or "user",
         is_newcomer=bool(user.is_newcomer),
         employment_status=user.employment_status or "",
@@ -493,6 +551,18 @@ def _norm_job_level(raw: Any) -> str:
     return _JOB_LEVEL_ALIASES.get(text, "M线")
 
 
+def _line_from_rank(rank: Any) -> str:
+    """原始职级（如 M3 / P0 / L1）→ 派发用的线。空/未知默认 M线。"""
+    text = str(rank or "").strip().upper()
+    if text:
+        head = text[0]
+        if head == "P":
+            return "P线"
+        if head == "L":
+            return "L线"
+    return "M线"
+
+
 def _is_left_employment_status(value: str | None) -> bool:
     return (value or "").strip() == "离职"
 
@@ -736,6 +806,96 @@ async def search_external_employees(
     return EmployeeSearchResponse(total=len(items), items=items)
 
 
+@router.get("/employee-sync/batches", response_model=SyncBatchPageResponse)
+async def list_sync_batches(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> SyncBatchPageResponse:
+    del admin
+    total = (
+        await db.execute(select(func.count()).select_from(WecomSyncBatch))
+    ).scalar_one()
+    rows = (
+        await db.execute(
+            select(WecomSyncBatch)
+            .order_by(WecomSyncBatch.id.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+    ).scalars().all()
+
+    executor_ids = {int(b.executed_by) for b in rows if b.executed_by}
+    name_by_id: dict[int, str] = {}
+    if executor_ids:
+        executors = (
+            await db.execute(select(User).where(User.id.in_(executor_ids)))
+        ).scalars().all()
+        for user in executors:
+            name_by_id[int(user.id)] = (
+                user.real_name or user.display_name or user.username or ""
+            )
+
+    items = [
+        SyncBatchDTO(
+            id=int(b.id),
+            mode=b.mode or "",
+            initial_mode=bool(b.initial_mode),
+            total_wecom_users=int(b.total_wecom_users or 0),
+            matched_count=int(b.matched_count or 0),
+            bound_count=int(b.bound_count or 0),
+            updated_count=int(b.updated_count or 0),
+            created_count=int(b.created_count or 0),
+            left_count=int(b.left_count or 0),
+            disabled_count=int(b.disabled_count or 0),
+            conflict_count=int(b.conflict_count or 0),
+            skipped_count=int(b.skipped_count or 0),
+            executed_by=int(b.executed_by) if b.executed_by else None,
+            executed_by_name=name_by_id.get(int(b.executed_by), "") if b.executed_by else "",
+            started_at=b.started_at.isoformat() if b.started_at else "",
+            finished_at=b.finished_at.isoformat() if b.finished_at else None,
+        )
+        for b in rows
+    ]
+    return SyncBatchPageResponse(
+        items=items,
+        total=int(total),
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/employee-sync/batches/{batch_id}/entries", response_model=list[SyncEntryDTO])
+async def list_sync_batch_entries(
+    batch_id: int,
+    action: str | None = Query(None, description="可选：按 action 过滤"),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> list[SyncEntryDTO]:
+    del admin
+    stmt = select(WecomSyncEntry).where(WecomSyncEntry.batch_id == batch_id)
+    if action and action.strip():
+        stmt = stmt.where(WecomSyncEntry.action == action.strip())
+    rows = (await db.execute(stmt.order_by(WecomSyncEntry.id.asc()))).scalars().all()
+    return [
+        SyncEntryDTO(
+            id=int(e.id),
+            user_id=int(e.user_id) if e.user_id else None,
+            wecom_userid=e.wecom_userid or "",
+            mobile=e.mobile or "",
+            match_type=e.match_type or "",
+            action=e.action or "",
+            status=e.status or "",
+            reason=e.reason or "",
+            before=_parse_snapshot(e.before_json),
+            after=_parse_snapshot(e.after_json),
+            created_at=e.created_at.isoformat() if e.created_at else "",
+        )
+        for e in rows
+    ]
+
+
 # ---------- 单条 CRUD ----------
 
 
@@ -769,7 +929,8 @@ async def create_user(
         real_name=payload.real_name or payload.display_name or payload.username,
         department=payload.department or "",
         position=payload.position or "",
-        job_level=payload.job_level or "M线",
+        job_level=_line_from_rank(payload.rank_name),
+        rank_name=payload.rank_name or "",
         role=payload.role,
         is_newcomer=payload.is_newcomer,
         employment_status=employment_status,
@@ -807,7 +968,10 @@ async def update_user(
         user.department = payload.department.strip()
     if payload.position is not None:
         user.position = payload.position.strip()
-    if payload.job_level is not None:
+    if payload.rank_name is not None:
+        user.rank_name = payload.rank_name.strip()
+        user.job_level = _line_from_rank(user.rank_name)
+    elif payload.job_level is not None:
         user.job_level = payload.job_level or "M线"
     if payload.role is not None:
         if payload.role == "super_admin" and not is_super_admin(admin):

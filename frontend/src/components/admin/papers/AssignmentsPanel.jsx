@@ -60,6 +60,7 @@ const SUB_STATUS_TAG = {
 const JOB_LEVEL_OPTIONS = [
   { value: "M线", label: "M线" },
   { value: "P线", label: "P线" },
+  { value: "L线", label: "L线" },
 ];
 
 export default function AssignmentsPanel() {

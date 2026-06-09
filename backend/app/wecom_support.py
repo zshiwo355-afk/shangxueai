@@ -63,6 +63,8 @@ def serialize_user_snapshot(user: User | None) -> dict[str, Any] | None:
         "real_name": user.real_name or "",
         "department": user.department or "",
         "position": user.position or "",
+        "job_level": user.job_level or "",
+        "rank_name": user.rank_name or "",
         "role": user.role or "",
         "is_newcomer": bool(user.is_newcomer),
         "employment_status": user.employment_status or "",

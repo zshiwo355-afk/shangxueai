@@ -8,6 +8,7 @@ const { Text } = Typography;
 const JOB_LEVEL_OPTIONS = [
   { value: "M线", label: "M线" },
   { value: "P线", label: "P线" },
+  { value: "L线", label: "L线" },
 ];
 
 export default function ReadingSeriesModal({
@@ -67,7 +68,7 @@ export default function ReadingSeriesModal({
                     <Select mode="multiple" allowClear showSearch optionFilterProp="label" options={positionOptions} placeholder="选择岗位" />
                   </Form.Item>
                   <Form.Item name="target_job_level_ids" label="职级" style={{ marginBottom: 0 }}>
-                    <Select mode="multiple" allowClear options={JOB_LEVEL_OPTIONS} placeholder="选择 M线 / P线" />
+                    <Select mode="multiple" allowClear options={JOB_LEVEL_OPTIONS} placeholder="选择 M线 / P线 / L线" />
                   </Form.Item>
                   <Form.Item name="target_employment_status_ids" label="在职状态" style={{ marginBottom: 0 }}>
                     <Select

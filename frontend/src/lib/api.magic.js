@@ -39,6 +39,13 @@ export function buildReadingContentImageUrl(contentId) {
   return url.toString();
 }
 
+export function buildReadingCheckinImageUrl(audioId) {
+  const url = new URL(buildApiUrl(`/api/magic-academy/admin/audios/${audioId}/image`), window.location.origin);
+  const token = getToken();
+  if (token) url.searchParams.set("access_token", token);
+  return url.toString();
+}
+
 export async function uploadMagicVideoFile(file, durationSeconds = 0) {
   const formData = new FormData();
   formData.append("file", file);
@@ -391,10 +398,37 @@ export async function fetchMyAudioCalendar(month) {
   return getJson(`/api/magic-academy/my/audios/calendar${suffix}`, "录音日历加载失败。");
 }
 export async function uploadMyAudio(payload) {
-  return postJson("/api/magic-academy/my/audios", payload, "录音上传失败。");
+  const formData = new FormData();
+  formData.append("reading_content_id", String(payload.reading_content_id));
+  formData.append("file_name", payload.file_name || "");
+  formData.append("file_size", String(payload.file_size || 0));
+  formData.append("mime_type", payload.mime_type || "");
+  formData.append("remark", payload.remark || "");
+  if (payload.image) formData.append("image", payload.image);
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/my/audios"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "打卡提交失败。");
+  if (!response.ok) await throwRequestError(response, "打卡提交失败。");
+  return parseJsonResponse(response, "打卡提交失败。");
 }
 export async function submitMyAudioMakeup(payload) {
-  return postJson("/api/magic-academy/my/audios/makeup", payload, "补卡失败。");
+  const formData = new FormData();
+  formData.append("reading_content_id", String(payload.reading_content_id));
+  if (payload.makeup_date) formData.append("makeup_date", payload.makeup_date);
+  formData.append("file_name", payload.file_name || "");
+  formData.append("file_size", String(payload.file_size || 0));
+  formData.append("mime_type", payload.mime_type || "");
+  formData.append("remark", payload.remark || "");
+  if (payload.image) formData.append("image", payload.image);
+  const response = await safeFetch(buildApiUrl("/api/magic-academy/my/audios/makeup"), {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  }, "补卡失败。");
+  if (!response.ok) await throwRequestError(response, "补卡失败。");
+  return parseJsonResponse(response, "补卡失败。");
 }
 export async function deleteMyAudio(id) {
   return deleteJson(`/api/magic-academy/my/audios/${id}`, "删除录音失败。");

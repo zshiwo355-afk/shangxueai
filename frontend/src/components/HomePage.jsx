@@ -2,6 +2,7 @@ import {
   ArrowRightOutlined,
   CalendarOutlined,
   ClockCircleOutlined,
+  CompassOutlined,
   FormOutlined,
   HistoryOutlined,
   PlayCircleFilled,
@@ -19,6 +20,7 @@ import { fetchMyAudios, fetchMyMagicVideos } from "../lib/api.magic";
 import { fetchMyTrainingRecords } from "../lib/api.training";
 import { fetchMyPaperAssignments } from "../lib/api.userPapers";
 import { loadActiveSession } from "../lib/storage";
+import { getCurrentUser } from "../lib/auth";
 import MentorPreviewSection from "./magicAcademy/user/mentor/MentorPreviewSection";
 
 const { Title } = Typography;
@@ -174,6 +176,7 @@ function HomeHeroBanner({ banners, onOpen }) {
 export default function HomePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
+  const isNewcomer = !!getCurrentUser()?.is_newcomer;
   const [, setLoading] = useState(true);
   const [challenges, setChallenges] = useState([]); // 老的"通关"
   const [papers, setPapers] = useState([]);         // 新的"考试"
@@ -352,6 +355,29 @@ export default function HomePage() {
 
   return (
     <div className="portal-home portal-home--editorial portal-home--minimal">
+      {isNewcomer ? (
+        <button
+          type="button"
+          className="newbie-map-banner fade-in-up"
+          onClick={() => navigate("/magic-academy?tab=courses")}
+          aria-label="进入新人地图"
+        >
+          <span className="newbie-map-banner__icon" aria-hidden="true">
+            <CompassOutlined />
+          </span>
+          <span className="newbie-map-banner__text">
+            <span className="newbie-map-banner__eyebrow">NEWBIE MAP</span>
+            <strong className="newbie-map-banner__title">新人地图</strong>
+            <span className="newbie-map-banner__desc">专为新人规划的学习路径，跟着地图完成课程与打卡。</span>
+          </span>
+          <span className="newbie-map-banner__cta">
+            开启新人之旅
+            <ArrowRightOutlined />
+          </span>
+          <span className="newbie-map-banner__glow" aria-hidden="true" />
+        </button>
+      ) : null}
+
       <section className="showcase-hero">
         <span className="showcase-hero__year" aria-hidden="true">学</span>
         <div className="showcase-hero__inner">

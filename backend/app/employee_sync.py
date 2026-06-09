@@ -60,6 +60,25 @@ def _source_position(employee: dict[str, Any]) -> str:
     return str(employee.get("position") or "").strip()
 
 
+def _source_job_level(employee: dict[str, Any]) -> str:
+    """Map HR `rank_name` (e.g. M3 / P0 / L1) into local job_level.
+
+    M* -> M线, P* -> P线, L* -> L线. Empty/unknown returns "" so callers
+    can decide to keep the existing local value instead of overwriting.
+    """
+    rank = str(employee.get("rank_name") or "").strip().upper()
+    if not rank:
+        return ""
+    head = rank[0]
+    if head == "M":
+        return "M线"
+    if head == "P":
+        return "P线"
+    if head == "L":
+        return "L线"
+    return ""
+
+
 def _source_name(employee: dict[str, Any]) -> str:
     return str(employee.get("name") or "").strip()
 
@@ -183,6 +202,12 @@ def _apply_employee_to_user(user: User, employee: dict[str, Any], *, synced_at: 
     user.real_name = name or user.real_name or user.username
     user.department = _source_department(employee)
     user.position = _source_position(employee)
+    job_level = _source_job_level(employee)
+    if job_level:
+        user.job_level = job_level
+    rank_name = str(employee.get("rank_name") or "").strip()
+    if rank_name:
+        user.rank_name = rank_name
     userid = _source_wecom_userid(employee)
     user.wecom_userid = userid or None
     user.wecom_synced_at = synced_at
@@ -234,6 +259,8 @@ def _make_item(
         "mobile": _source_mobile(employee),
         "department": _source_department(employee),
         "position": _source_position(employee),
+        "rank_name": str(employee.get("rank_name") or "").strip(),
+        "job_level": _source_job_level(employee),
         "employee": employee,
         "local_snapshot": local_snapshot,
     }
@@ -760,7 +787,8 @@ async def execute_employee_sync(
                     real_name=item.get("source_name") or mobile,
                     department=item.get("department") or "",
                     position=item.get("position") or "",
-                    job_level="M线",
+                    job_level=_source_job_level(employee) or "M线",
+                    rank_name=str(employee.get("rank_name") or "").strip(),
                     role="user",
                     is_newcomer=False,
                     employment_status=_source_local_employment_status(employee),

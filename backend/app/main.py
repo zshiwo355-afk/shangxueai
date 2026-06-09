@@ -8,8 +8,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response as StarletteResponse
 
 from .auth import ensure_builtin_super_admin, router as auth_router
 from .banners_api import admin_router as banners_admin_router, user_router as banners_user_router
@@ -17,7 +19,6 @@ from .config import get_settings
 from .db import session_scope
 from .deadline_reminder_worker import deadline_reminder_worker
 from .employee_open_client import EmployeeOpenClient
-from .employee_sync_worker import employee_sync_worker
 from .magic_auto_actions import auto_action_worker
 from .exams_api import (
     admin_router as exams_admin_router,
@@ -68,8 +69,6 @@ _reading_push_stop_event = asyncio.Event()
 _reading_push_task: asyncio.Task | None = None
 _deadline_reminder_stop_event = asyncio.Event()
 _deadline_reminder_task: asyncio.Task | None = None
-_employee_sync_stop_event = asyncio.Event()
-_employee_sync_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,6 +78,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 静态资源 + JSON 响应 gzip 压缩（>1KB 才压，省 CPU）。
+# vendor-antd 等大 chunk 体积可降到约 1/3，首屏传输量大幅下降。
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 @app.middleware("http")
@@ -134,7 +137,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _employee_sync_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -157,19 +160,15 @@ async def _preload_rules() -> None:
     if _deadline_reminder_task is None or _deadline_reminder_task.done():
         _deadline_reminder_stop_event.clear()
         _deadline_reminder_task = asyncio.create_task(deadline_reminder_worker(_deadline_reminder_stop_event))
-    if _employee_sync_task is None or _employee_sync_task.done():
-        _employee_sync_stop_event.clear()
-        _employee_sync_task = asyncio.create_task(employee_sync_worker(_employee_sync_stop_event))
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _employee_sync_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
     _auto_action_stop_event.set()
     _paper_ai_stop_event.set()
     _reading_push_stop_event.set()
     _deadline_reminder_stop_event.set()
-    _employee_sync_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -206,15 +205,6 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("deadline reminder worker stopped with error")
         finally:
             _deadline_reminder_task = None
-    if _employee_sync_task is None:
-        pass
-    else:
-        try:
-            await _employee_sync_task
-        except Exception:  # noqa: BLE001
-            logger.exception("employee sync worker stopped with error")
-        finally:
-            _employee_sync_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()
@@ -266,8 +256,18 @@ def _resolve_frontend_dist() -> Path | None:
 frontend_dist = _resolve_frontend_dist()
 assets_dir = (frontend_dist / "assets") if frontend_dist else None
 
+
+class _ImmutableStaticFiles(StaticFiles):
+    """Vite 产物文件名带内容 hash，可长期强缓存；内容变了文件名也变，不会读到旧版本。"""
+
+    def file_response(self, *args, **kwargs) -> StarletteResponse:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
+
 if assets_dir and assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    app.mount("/assets", _ImmutableStaticFiles(directory=assets_dir), name="assets")
 
 
 @app.get(f"/{WECOM_VERIFY_FILENAME}", response_model=None, include_in_schema=False)

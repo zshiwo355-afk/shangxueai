@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -18,13 +19,19 @@ from ..auth import get_current_user, require_admin
 from ..db import get_db
 from ..magic_academy_schemas import (
     AdminReadingAudioStatisticsExportPayload,
-    AudioMakeupPayload,
     AudioMakeupSettingPayload,
-    MagicAudioUploadPayload,
 )
 from ..models import MagicAudioMakeupSetting, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, User
 from ..points_service import grant_points, record_reading_streak
 from . import router
+from ._oss import (
+    _build_object_key_and_name,
+    _build_signed_stream_url,
+    _ensure_oss_settings,
+    _build_oss_object_url,
+    _upload_binary_to_oss,
+    _validate_reading_image_payload,
+)
 from ._utils import (
     AUDIO_EXTENSIONS,
     DEFAULT_AUDIO_MAKEUP_DAYS,
@@ -67,6 +74,32 @@ READING_CONTENT_STATUS_LABELS = {
     "active": "启用",
     "disabled": "已停用",
 }
+
+
+async def _resolve_checkin_image_payload(image: UploadFile | None) -> dict[str, Any]:
+    """上传打卡图片到 OSS，返回图片相关字段；无图片时返回空值。"""
+    empty = {
+        "image_object_key": "",
+        "image_url": "",
+        "image_file_name": "",
+        "image_mime_type": "",
+        "image_size": 0,
+    }
+    if image is None or not getattr(image, "filename", ""):
+        return empty
+    raw = await image.read()
+    mime_type = (image.content_type or "").strip() or mimetypes.guess_type(image.filename or "")[0] or "image/jpeg"
+    file_name = image.filename or "reading-checkin.jpg"
+    extension = _validate_reading_image_payload(file_name, len(raw), mime_type)
+    object_key, stored_filename = _build_object_key_and_name(file_name or f"reading-checkin{extension}", extension)
+    await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, mime_type)
+    return {
+        "image_object_key": object_key,
+        "image_url": _build_oss_object_url(_ensure_oss_settings()["public_base_url"], object_key),
+        "image_file_name": _safe_filename(file_name or stored_filename),
+        "image_mime_type": mime_type,
+        "image_size": len(raw),
+    }
 
 
 def _format_export_date(value: date | datetime | str | None) -> str:
@@ -453,6 +486,7 @@ async def _build_reading_content_user_rows(
             "should_complete": True,
             "completed": upload is not None,
             "upload_id": int(upload.id) if upload else None,
+            "has_image": bool(upload and (upload.image_object_key or "").strip()),
             "uploaded_at": _iso(upload.uploaded_on) if upload else None,
             "is_makeup": bool(upload and (upload.source or "") == SOURCE_AUDIO_MAKEUP),
             "makeup_at": _iso(upload.uploaded_on) if upload and (upload.source or "") == SOURCE_AUDIO_MAKEUP else None,
@@ -508,6 +542,7 @@ def _serialize_audio_record(
         "file_name": file_name,
         "file_size": file_size,
         "file_type": mime_type,
+        "has_image": bool((item.image_object_key or "").strip()),
         "remark": remark,
         "uploaded_date": _iso(item.uploaded_date),
         "uploaded_time": _iso(item.uploaded_on),
@@ -1013,34 +1048,50 @@ async def get_my_audio_makeup_options(
 
 @router.post("/my/audios")
 async def upload_my_audio(
-    payload: MagicAudioUploadPayload,
+    reading_content_id: int = Form(...),
+    file_name: str = Form(default=""),
+    file_size: int = Form(default=0),
+    mime_type: str = Form(default=""),
+    remark: str = Form(default=""),
+    image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    suffix = Path(payload.file_name or "").suffix.lower()
-    if suffix not in AUDIO_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="音频格式不支持。")
-    if int(payload.file_size or 0) > MAX_AUDIO_SIZE:
-        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
-    safe_name = _safe_filename(payload.file_name or f"audio{suffix}")
+    has_audio = bool((file_name or "").strip())
+    has_image = image is not None and bool(getattr(image, "filename", ""))
+    if not has_audio and not has_image:
+        raise HTTPException(status_code=400, detail="请上传录音或图片，至少提交一项。")
+    suffix = Path(file_name or "").suffix.lower()
+    if has_audio:
+        if suffix not in AUDIO_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="音频格式不支持。")
+        if int(file_size or 0) > MAX_AUDIO_SIZE:
+            raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+    safe_name = _safe_filename(file_name) if has_audio else ""
     now = _now()
     content = await _assert_audio_submission_window(
         db,
         user=user,
-        reading_content_id=int(payload.reading_content_id),
+        reading_content_id=int(reading_content_id),
         target_date=now.date(),
         now=now,
     )
-    if await _has_audio_checkin_on_content(db, user.id, int(payload.reading_content_id)):
+    if await _has_audio_checkin_on_content(db, user.id, int(reading_content_id)):
         raise HTTPException(status_code=400, detail="该读书内容已完成，无需重复提交。")
+    image_payload = await _resolve_checkin_image_payload(image)
     row = MagicAudioUpload(
         user_id=user.id,
-        reading_content_id=int(payload.reading_content_id),
+        reading_content_id=int(reading_content_id),
         file_name=safe_name,
         file_path="",
-        file_size=int(payload.file_size or 0),
-        mime_type=(payload.mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip(),
-        remark=(payload.remark or "").strip(),
+        file_size=int(file_size or 0) if has_audio else 0,
+        mime_type=(mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip() if has_audio else "",
+        image_object_key=image_payload["image_object_key"],
+        image_url=image_payload["image_url"],
+        image_file_name=image_payload["image_file_name"],
+        image_mime_type=image_payload["image_mime_type"],
+        image_size=image_payload["image_size"],
+        remark=(remark or "").strip(),
         source=SOURCE_AUDIO_USER_UPLOAD,
         auto_checkin_by_whitelist=False,
         uploaded_on=now,
@@ -1068,11 +1119,18 @@ async def upload_my_audio(
         await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
     except Exception:  # noqa: BLE001
         pass
+    image_signed_url = (
+        await asyncio.to_thread(_build_signed_stream_url, row.image_object_key)
+        if (row.image_object_key or "").strip()
+        else ""
+    )
     return {
         "id": row.id,
         "file_name": row.file_name,
         "file_size": int(row.file_size or 0),
         "file_type": row.mime_type,
+        "image_url": image_signed_url,
+        "has_image": bool((row.image_object_key or "").strip()),
         "remark": row.remark or "",
         "uploaded_date": _iso(row.uploaded_date),
         "uploaded_time": _iso(row.uploaded_on),
@@ -1084,23 +1142,34 @@ async def upload_my_audio(
 
 @router.post("/my/audios/makeup")
 async def submit_my_audio_makeup(
-    payload: AudioMakeupPayload,
+    reading_content_id: int = Form(...),
+    makeup_date: str = Form(default=""),
+    file_name: str = Form(default=""),
+    file_size: int = Form(default=0),
+    mime_type: str = Form(default=""),
+    remark: str = Form(default=""),
+    image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    suffix = Path(payload.file_name or "").suffix.lower()
-    if suffix not in AUDIO_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="音频格式不支持。")
-    if int(payload.file_size or 0) > MAX_AUDIO_SIZE:
-        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+    has_audio = bool((file_name or "").strip())
+    has_image = image is not None and bool(getattr(image, "filename", ""))
+    if not has_audio and not has_image:
+        raise HTTPException(status_code=400, detail="请上传录音或图片，至少提交一项。")
+    suffix = Path(file_name or "").suffix.lower()
+    if has_audio:
+        if suffix not in AUDIO_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="音频格式不支持。")
+        if int(file_size or 0) > MAX_AUDIO_SIZE:
+            raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
     whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
     today = date.today()
-    content = await _get_user_target_reading_content_or_404(db, user=user, reading_content_id=int(payload.reading_content_id))
+    content = await _get_user_target_reading_content_or_404(db, user=user, reading_content_id=int(reading_content_id))
     target_date = content.reading_date
     now = _now()
     setting = await _get_audio_makeup_setting(db)
-    has_record = await _has_audio_checkin_on_content(db, user.id, int(payload.reading_content_id))
+    has_record = await _has_audio_checkin_on_content(db, user.id, int(reading_content_id))
     can_makeup, reason = _evaluate_audio_makeup_date(
         target_date,
         today=today,
@@ -1112,19 +1181,25 @@ async def submit_my_audio_makeup(
     await _assert_audio_submission_window(
         db,
         user=user,
-        reading_content_id=int(payload.reading_content_id),
+        reading_content_id=int(reading_content_id),
         target_date=target_date,
         now=now,
     )
-    safe_name = _safe_filename(payload.file_name or f"audio{suffix}")
+    safe_name = _safe_filename(file_name) if has_audio else ""
+    image_payload = await _resolve_checkin_image_payload(image)
     row = MagicAudioUpload(
         user_id=user.id,
-        reading_content_id=int(payload.reading_content_id),
+        reading_content_id=int(reading_content_id),
         file_name=safe_name,
         file_path="",
-        file_size=int(payload.file_size or 0),
-        mime_type=(payload.mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip(),
-        remark=(payload.remark or "").strip(),
+        file_size=int(file_size or 0) if has_audio else 0,
+        mime_type=(mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip() if has_audio else "",
+        image_object_key=image_payload["image_object_key"],
+        image_url=image_payload["image_url"],
+        image_file_name=image_payload["image_file_name"],
+        image_mime_type=image_payload["image_mime_type"],
+        image_size=image_payload["image_size"],
+        remark=(remark or "").strip(),
         source=SOURCE_AUDIO_MAKEUP,
         auto_checkin_by_whitelist=False,
         uploaded_on=now,
@@ -1169,6 +1244,29 @@ async def delete_my_audio(
     row.deleted_at = _now()
     await db.flush()
     return {"success": True}
+
+
+@router.get("/admin/audios/{audio_id}/image", response_model=None)
+async def preview_admin_checkin_image(
+    audio_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = await db.get(MagicAudioUpload, audio_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="打卡记录不存在。")
+    if not is_super_admin(admin) and row.reading_content_id:
+        content = await db.get(MagicReadingContent, int(row.reading_content_id))
+        if content and content.created_by and int(content.created_by) != int(admin.id):
+            raise HTTPException(status_code=403, detail="无权查看该打卡图片。")
+    object_key = (row.image_object_key or "").strip()
+    if object_key:
+        signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+        return RedirectResponse(signed_url, status_code=307)
+    fallback = (row.image_url or "").strip()
+    if fallback.startswith("http://") or fallback.startswith("https://"):
+        return RedirectResponse(fallback, status_code=307)
+    raise HTTPException(status_code=404, detail="该打卡记录未上传图片。")
 
 
 @router.get("/my/audios/calendar")

@@ -1,5 +1,6 @@
-import { UploadOutlined } from "@ant-design/icons";
+import { AudioOutlined, FileImageOutlined, UploadOutlined } from "@ant-design/icons";
 import { Button, Card, Image, Space, Tag, Typography, Upload } from "antd";
+import { useState } from "react";
 
 const { Paragraph, Text } = Typography;
 
@@ -8,9 +9,39 @@ export default function ReadingContentCard({
   statusColor,
   canMakeup,
   makeupReason,
-  onUploadRequest,
+  onSubmit,
   onSubmitMakeup,
 }) {
+  const [audioFile, setAudioFile] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const hasSelection = !!audioFile || !!imageFile;
+
+  const handleSubmit = async () => {
+    if (!hasSelection || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit?.({ audioFile, imageFile });
+      setAudioFile(null);
+      setImageFile(null);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleMakeup = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmitMakeup?.({ audioFile, imageFile });
+      setAudioFile(null);
+      setImageFile(null);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Card key={item.id} size="small">
       <Space direction="vertical" size={12} style={{ width: "100%" }}>
@@ -34,17 +65,57 @@ export default function ReadingContentCard({
             preview={{ src: item.image_url }}
           />
         ) : null}
+        {!item.completed ? (
+          <Space direction="vertical" size={8} style={{ width: "100%" }}>
+            <Space wrap>
+              <Upload
+                showUploadList={false}
+                accept="audio/*"
+                maxCount={1}
+                beforeUpload={(file) => {
+                  setAudioFile(file);
+                  return false;
+                }}
+              >
+                <Button icon={<AudioOutlined />} disabled={!item.can_submit && !canMakeup}>
+                  {audioFile ? "重新选择录音" : "选择录音"}
+                </Button>
+              </Upload>
+              <Upload
+                showUploadList={false}
+                accept="image/*"
+                maxCount={1}
+                beforeUpload={(file) => {
+                  setImageFile(file);
+                  return false;
+                }}
+              >
+                <Button icon={<FileImageOutlined />} disabled={!item.can_submit && !canMakeup}>
+                  {imageFile ? "重新选择图片" : "选择图片"}
+                </Button>
+              </Upload>
+            </Space>
+            {audioFile ? <Text type="secondary">录音：{audioFile.name}</Text> : null}
+            {imageFile ? <Text type="secondary">图片：{imageFile.name}</Text> : null}
+            <Text type="secondary">录音和图片至少提交一项。</Text>
+          </Space>
+        ) : null}
         <Space wrap>
-          <Upload
-            showUploadList={false}
-            customRequest={onUploadRequest}
-          >
-            <Button type="primary" icon={<UploadOutlined />} disabled={!item.can_submit}>
-              {item.completed ? "已完成" : "提交本条打卡"}
+          {item.completed ? (
+            <Button type="primary" disabled>已完成</Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<UploadOutlined />}
+              loading={submitting}
+              disabled={!item.can_submit || !hasSelection}
+              onClick={handleSubmit}
+            >
+              提交本条打卡
             </Button>
-          </Upload>
+          )}
           {!item.completed && canMakeup ? (
-            <Button onClick={onSubmitMakeup}>补交本条</Button>
+            <Button loading={submitting} disabled={!hasSelection} onClick={handleMakeup}>补交本条</Button>
           ) : null}
           {!item.can_submit && item.submit_disabled_reason ? (
             <Text type="secondary">{item.submit_disabled_reason}</Text>

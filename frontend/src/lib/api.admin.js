@@ -100,6 +100,20 @@ export async function adminSearchExternalEmployees(params = {}) {
   );
 }
 
+export async function adminListSyncBatches(params = {}) {
+  return getJson(
+    `/api/admin/users/employee-sync/batches${toQs(params)}`,
+    "同步记录加载失败。",
+  );
+}
+
+export async function adminGetSyncBatchEntries(batchId, params = {}) {
+  return getJson(
+    `/api/admin/users/employee-sync/batches/${batchId}/entries${toQs(params)}`,
+    "同步明细加载失败。",
+  );
+}
+
 // ---- 白名单 ----
 export async function adminListWhitelist() {
   return getJson("/api/whitelist", "白名单列表加载失败。");

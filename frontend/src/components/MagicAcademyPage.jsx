@@ -135,8 +135,10 @@ const { Title, Text, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
 
 export default function MagicAcademyPage({ embedded = false, adminSection = "courses" }) {
-  const adminMode = isAdmin();
-  const superAdminMode = isSuperAdmin();
+  // 仅当从管理后台（AdminLayout 传入 embedded）进入时才启用管理视图。
+  // 用户端 /magic-academy 即使是管理员账号也应看学员界面，不能按角色判断。
+  const adminMode = embedded && isAdmin();
+  const superAdminMode = embedded && isSuperAdmin();
   const currentUser = getCurrentUser();
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();

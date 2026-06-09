@@ -102,10 +102,7 @@ const USER_SYNC_DISPLAY_COLORS = {
   mark_left: "orange",
 };
 
-const JOB_LEVEL_OPTIONS = [
-  { value: "M线", label: "M线" },
-  { value: "P线", label: "P线" },
-];
+const JOB_LEVEL_LINE_COLOR = (line) => (line === "P线" ? "geekblue" : line === "L线" ? "purple" : "cyan");
 
 export default function UsersTab() {
   const [items, setItems] = useState([]);
@@ -199,7 +196,7 @@ export default function UsersTab() {
         real_name: "",
         department: "",
         position: "",
-        job_level: "M线",
+        rank_name: "",
         role: "user",
         is_newcomer: false,
         employment_status: "",
@@ -220,7 +217,7 @@ export default function UsersTab() {
         real_name: editingUser.real_name || "",
         department: editingUser.department || "",
         position: editingUser.position || "",
-        job_level: editingUser.job_level || "M线",
+        rank_name: editingUser.rank_name || "",
         role: editingUser.role || "user",
         is_newcomer: Boolean(editingUser.is_newcomer),
         employment_status: editingUser.employment_status || "",
@@ -412,7 +409,17 @@ export default function UsersTab() {
     },
     { title: "部门", dataIndex: "department", width: 130, render: (v) => v || "—" },
     { title: "岗位", dataIndex: "position", width: 130, render: (v) => v || "—" },
-    { title: "职级", dataIndex: "job_level", width: 80, render: (v) => <Tag bordered={false} color={v === "P线" ? "geekblue" : "cyan"}>{v || "M线"}</Tag> },
+    {
+      title: "职级",
+      dataIndex: "rank_name",
+      width: 90,
+      render: (value, row) =>
+        value ? (
+          <Tag bordered={false} color={JOB_LEVEL_LINE_COLOR(row.job_level)}>{value}</Tag>
+        ) : (
+          "—"
+        ),
+    },
     {
       title: "角色",
       dataIndex: "role",
@@ -627,7 +634,7 @@ export default function UsersTab() {
             dataSource={filteredWecomPreviewItems}
             size="small"
             pagination={{ pageSize: 8 }}
-            scroll={{ x: 1280 }}
+            scroll={{ x: 1410 }}
             columns={[
               {
                 title: "处理结果",
@@ -643,6 +650,22 @@ export default function UsersTab() {
               { title: "第三方员工", dataIndex: "wecom_name", width: 240, render: (_, row) => row.wecom_name ? `${row.wecom_name} / ${row.wecom_userid || "—"}` : (row.wecom_userid || "—") },
               { title: "手机号", dataIndex: "mobile", width: 130, render: (value) => value || "—" },
               { title: "部门", dataIndex: "department", width: 260, render: (value) => value || "—" },
+              {
+                title: "职级",
+                dataIndex: "rank_name",
+                width: 130,
+                render: (_, row) => {
+                  if (row.rank_name) {
+                    return (
+                      <Tag bordered={false} color={JOB_LEVEL_LINE_COLOR(row.job_level)}>
+                        {row.rank_name}
+                      </Tag>
+                    );
+                  }
+                  const kept = row.local_snapshot?.rank_name;
+                  return kept ? <span style={{ color: "var(--text-mute)" }}>保留 {kept}</span> : "—";
+                },
+              },
               { title: "说明", dataIndex: "reason", width: 420, render: (value) => value || "将更新本地账号信息。" },
             ]}
           />
@@ -678,13 +701,14 @@ export default function UsersTab() {
             dataSource={externalSearchItems}
             size="small"
             pagination={{ pageSize: 8 }}
-            scroll={{ x: 1000 }}
+            scroll={{ x: 1090 }}
             columns={[
               { title: "员工ID", dataIndex: "external_user_id", width: 90 },
               { title: "姓名", dataIndex: "name", width: 100 },
               { title: "手机号", dataIndex: "mobile", width: 130 },
               { title: "部门", dataIndex: "department_name", width: 260, render: (value) => value || "—" },
               { title: "岗位", dataIndex: "position", width: 130, render: (value) => value || "—" },
+              { title: "职级", dataIndex: "rank_name", width: 90, render: (value) => value || "—" },
               { title: "花名册状态", dataIndex: "status", width: 110, render: (value) => value === 2 ? "试用期" : "在职" },
               { title: "企微状态", dataIndex: "employment_status", width: 110, render: (value) => value === 1 ? "在职" : value === 2 ? "禁用" : value === 3 ? "离职" : "未绑定" },
               { title: "企微 userid", dataIndex: "wecom_userid", width: 220, render: (value) => value || "—" },
@@ -737,8 +761,8 @@ export default function UsersTab() {
           <Form.Item label="岗位" name="position">
             <Input placeholder="例如：招商主管" />
           </Form.Item>
-          <Form.Item label="职级" name="job_level" rules={[{ required: true, message: "请选择职级" }]}>
-            <Select options={JOB_LEVEL_OPTIONS} />
+          <Form.Item label="职级" name="rank_name">
+            <Input placeholder="例如：M3 / P0 / L1，留空表示无" />
           </Form.Item>
           <Form.Item label="角色" name="role">
             <Select

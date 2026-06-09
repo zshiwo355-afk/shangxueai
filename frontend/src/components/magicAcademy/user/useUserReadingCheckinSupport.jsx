@@ -74,37 +74,48 @@ export default function useUserReadingCheckinSupport({
     setMyReadingContents(Array.isArray(result) ? result : []);
   }, [myAudioSelectedDate]);
 
-  const handleSubmitAudioMakeup = useCallback(async (readingItem) => {
+  const handleSubmitAudioMakeup = useCallback(async (readingItem, { audioFile = null, imageFile = null } = {}) => {
     try {
       const makeupOption = myAudioMakeupMap[readingItem?.id];
       if (!makeupOption?.can_makeup) {
         message.warning(makeupOption?.reason || "当前内容不可补卡。");
         return;
       }
+      if (!audioFile && !imageFile) {
+        message.warning("请上传录音或图片，至少提交一项。");
+        return;
+      }
       await submitMyAudioMakeup({
         reading_content_id: readingItem.id,
         makeup_date: readingItem.reading_date,
-        file_name: "makeup-checkin.m4a",
-        file_size: 0,
-        mime_type: "audio/m4a",
+        file_name: audioFile?.name || "",
+        file_size: Number(audioFile?.size || 0),
+        mime_type: audioFile?.type || "",
+        image: imageFile || null,
         remark: audioRemark,
       });
       setAudioRemark("");
       message.success("补卡成功。");
       await reloadMyData();
       await reloadMyAudioCalendar();
+      await reloadMyReadingContents();
     } catch (error) {
       message.error(error?.message || "补卡失败。");
     }
-  }, [audioRemark, message, myAudioMakeupMap, reloadMyAudioCalendar, reloadMyData]);
+  }, [audioRemark, message, myAudioMakeupMap, reloadMyAudioCalendar, reloadMyData, reloadMyReadingContents]);
 
-  const handleUploadAudioRecord = useCallback(async ({ readingItem, file, onSuccess, onError }) => {
+  const handleUploadAudioRecord = useCallback(async ({ readingItem, audioFile = null, imageFile = null }) => {
+    if (!audioFile && !imageFile) {
+      message.warning("请上传录音或图片，至少提交一项。");
+      return;
+    }
     try {
       await uploadMyAudio({
         reading_content_id: readingItem.id,
-        file_name: file?.name || "",
-        file_size: Number(file?.size || 0),
-        mime_type: file?.type || "",
+        file_name: audioFile?.name || "",
+        file_size: Number(audioFile?.size || 0),
+        mime_type: audioFile?.type || "",
+        image: imageFile || null,
         remark: audioRemark,
       });
       setAudioRemark("");
@@ -112,10 +123,8 @@ export default function useUserReadingCheckinSupport({
       await reloadMyData();
       await reloadMyAudioCalendar();
       await reloadMyReadingContents();
-      onSuccess?.({});
     } catch (error) {
-      onError?.(error);
-      message.error(error?.message || "上传失败。");
+      message.error(error?.message || "提交失败。");
     }
   }, [audioRemark, message, reloadMyAudioCalendar, reloadMyData, reloadMyReadingContents]);
 

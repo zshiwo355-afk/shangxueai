@@ -7,6 +7,7 @@ import {
   FolderOpenOutlined,
   FormOutlined,
   GiftOutlined,
+  HistoryOutlined,
   HomeOutlined,
   LogoutOutlined,
   ReadOutlined,
@@ -36,6 +37,7 @@ const NotificationsTab = lazy(() => import("./admin/NotificationsTab"));
 const PointsAdminPage = lazy(() => import("./admin/points/PointsAdminPage"));
 const MentorsTab = lazy(() => import("./admin/mentors/MentorsTab"));
 const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
+const SyncLogsTab = lazy(() => import("./admin/SyncLogsTab"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -68,6 +70,7 @@ const MENU_GROUPS = [
     label: "用户与权限",
     children: [
       { key: "users", icon: <TeamOutlined />, label: "用户管理", path: "/admin/users" },
+      { key: "sync-logs", icon: <HistoryOutlined />, label: "同步记录", path: "/admin/sync-logs" },
       { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true, path: "/admin/whitelist" },
     ],
   },
@@ -129,6 +132,7 @@ export default function AdminLayout() {
 
   const activeKey = useMemo(() => {
     if (location.pathname.startsWith("/admin/whitelist")) return "whitelist";
+    if (location.pathname.startsWith("/admin/sync-logs")) return "sync-logs";
     if (location.pathname.startsWith("/admin/materials")) return "materials";
     if (location.pathname.startsWith("/admin/mentors")) return "mentors";
     if (location.pathname.startsWith("/admin/points")) return "points";
@@ -272,6 +276,7 @@ export default function AdminLayout() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="users" element={<UsersTab />} />
+              <Route path="sync-logs" element={<SyncLogsTab />} />
               <Route path="options" element={<OptionsTab />} />
               <Route path="exams" element={<ExamsTab />} />
               <Route path="papers/*" element={<PapersAdminPage />} />

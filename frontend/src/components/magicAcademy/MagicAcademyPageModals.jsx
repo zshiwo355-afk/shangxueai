@@ -3,12 +3,14 @@ import {
   Button,
   Card,
   Checkbox,
+  Image,
   Modal,
   Space,
   Table,
   Tag,
   Typography,
 } from "antd";
+import { buildReadingCheckinImageUrl } from "../../lib/api.magic";
 import ReadingSeriesModal from "./admin/reading/ReadingSeriesModal";
 import QuestionFormModal from "./QuestionFormModal";
 import ReadingContentFormModal from "./ReadingContentFormModal";
@@ -253,6 +255,21 @@ export default function MagicAcademyPageModals({
               { title: "应完成", dataIndex: "should_complete", render: (value) => value ? "是" : "否" },
               { title: "已完成", dataIndex: "completed", render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
               { title: "上传时间", dataIndex: "uploaded_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              {
+                title: "打卡图片",
+                dataIndex: "has_image",
+                render: (value, row) => (value && row.upload_id
+                  ? (
+                    <Image
+                      src={buildReadingCheckinImageUrl(row.upload_id)}
+                      width={44}
+                      height={44}
+                      style={{ borderRadius: 6, objectFit: "cover", border: "1px solid #f0f0f0" }}
+                      preview={{ src: buildReadingCheckinImageUrl(row.upload_id) }}
+                    />
+                  )
+                  : "—"),
+              },
               { title: "是否补卡", dataIndex: "is_makeup", render: (value) => value ? "是" : "否" },
               { title: "补卡时间", dataIndex: "makeup_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
               { title: "备注", dataIndex: "remark", render: (value) => value || "—" },

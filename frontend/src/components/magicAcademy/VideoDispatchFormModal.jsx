@@ -34,6 +34,7 @@ const { Text } = Typography;
 const JOB_LEVEL_OPTIONS = [
   { value: "M线", label: "M线" },
   { value: "P线", label: "P线" },
+  { value: "L线", label: "L线" },
 ];
 
 export default function VideoDispatchFormModal({ open, onCancel, onSubmit, editing, users, submitting, uploadProgress }) {
