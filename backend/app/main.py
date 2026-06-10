@@ -286,6 +286,12 @@ async def frontend(full_path: str):
         raise HTTPException(status_code=404, detail=f"API endpoint not found: /{normalized}")
 
     if frontend_dist:
+        # 先尝试把请求当作 dist 根目录下的真实文件返回（favicon.ico、robots.txt 等）。
+        # 否则任何路径都会掉进 SPA 兜底返回 index.html，根目录静态文件永远取不到。
+        if normalized and "\\" not in normalized:
+            candidate = (frontend_dist / normalized).resolve()
+            if candidate.is_file() and frontend_dist.resolve() in candidate.parents:
+                return FileResponse(candidate)
         index_file = frontend_dist / "index.html"
         if index_file.exists():
             return FileResponse(index_file)
