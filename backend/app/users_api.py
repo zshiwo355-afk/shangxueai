@@ -749,6 +749,9 @@ async def preview_employee_sync(
             mobile=item.get("mobile") or "",
             department=item.get("department") or "",
             position=item.get("position") or "",
+            rank_name=item.get("rank_name") or "",
+            job_level=item.get("job_level") or "",
+            local_snapshot=item.get("local_snapshot"),
         )
         for item in preview.get("items", [])
     ]

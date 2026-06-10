@@ -6722,3 +6722,81 @@ body {
     transform: none !important;
   }
 }
+
+.floating-ai-button {
+  position: fixed;
+  z-index: 1200;
+  width: 66px;
+  height: 66px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  background: #ffffff;
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.18),
+    0 2px 8px rgba(15, 23, 42, 0.1);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.24s ease;
+}
+
+/* Soft breathing glow behind the orb. */
+.floating-ai-button__halo {
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(100, 237, 172, 0.65), rgba(100, 237, 172, 0) 70%);
+  filter: blur(9px);
+  opacity: 0.75;
+  animation: floating-ai-pulse 3.4s ease-in-out infinite;
+}
+
+.floating-ai-button__icon {
+  position: relative;
+  z-index: 1;
+  width: 42px;
+  height: 42px;
+  filter: drop-shadow(0 2px 3px rgba(18, 40, 68, 0.18));
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.floating-ai-button:hover {
+  transform: translateY(-3px) scale(1.07);
+  box-shadow:
+    0 16px 36px rgba(15, 23, 42, 0.24),
+    0 4px 12px rgba(15, 23, 42, 0.14);
+}
+
+.floating-ai-button:hover .floating-ai-button__icon {
+  transform: scale(1.08);
+}
+
+.floating-ai-button:hover .floating-ai-button__halo {
+  opacity: 1;
+}
+
+.floating-ai-button:active {
+  transform: scale(0.94);
+}
+
+.floating-ai-button.is-dragging {
+  cursor: grabbing;
+  transition: none;
+  transform: scale(1.05);
+}
+
+.floating-ai-button.is-dragging .floating-ai-button__halo {
+  animation: none;
+  opacity: 1;
+}
+
+@keyframes floating-ai-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.16); opacity: 1; }
+}

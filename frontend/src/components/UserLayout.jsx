@@ -16,6 +16,7 @@ import { fetchGuideStatus } from "../lib/api.guide";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 import logoImg from "../assets/logo.png";
 import NewbieGuide from "./NewbieGuide";
+import FloatingAiButton from "./FloatingAiButton";
 
 const NAV_ITEMS = [
   { key: "home", label: "首页", path: "/home", icon: <HomeOutlined /> },
@@ -216,6 +217,7 @@ export default function UserLayout() {
       </main>
 
       <NewbieGuide active={guideActive} onFinish={() => setGuideActive(false)} />
+      <FloatingAiButton />
     </div>
   );
 }

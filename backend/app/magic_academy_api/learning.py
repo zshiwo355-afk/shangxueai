@@ -54,6 +54,7 @@ from ._video_helpers import (
     _get_video_or_404,
     _get_video_targets,
     _get_watch_confirm_settings_map,
+    _get_whitelisted_video_ids,
     _is_whitelisted,
     _video_to_dict,
     _video_visible_to_user,
@@ -104,6 +105,8 @@ async def list_my_videos(
         select(MagicVideoProgress).where(MagicVideoProgress.user_id == user.id)
     )
     progress_map = {item.video_id: item for item in progress_result.scalars().all()}
+    # 一次性取当前用户对这批视频的白名单集合，避免在循环里逐个查询（N+1）。
+    whitelisted_ids = await _get_whitelisted_video_ids(db, user.id, video_ids)
     series_context_map = await _get_series_context_map(
         db,
         video_ids,
@@ -114,7 +117,7 @@ async def list_my_videos(
     output = []
     for video in videos:
         targets = targets_map.get(video.id, [])
-        whitelisted = await _is_whitelisted(db, video.id, user.id)
+        whitelisted = video.id in whitelisted_ids
         if not _video_visible_to_user(video, user, targets, whitelisted):
             continue
         output.append(

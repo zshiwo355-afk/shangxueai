@@ -153,6 +153,23 @@ async def _is_whitelisted(db: AsyncSession, video_id: int, user_id: int) -> bool
     return result.scalar_one_or_none() is not None
 
 
+async def _get_whitelisted_video_ids(
+    db: AsyncSession,
+    user_id: int,
+    video_ids: list[int],
+) -> set[int]:
+    """一次性取出该用户在给定视频集合内的白名单 video_id，供列表场景避免 N+1。"""
+    if not video_ids:
+        return set()
+    result = await db.execute(
+        select(MagicVideoWhitelist.video_id).where(
+            MagicVideoWhitelist.user_id == user_id,
+            MagicVideoWhitelist.video_id.in_(video_ids),
+        )
+    )
+    return {int(row) for row in result.scalars().all()}
+
+
 def _can_seek_freely(video_whitelisted: bool, permissions: dict[str, Any]) -> bool:
     return bool(
         video_whitelisted
@@ -638,6 +655,7 @@ __all__ = [
     "_get_quiz_points_map",
     "_get_questions_map",
     "_is_whitelisted",
+    "_get_whitelisted_video_ids",
     "_can_seek_freely",
     "_is_video_upload_ready",
     "_video_status_label",

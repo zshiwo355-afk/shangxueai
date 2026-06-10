@@ -41,6 +41,16 @@ export default defineConfig({
           }
           if (id.includes("react-router")) return "vendor-router";
           if (
+            id.includes("/echarts/") ||
+            id.includes("\\echarts\\") ||
+            id.includes("/zrender/") ||
+            id.includes("\\zrender\\")
+          ) {
+            // echarts 仅管理后台数据看板使用，单独分包以便随懒加载的 Dashboard
+            // 按需加载，避免混入首屏通用 vendor（约 600KB）。
+            return "vendor-echarts";
+          }
+          if (
             id.includes("/react/") ||
             id.includes("\\react\\") ||
             id.includes("/react-dom/") ||
