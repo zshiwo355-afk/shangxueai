@@ -22,6 +22,15 @@
   flex-direction: column;
 }
 
+/* 宽度切换的平滑过渡（antd 默认带，这里显式声明以统一缓动） */
+.admin-sider,
+.admin-sider.ant-layout-sider {
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+    flex-basis 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 .admin-sider .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
@@ -224,6 +233,133 @@
 }
 
 .admin-sider__menu .ant-menu-sub.ant-menu-inline .ant-menu-item-selected {
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+/* ============ 折叠态 ============ */
+/* 底部折叠/展开按钮 */
+.admin-sider__collapse {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 12px 14px;
+  padding: 0 14px;
+  height: 38px;
+  border: 1px solid var(--line-soft, rgba(31, 41, 51, 0.08));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-mute, #697586);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-sider__collapse .anticon {
+  font-size: 15px;
+  flex-shrink: 0;
+  color: var(--text-mute, #697586);
+  transition: color 0.15s ease;
+}
+
+.admin-sider__collapse:hover {
+  background: rgba(66, 111, 159, 0.06);
+  border-color: var(--accent-light, #7da5d4);
+  color: var(--accent-deep, #426f9f);
+}
+
+.admin-sider__collapse:hover .anticon {
+  color: var(--accent-deep, #426f9f);
+}
+
+.admin-sider__collapse-text {
+  flex: 1;
+  text-align: left;
+  opacity: 1;
+  transition: opacity 0.16s ease;
+}
+
+/* 折叠时：品牌区只留 logo 居中、隐藏文字与 eyebrow、按钮收成图标 */
+.admin-sider--collapsed .admin-sider__brand {
+  padding: 20px 0 18px;
+  justify-content: center;
+  gap: 0;
+}
+
+.admin-sider--collapsed .admin-sider__brand-text {
+  display: none;
+}
+
+.admin-sider--collapsed .admin-sider__nav-eyebrow {
+  height: 0;
+  padding: 8px 0 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.admin-sider--collapsed .admin-sider__menu {
+  padding-inline: 10px;
+}
+
+.admin-sider--collapsed .admin-sider__collapse {
+  justify-content: center;
+  padding: 0;
+  margin-inline: 16px;
+}
+
+.admin-sider--collapsed .admin-sider__collapse .anticon {
+  margin: 0;
+}
+
+.admin-sider--collapsed .admin-sider__collapse-text {
+  display: none;
+}
+
+/* 折叠态下 antd 给 item 的内边距偏小，居中图标 */
+.admin-sider--collapsed .admin-sider__menu .ant-menu-item,
+.admin-sider--collapsed .admin-sider__menu .ant-menu-submenu-title {
+  padding-inline: 0 !important;
+  display: flex;
+  justify-content: center;
+}
+
+.admin-sider--collapsed .admin-sider__menu .ant-menu-item .anticon,
+.admin-sider--collapsed .admin-sider__menu .ant-menu-submenu-title .anticon {
+  font-size: 16px;
+}
+
+/* 折叠态弹出的浮层子菜单，沿用主色语言 */
+.admin-sider-popup.ant-menu-submenu-popup .ant-menu {
+  border-radius: 10px !important;
+  padding: 6px !important;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12) !important;
+  background: #fbfaf6 !important;
+}
+
+.admin-sider-popup .ant-menu-item {
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  color: var(--text-base, #1f2933) !important;
+}
+
+.admin-sider-popup .ant-menu-item .anticon {
+  color: var(--text-mute, #697586) !important;
+}
+
+.admin-sider-popup .ant-menu-item:hover {
+  background-color: rgba(66, 111, 159, 0.08) !important;
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+.admin-sider-popup .ant-menu-item-selected {
+  background-color: var(--accent-soft, #edf4fb) !important;
+  color: var(--accent-deep, #426f9f) !important;
+}
+
+.admin-sider-popup .ant-menu-item-selected .anticon {
   color: var(--accent-deep, #426f9f) !important;
 }
 

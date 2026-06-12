@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     llm_model: str = Field("openai/gpt-4o", alias="LLM_MODEL")
     llm_timeout_seconds: int = Field(120, alias="LLM_TIMEOUT_SECONDS")
     llm_max_output_tokens: int = Field(4000, alias="LLM_MAX_OUTPUT_TOKENS")
+    # ---- 录音转写：讯飞「录音文件转写大模型版」LFASR ----
+    # 控制台 https://console.xfyun.cn/services/lfasr_llm
+    asr_enabled: bool = Field(True, alias="ASR_ENABLED")
+    asr_max_file_bytes: int = Field(500 * 1024 * 1024, alias="ASR_MAX_FILE_BYTES")
+    asr_timeout_seconds: int = Field(60, alias="ASR_TIMEOUT_SECONDS")
+    asr_poll_interval_seconds: int = Field(3, alias="ASR_POLL_INTERVAL_SECONDS")
+    asr_poll_max_seconds: int = Field(300, alias="ASR_POLL_MAX_SECONDS")
+    asr_language: str = Field("autodialect", alias="ASR_LANGUAGE")
+    asr_role_type: int = Field(0, alias="ASR_ROLE_TYPE")
+    xf_appid: str = Field("", alias="XF_APPID")
+    xf_api_key: str = Field("", alias="XF_API_KEY")
+    xf_api_secret: str = Field("", alias="XF_API_SECRET")
     image_gen_model: str = Field("openai/gpt-image-2", alias="IMAGE_GEN_MODEL")
     image_gen_size: str = Field("1536x1024", alias="IMAGE_GEN_SIZE")
     image_gen_quality: str = Field("low", alias="IMAGE_GEN_QUALITY")

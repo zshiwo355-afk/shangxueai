@@ -1,8 +1,9 @@
 import { CrownFilled, TrophyOutlined } from "@ant-design/icons";
-import { App as AntdApp, Card, Segmented, Select, Space, Table, Tag } from "antd";
+import { App as AntdApp, Card, Segmented, Space, Table, Tag } from "antd";
 import { useEffect, useMemo, useState } from "react";
 
 import { adminListDepartments, adminPointLeaderboard } from "../../../lib/api.points";
+import DepartmentTreeSelect from "../../common/DepartmentTreeSelect";
 
 const CATEGORY_OPTIONS = [
   { label: "综合", value: "all" },
@@ -106,15 +107,12 @@ export default function LeaderboardTab() {
             onChange={setScope}
           />
           {scope === "department" ? (
-            <Select
+            <DepartmentTreeSelect
+              departments={departments}
+              value={department}
+              onChange={setDepartment}
               placeholder="选择部门"
               style={{ width: 240 }}
-              value={department || undefined}
-              onChange={setDepartment}
-              options={departments.map((d) => ({ label: d, value: d }))}
-              allowClear
-              showSearch
-              optionFilterProp="label"
             />
           ) : null}
           <span style={{ color: "var(--text-mute)" }}>分类</span>

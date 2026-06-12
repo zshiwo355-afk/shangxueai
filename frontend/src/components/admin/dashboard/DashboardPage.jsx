@@ -53,13 +53,13 @@ export default function DashboardPage() {
       <section className="dash-section">
         <SectionHead eyebrow="02 · Activity & Champions" title="趋势走向 · 学习达人" />
         <Row gutter={[20, 20]} align="stretch">
-          <Col xs={24} lg={16} style={{ display: "flex" }}>
-            <div style={{ flex: 1, display: "flex" }}>
+          <Col xs={24} lg={16} style={{ display: "flex", minWidth: 0 }}>
+            <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
               <TrendChart />
             </div>
           </Col>
-          <Col xs={24} lg={8} style={{ display: "flex" }}>
-            <div style={{ flex: 1, display: "flex" }}>
+          <Col xs={24} lg={8} style={{ display: "flex", minWidth: 0 }}>
+            <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
               <LeaderboardPreview />
             </div>
           </Col>
@@ -67,13 +67,13 @@ export default function DashboardPage() {
       </section>
 
       <Row gutter={[20, 20]} align="stretch">
-        <Col xs={24} lg={16} style={{ display: "flex" }}>
+        <Col xs={24} lg={16} style={{ display: "flex", minWidth: 0 }}>
           <section className="dash-section" style={{ flex: 1, minWidth: 0 }}>
             <SectionHead eyebrow="03 · By Department" title="部门维度透视" />
             <DepartmentChart />
           </section>
         </Col>
-        <Col xs={24} lg={8} style={{ display: "flex" }}>
+        <Col xs={24} lg={8} style={{ display: "flex", minWidth: 0 }}>
           <section className="dash-section" style={{ flex: 1, minWidth: 0 }}>
             <SectionHead eyebrow="04 · Points Composition" title="积分分类构成" />
             <PointsBreakdownCard />

@@ -404,6 +404,7 @@ export async function uploadMyAudio(payload) {
   formData.append("file_size", String(payload.file_size || 0));
   formData.append("mime_type", payload.mime_type || "");
   formData.append("remark", payload.remark || "");
+  if (payload.audio) formData.append("audio", payload.audio);
   if (payload.image) formData.append("image", payload.image);
   const response = await safeFetch(buildApiUrl("/api/magic-academy/my/audios"), {
     method: "POST",
@@ -421,6 +422,7 @@ export async function submitMyAudioMakeup(payload) {
   formData.append("file_size", String(payload.file_size || 0));
   formData.append("mime_type", payload.mime_type || "");
   formData.append("remark", payload.remark || "");
+  if (payload.audio) formData.append("audio", payload.audio);
   if (payload.image) formData.append("image", payload.image);
   const response = await safeFetch(buildApiUrl("/api/magic-academy/my/audios/makeup"), {
     method: "POST",
@@ -613,6 +615,17 @@ export async function fetchAdminAudioCalendar(params = {}) {
   if (params.user_id) search.set("user_id", String(params.user_id));
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/admin/audios/calendar${suffix}`, "录音日历加载失败。");
+}
+export async function fetchAdminAudiosByDate(params = {}) {
+  const search = new URLSearchParams();
+  if (params.date) search.set("date", params.date);
+  if (params.department) search.set("department", params.department);
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/audios/by-date${suffix}`, "录音列表加载失败。");
+}
+export async function transcribeAdminAudio(audioId) {
+  return postJson(`/api/magic-academy/admin/audios/${audioId}/transcribe`, {}, "录音转写失败。");
 }
 export function buildAdminReadingAudioStatisticsExportPath(params = {}) {
   const search = new URLSearchParams();

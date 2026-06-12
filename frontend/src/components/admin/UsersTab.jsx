@@ -36,6 +36,7 @@ import {
 } from "../../lib/api.admin";
 import { getCurrentUser, isSuperAdmin } from "../../lib/auth";
 import { fetchOptions } from "../../lib/api.options";
+import DepartmentTreeSelect from "../common/DepartmentTreeSelect";
 
 const { Dragger } = Upload;
 
@@ -181,10 +182,6 @@ export default function UsersTab() {
   useEffect(() => { reloadDepartments(); }, []);
   useEffect(() => { reloadEmploymentStatusOptions(); }, []);
 
-  const departmentOptions = useMemo(
-    () => departments.map((d) => ({ value: d, label: d })),
-    [departments],
-  );
 
   const fillForm = () => {
     if (mode === "create") {
@@ -500,14 +497,12 @@ export default function UsersTab() {
           style={{ width: 260 }}
           onSearch={(v) => { setPage(1); setKeyword(v.trim()); }}
         />
-        <Select
-          allowClear
-          showSearch
-          placeholder="按部门筛选"
-          style={{ width: 240 }}
-          options={departmentOptions}
+        <DepartmentTreeSelect
+          departments={departments}
           value={department}
           onChange={(v) => { setPage(1); setDepartment(v); }}
+          placeholder="按部门筛选"
+          style={{ width: 240 }}
         />
         <Select
           allowClear

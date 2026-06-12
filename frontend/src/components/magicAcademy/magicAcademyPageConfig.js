@@ -1,6 +1,6 @@
 export const ADMIN_SECTION_TABS = {
   courses: ["video_manage", "quiz", "series", "stats"],
-  reading: ["reading_contents", "reading_series", "audio_stats"],
+  reading: ["reading_contents", "reading_series", "audio_stats", "audio_transcribe"],
 };
 
 export const READING_SERIES_STATUS_OPTIONS = [

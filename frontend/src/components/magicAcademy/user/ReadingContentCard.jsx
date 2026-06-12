@@ -4,6 +4,15 @@ import { useState } from "react";
 
 const { Paragraph, Text } = Typography;
 
+// iOS Safari 会按 accept 列表匹配文件 UTI，匹配不上的文件直接置灰禁选；
+// 混合"扩展名 + MIME"时解析有 bug，常把语音备忘录导出的 m4a 也一起灰掉
+//（表现为「能看见文件但点不动」）。iOS 上索性不限制，靠后端扩展名校验兜底。
+const IS_IOS = typeof navigator !== "undefined"
+  && (/iP(hone|ad|od)/.test(navigator.userAgent || "")
+    // iPadOS 13+ 默认请求桌面站点，UA 里没有 iPad，用触摸点数 + Mac 识别
+    || (/Macintosh/.test(navigator.userAgent || "") && typeof document !== "undefined" && "ontouchend" in document));
+const AUDIO_ACCEPT = IS_IOS ? undefined : ".mp3,.m4a,.wav,.aac,.amr,.caf,.ogg,.webm,audio/*";
+
 export default function ReadingContentCard({
   item,
   statusColor,
@@ -70,7 +79,7 @@ export default function ReadingContentCard({
             <Space wrap>
               <Upload
                 showUploadList={false}
-                accept="audio/*"
+                accept={AUDIO_ACCEPT}
                 maxCount={1}
                 beforeUpload={(file) => {
                   setAudioFile(file);

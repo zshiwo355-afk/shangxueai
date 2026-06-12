@@ -231,6 +231,11 @@ def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> No
     bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
 
 
+def _download_oss_object(object_key: str) -> bytes:
+    bucket = _build_oss_bucket()
+    return bucket.get_object(object_key).read()
+
+
 def _abort_multipart_upload(object_key: str, upload_id: str) -> None:
     bucket = _build_oss_bucket()
     bucket.abort_multipart_upload(object_key, upload_id)
@@ -268,6 +273,7 @@ __all__ = [
     "_build_signed_stream_url",
     "_build_signed_inline_url",
     "_upload_binary_to_oss",
+    "_download_oss_object",
     "_abort_multipart_upload",
     "_delete_oss_object",
 ]

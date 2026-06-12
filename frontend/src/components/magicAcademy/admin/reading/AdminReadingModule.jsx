@@ -1,4 +1,5 @@
 import AdminAudioStatsPanel from "./AdminAudioStatsPanel";
+import AdminAudioTranscribePanel from "./AdminAudioTranscribePanel";
 import useReadingSeriesAdmin from "./useReadingSeriesAdmin";
 
 export function useAdminReadingTabItems({
@@ -64,7 +65,7 @@ export function useAdminReadingTabItems({
     openAudioDetail,
   } = readingAdminActions;
 
-  const { downloadMagicFile, buildReadingAdminTabItems, message, RangePicker } = readingAdminDeps;
+  const { downloadMagicFile, buildReadingAdminTabItems, message, RangePicker, superAdminMode } = readingAdminDeps;
   const {
     readingSeriesRows,
     readingSeriesSelectRows,
@@ -205,6 +206,11 @@ export function useAdminReadingTabItems({
           />
         ),
       },
+      ...(superAdminMode ? [{
+        key: "audio_transcribe",
+        label: "录音转写",
+        children: <AdminAudioTranscribePanel users={users} />,
+      }] : []),
     ],
   };
 }

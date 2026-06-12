@@ -91,6 +91,7 @@ export default function useUserReadingCheckinSupport({
         file_name: audioFile?.name || "",
         file_size: Number(audioFile?.size || 0),
         mime_type: audioFile?.type || "",
+        audio: audioFile || null,
         image: imageFile || null,
         remark: audioRemark,
       });
@@ -115,6 +116,7 @@ export default function useUserReadingCheckinSupport({
         file_name: audioFile?.name || "",
         file_size: Number(audioFile?.size || 0),
         mime_type: audioFile?.type || "",
+        audio: audioFile || null,
         image: imageFile || null,
         remark: audioRemark,
       });

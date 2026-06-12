@@ -1,8 +1,9 @@
-import { Card, Empty, Select, Spin } from "antd";
+import { Card, Empty, Spin } from "antd";
 import { useEffect, useState } from "react";
 
 import { adminListDepartments } from "../../../lib/api.admin";
 import { fetchDashboardPointsBreakdown } from "../../../lib/api.dashboard";
+import DepartmentTreeSelect from "../../common/DepartmentTreeSelect";
 import DonutChart from "./DonutChart";
 import { CATEGORY_COLORS } from "./palette";
 
@@ -14,21 +15,6 @@ const CATEGORY_META = [
   { key: "exam", label: "AI 通关", color: CATEGORY_COLORS.exam },
   { key: "manual", label: "手动调整", color: CATEGORY_COLORS.manual },
 ];
-
-const DEPARTMENT_NAME_PREFIXES = ["怀仁产业发展集团"];
-
-function formatDepartmentName(value) {
-  const original = String(value || "").trim();
-  if (!original) return original;
-  let display = original;
-  for (const prefix of DEPARTMENT_NAME_PREFIXES) {
-    if (display.startsWith(prefix)) {
-      display = display.slice(prefix.length).replace(/^[\s/\\|｜>＞\-—–_]+/, "").trim();
-      break;
-    }
-  }
-  return display || original;
-}
 
 export default function PointsBreakdownCard() {
   const [data, setData] = useState(null);
@@ -72,16 +58,13 @@ export default function PointsBreakdownCard() {
         </div>
       )}
       extra={(
-        <Select
+        <DepartmentTreeSelect
           size="small"
+          departments={departments}
           value={department}
-          style={{ minWidth: 220 }}
-          popupMatchSelectWidth={false}
           onChange={setDepartment}
-          options={[
-            { value: "", label: "全部部门" },
-            ...departments.map((item) => ({ value: item, label: formatDepartmentName(item) })),
-          ]}
+          placeholder="全部部门"
+          style={{ minWidth: 220 }}
         />
       )}
     >

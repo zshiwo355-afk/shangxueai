@@ -10,6 +10,8 @@ import {
   HistoryOutlined,
   HomeOutlined,
   LogoutOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   ReadOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -109,10 +111,31 @@ function TabFallback() {
 
 const DEFAULT_TAB = { key: "dashboard", label: "数据看板", path: "/admin/dashboard", closable: false };
 
+const SIDER_COLLAPSE_KEY = "admin.sider.collapsed";
+
 export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const showWhitelist = isSuperAdmin();
+
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDER_COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDER_COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const menuItems = useMemo(() => {
     return MENU_GROUPS
@@ -199,7 +222,15 @@ export default function AdminLayout() {
 
   return (
     <Layout className="admin-shell" style={{ height: "100vh" }}>
-      <Sider width={224} theme="light" className="admin-sider">
+      <Sider
+        width={248}
+        collapsedWidth={72}
+        collapsible
+        collapsed={collapsed}
+        trigger={null}
+        theme="light"
+        className={`admin-sider${collapsed ? " admin-sider--collapsed" : ""}`}
+      >
         <div className="admin-sider__brand">
           <div className="admin-sider__brand-mark">
             <img src={logoImg} alt="怀仁商学院" />
@@ -213,11 +244,13 @@ export default function AdminLayout() {
         <Menu
           mode="inline"
           multiple={false}
+          inlineCollapsed={collapsed}
           selectedKeys={[activeKey]}
-          openKeys={openKeys}
+          openKeys={collapsed ? undefined : openKeys}
           onOpenChange={setOpenKeys}
           items={menuItems}
           className="admin-sider__menu"
+          popupClassName="admin-sider-popup"
           motion={{ motionName: "" }}
           onClick={({ key }) => {
             const item = findLeaf(key);
@@ -225,6 +258,16 @@ export default function AdminLayout() {
             navigate(item.path || `/admin/${key}`);
           }}
         />
+        <button
+          type="button"
+          className="admin-sider__collapse"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "展开菜单" : "收起菜单"}
+          title={collapsed ? "展开菜单" : "收起菜单"}
+        >
+          {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          <span className="admin-sider__collapse-text">收起菜单</span>
+        </button>
       </Sider>
       <Layout style={{ height: "100vh" }}>
         <Header className="admin-header">

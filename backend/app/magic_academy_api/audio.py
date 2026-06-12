@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..access import get_user_whitelist_permissions
 from ..access import is_super_admin
-from ..auth import get_current_user, require_admin
+from ..auth import get_current_user, require_admin, require_super_admin
 from ..db import get_db
 from ..magic_academy_schemas import (
     AdminReadingAudioStatisticsExportPayload,
@@ -27,11 +27,15 @@ from . import router
 from ._oss import (
     _build_object_key_and_name,
     _build_signed_stream_url,
+    _build_signed_inline_url,
+    _download_oss_object,
     _ensure_oss_settings,
     _build_oss_object_url,
     _upload_binary_to_oss,
     _validate_reading_image_payload,
 )
+from ._transcribe import transcribe_audio
+from ..llm_errors import LLMError
 from ._utils import (
     AUDIO_EXTENSIONS,
     DEFAULT_AUDIO_MAKEUP_DAYS,
@@ -99,6 +103,64 @@ async def _resolve_checkin_image_payload(image: UploadFile | None) -> dict[str, 
         "image_file_name": _safe_filename(file_name or stored_filename),
         "image_mime_type": mime_type,
         "image_size": len(raw),
+    }
+
+
+async def _resolve_checkin_audio_payload(
+    audio: UploadFile | None,
+    *,
+    file_name: str = "",
+    file_size: int = 0,
+    mime_type: str = "",
+) -> dict[str, Any]:
+    """上传打卡录音到 OSS，返回录音相关字段；无录音时返回空值。
+
+    优先使用真实上传文件；若仅收到元数据（老前端过渡期）则只回填元数据、不存 OSS。
+    """
+    empty = {
+        "audio_object_key": "",
+        "file_name": "",
+        "file_size": 0,
+        "mime_type": "",
+    }
+    has_file = audio is not None and bool(getattr(audio, "filename", ""))
+    if not has_file:
+        meta_name = (file_name or "").strip()
+        if not meta_name:
+            return empty
+        suffix = Path(meta_name).suffix.lower()
+        if suffix not in AUDIO_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="音频格式不支持。")
+        if int(file_size or 0) > MAX_AUDIO_SIZE:
+            raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+        return {
+            "audio_object_key": "",
+            "file_name": _safe_filename(meta_name),
+            "file_size": int(file_size or 0),
+            "mime_type": (mime_type or mimetypes.guess_type(meta_name)[0] or suffix.lstrip(".")).strip(),
+        }
+    source_name = audio.filename or file_name or "reading-audio.m4a"
+    suffix = Path(source_name).suffix.lower()
+    if suffix not in AUDIO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="音频格式不支持。")
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="录音内容为空。")
+    if len(raw) > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+    resolved_mime = (
+        (audio.content_type or "").strip()
+        or (mime_type or "").strip()
+        or mimetypes.guess_type(source_name)[0]
+        or "audio/mpeg"
+    )
+    object_key, _stored = _build_object_key_and_name(source_name, suffix)
+    await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, resolved_mime)
+    return {
+        "audio_object_key": object_key,
+        "file_name": _safe_filename(source_name),
+        "file_size": len(raw),
+        "mime_type": resolved_mime,
     }
 
 
@@ -542,6 +604,9 @@ def _serialize_audio_record(
         "file_name": file_name,
         "file_size": file_size,
         "file_type": mime_type,
+        "has_audio": bool((item.audio_object_key or "").strip()),
+        "transcript_status": item.transcript_status or "",
+        "transcript_text": item.transcript_text or "",
         "has_image": bool((item.image_object_key or "").strip()),
         "remark": remark,
         "uploaded_date": _iso(item.uploaded_date),
@@ -1053,21 +1118,15 @@ async def upload_my_audio(
     file_size: int = Form(default=0),
     mime_type: str = Form(default=""),
     remark: str = Form(default=""),
+    audio: UploadFile | None = File(default=None),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    has_audio = bool((file_name or "").strip())
+    has_audio = (audio is not None and bool(getattr(audio, "filename", ""))) or bool((file_name or "").strip())
     has_image = image is not None and bool(getattr(image, "filename", ""))
     if not has_audio and not has_image:
         raise HTTPException(status_code=400, detail="请上传录音或图片，至少提交一项。")
-    suffix = Path(file_name or "").suffix.lower()
-    if has_audio:
-        if suffix not in AUDIO_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="音频格式不支持。")
-        if int(file_size or 0) > MAX_AUDIO_SIZE:
-            raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
-    safe_name = _safe_filename(file_name) if has_audio else ""
     now = _now()
     content = await _assert_audio_submission_window(
         db,
@@ -1078,14 +1137,18 @@ async def upload_my_audio(
     )
     if await _has_audio_checkin_on_content(db, user.id, int(reading_content_id)):
         raise HTTPException(status_code=400, detail="该读书内容已完成，无需重复提交。")
+    audio_payload = await _resolve_checkin_audio_payload(
+        audio, file_name=file_name, file_size=file_size, mime_type=mime_type
+    )
     image_payload = await _resolve_checkin_image_payload(image)
     row = MagicAudioUpload(
         user_id=user.id,
         reading_content_id=int(reading_content_id),
-        file_name=safe_name,
+        file_name=audio_payload["file_name"],
         file_path="",
-        file_size=int(file_size or 0) if has_audio else 0,
-        mime_type=(mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip() if has_audio else "",
+        file_size=audio_payload["file_size"],
+        mime_type=audio_payload["mime_type"],
+        audio_object_key=audio_payload["audio_object_key"],
         image_object_key=image_payload["image_object_key"],
         image_url=image_payload["image_url"],
         image_file_name=image_payload["image_file_name"],
@@ -1129,6 +1192,7 @@ async def upload_my_audio(
         "file_name": row.file_name,
         "file_size": int(row.file_size or 0),
         "file_type": row.mime_type,
+        "has_audio": bool((row.audio_object_key or "").strip()),
         "image_url": image_signed_url,
         "has_image": bool((row.image_object_key or "").strip()),
         "remark": row.remark or "",
@@ -1148,20 +1212,15 @@ async def submit_my_audio_makeup(
     file_size: int = Form(default=0),
     mime_type: str = Form(default=""),
     remark: str = Form(default=""),
+    audio: UploadFile | None = File(default=None),
     image: UploadFile | None = File(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    has_audio = bool((file_name or "").strip())
+    has_audio = (audio is not None and bool(getattr(audio, "filename", ""))) or bool((file_name or "").strip())
     has_image = image is not None and bool(getattr(image, "filename", ""))
     if not has_audio and not has_image:
         raise HTTPException(status_code=400, detail="请上传录音或图片，至少提交一项。")
-    suffix = Path(file_name or "").suffix.lower()
-    if has_audio:
-        if suffix not in AUDIO_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="音频格式不支持。")
-        if int(file_size or 0) > MAX_AUDIO_SIZE:
-            raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
     whitelist_permissions = await get_user_whitelist_permissions(db, user.id)
     await _ensure_auto_audio_checkin(db, user, whitelist_permissions)
     today = date.today()
@@ -1185,15 +1244,18 @@ async def submit_my_audio_makeup(
         target_date=target_date,
         now=now,
     )
-    safe_name = _safe_filename(file_name) if has_audio else ""
+    audio_payload = await _resolve_checkin_audio_payload(
+        audio, file_name=file_name, file_size=file_size, mime_type=mime_type
+    )
     image_payload = await _resolve_checkin_image_payload(image)
     row = MagicAudioUpload(
         user_id=user.id,
         reading_content_id=int(reading_content_id),
-        file_name=safe_name,
+        file_name=audio_payload["file_name"],
         file_path="",
-        file_size=int(file_size or 0) if has_audio else 0,
-        mime_type=(mime_type or mimetypes.guess_type(safe_name)[0] or suffix.lstrip(".")).strip() if has_audio else "",
+        file_size=audio_payload["file_size"],
+        mime_type=audio_payload["mime_type"],
+        audio_object_key=audio_payload["audio_object_key"],
         image_object_key=image_payload["image_object_key"],
         image_url=image_payload["image_url"],
         image_file_name=image_payload["image_file_name"],
@@ -1267,6 +1329,136 @@ async def preview_admin_checkin_image(
     if fallback.startswith("http://") or fallback.startswith("https://"):
         return RedirectResponse(fallback, status_code=307)
     raise HTTPException(status_code=404, detail="该打卡记录未上传图片。")
+
+
+async def _assert_admin_can_access_audio(db: AsyncSession, admin: User, row: MagicAudioUpload) -> None:
+    """超管可看全部；普通管理员仅能看自己创建的读书内容下的录音。"""
+    if is_super_admin(admin):
+        return
+    if not row.reading_content_id:
+        raise HTTPException(status_code=403, detail="无权访问该录音。")
+    content = await db.get(MagicReadingContent, int(row.reading_content_id))
+    if content and content.created_by and int(content.created_by) != int(admin.id):
+        raise HTTPException(status_code=403, detail="无权访问该录音。")
+
+
+@router.get("/admin/audios/by-date")
+async def list_admin_audios_by_date(
+    date: str,
+    department: str | None = None,
+    user_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+) -> dict[str, Any]:
+    target_date = _parse_optional_date(date, field_name="date")
+    if not target_date:
+        raise HTTPException(status_code=400, detail="请提供日期 date=YYYY-MM-DD。")
+    stmt = (
+        select(MagicAudioUpload)
+        .where(
+            MagicAudioUpload.uploaded_date == target_date,
+            MagicAudioUpload.is_deleted.is_(False),
+            MagicAudioUpload.audio_object_key != "",
+        )
+        .order_by(MagicAudioUpload.uploaded_on.desc(), MagicAudioUpload.id.desc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+
+    # 非超管：仅保留自己创建的读书内容下的录音
+    if not is_super_admin(admin):
+        content_ids = sorted({int(item.reading_content_id) for item in rows if item.reading_content_id})
+        owned_ids: set[int] = set()
+        if content_ids:
+            owned_rows = (
+                await db.execute(
+                    select(MagicReadingContent.id).where(
+                        MagicReadingContent.id.in_(content_ids),
+                        MagicReadingContent.created_by == admin.id,
+                    )
+                )
+            ).all()
+            owned_ids = {int(item[0]) for item in owned_rows}
+        rows = [item for item in rows if item.reading_content_id and int(item.reading_content_id) in owned_ids]
+
+    user_map = await _build_user_map(db, user_ids=[int(item.user_id) for item in rows])
+    items: list[dict[str, Any]] = []
+    for item in rows:
+        owner = user_map.get(int(item.user_id))
+        owner_department = (owner.department or "") if owner else ""
+        if department and owner_department != department:
+            continue
+        if user_id and int(item.user_id) != int(user_id):
+            continue
+        play_url = await asyncio.to_thread(
+            _build_signed_inline_url,
+            item.audio_object_key,
+            mime_type=item.mime_type or None,
+            filename=item.file_name or None,
+        )
+        items.append({
+            "id": int(item.id),
+            "user_id": int(item.user_id),
+            "user_name": _user_name(owner) if owner else "",
+            "department": owner_department,
+            "reading_content_id": int(item.reading_content_id) if item.reading_content_id else None,
+            "file_name": item.file_name or "",
+            "file_size": int(item.file_size or 0),
+            "mime_type": item.mime_type or "",
+            "audio_play_url": play_url,
+            "transcript_status": item.transcript_status or "",
+            "transcript_text": item.transcript_text or "",
+            "transcribed_at": _iso(item.transcribed_at),
+            "uploaded_time": _iso(item.uploaded_on),
+        })
+    return {"date": target_date.isoformat(), "items": items}
+
+
+@router.post("/admin/audios/{audio_id}/transcribe")
+async def transcribe_admin_audio(
+    audio_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_super_admin),
+) -> dict[str, Any]:
+    row = await db.get(MagicAudioUpload, audio_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="打卡记录不存在。")
+    await _assert_admin_can_access_audio(db, admin, row)
+    object_key = (row.audio_object_key or "").strip()
+    if not object_key:
+        raise HTTPException(status_code=400, detail="该记录没有录音文件，无法转写。")
+
+    row.transcript_status = "processing"
+    row.transcript_error = ""
+    await db.flush()
+    try:
+        content = await asyncio.to_thread(_download_oss_object, object_key)
+        text = await transcribe_audio(
+            content,
+            filename=row.file_name or "audio.m4a",
+            mime_type=row.mime_type or "",
+        )
+    except LLMError as exc:
+        row.transcript_status = "failed"
+        row.transcript_error = exc.message[:512]
+        await db.flush()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except Exception as exc:  # noqa: BLE001
+        row.transcript_status = "failed"
+        row.transcript_error = str(exc)[:512]
+        await db.flush()
+        raise HTTPException(status_code=502, detail=f"转写失败：{exc}") from exc
+
+    row.transcript_text = text
+    row.transcript_status = "done"
+    row.transcript_error = ""
+    row.transcribed_at = _now()
+    await db.flush()
+    return {
+        "id": int(row.id),
+        "transcript_status": row.transcript_status,
+        "transcript_text": row.transcript_text or "",
+        "transcribed_at": _iso(row.transcribed_at),
+    }
 
 
 @router.get("/my/audios/calendar")

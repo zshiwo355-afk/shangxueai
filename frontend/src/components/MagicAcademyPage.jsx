@@ -1279,6 +1279,7 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
       buildReadingAdminTabItems,
       message,
       RangePicker,
+      superAdminMode,
       shouldLoadReadingSeries,
       readingSeriesOptionsEnabled: adminMode && adminSection === "reading",
       readingSeriesForm,
