@@ -191,7 +191,7 @@ def _complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict
 
 def _build_signed_stream_url(object_key: str) -> str:
     bucket = _build_oss_bucket()
-    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
+    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 21600), 21600)
     return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
 
 

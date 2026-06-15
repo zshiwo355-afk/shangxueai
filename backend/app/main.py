@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import html
+import json
 import logging
 import os
 from pathlib import Path
@@ -9,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response as StarletteResponse
 
@@ -26,6 +28,11 @@ from .exams_api import (
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
+from .live_api import (
+    admin_router as live_admin_router,
+    get_public_live_meta,
+    public_router as live_public_router,
+)
 from .magic_push_service import reading_push_worker
 from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
@@ -49,6 +56,7 @@ from .rules_api import build_router as build_rules_router
 from .training_api import build_router as build_training_router
 from .training_records_api import router as training_records_router, admin_router as training_records_admin_router
 from .users_api import router as users_admin_router
+from .wechat_client import WechatMpClient
 from .wecom_client import WecomClient
 from .whitelist_api import router as whitelist_router
 
@@ -115,6 +123,8 @@ app.include_router(whitelist_router)
 app.include_router(magic_academy_router)
 app.include_router(magic_video_router)
 app.include_router(materials_router)
+app.include_router(live_admin_router)
+app.include_router(live_public_router)
 # 训练
 app.include_router(build_training_router(settings=settings, rule_loader=rule_loader))
 app.include_router(training_records_router)
@@ -211,6 +221,10 @@ async def _stop_auto_action_worker() -> None:
     except Exception:  # noqa: BLE001
         logger.exception("close shared WeCom http client failed")
     try:
+        await WechatMpClient.aclose()
+    except Exception:  # noqa: BLE001
+        logger.exception("close shared WeChat MP http client failed")
+    try:
         await EmployeeOpenClient.aclose()
     except Exception:  # noqa: BLE001
         logger.exception("close shared employee sync http client failed")
@@ -277,6 +291,131 @@ async def wecom_verify_file():
         if verify_file.exists():
             return FileResponse(verify_file, media_type="text/plain")
     return PlainTextResponse(WECOM_VERIFY_CONTENT, media_type="text/plain")
+
+
+def _inject_live_meta(index_html: str, meta: dict[str, str] | None) -> str:
+    if not meta:
+        return index_html
+    title = html.escape(meta.get("title") or "怀仁商学院")
+    description = html.escape(meta.get("description") or "")
+    image = html.escape(meta.get("image") or "")
+    url = html.escape(meta.get("url") or "")
+    tags = "\n".join([
+        f"<title>{title}</title>",
+        f'<meta name="description" content="{description}" />',
+        f'<meta property="og:title" content="{title}" />',
+        f'<meta property="og:description" content="{description}" />',
+        f'<meta property="og:image" content="{image}" />',
+        f'<meta property="og:url" content="{url}" />',
+        '<meta property="og:type" content="website" />',
+        f'<meta itemprop="name" content="{title}" />',
+        f'<meta itemprop="description" content="{description}" />',
+        f'<meta itemprop="image" content="{image}" />',
+        f'<meta name="twitter:title" content="{title}" />',
+        f'<meta name="twitter:description" content="{description}" />',
+        f'<meta name="twitter:image" content="{image}" />',
+    ])
+    if "</head>" in index_html:
+        return index_html.replace("</head>", f"{tags}\n</head>", 1)
+    return f"{tags}\n{index_html}"
+
+
+def _render_live_share_html(meta: dict[str, str] | None) -> str:
+    if not meta:
+        title = "怀仁商学院"
+        description = "直播活动暂不可访问。"
+        image = ""
+        share_url = ""
+        live_url = "/"
+    else:
+        title = meta.get("title") or "怀仁商学院"
+        description = meta.get("description") or ""
+        image = meta.get("image") or ""
+        share_url = meta.get("url") or meta.get("live_url") or ""
+        live_url = meta.get("live_url") or share_url or "/"
+    escaped_title = html.escape(title)
+    escaped_description = html.escape(description)
+    escaped_image = html.escape(image)
+    escaped_share_url = html.escape(share_url)
+    escaped_live_url = html.escape(live_url)
+    live_url_json = json.dumps(live_url, ensure_ascii=False)
+    image_meta_tags = ""
+    preview_image = ""
+    if escaped_image:
+        image_meta_tags = "\n".join([
+            f'  <meta property="og:image" content="{escaped_image}" />',
+            f'  <meta property="og:image:secure_url" content="{escaped_image}" />',
+            '  <meta property="og:image:width" content="300" />',
+            '  <meta property="og:image:height" content="300" />',
+            f'  <meta itemprop="image" content="{escaped_image}" />',
+            f'  <meta name="twitter:image" content="{escaped_image}" />',
+            f'  <link rel="image_src" href="{escaped_image}" />',
+        ])
+        preview_image = (
+            f'<img src="{escaped_image}" alt="" '
+            'style="width:96px;height:96px;object-fit:cover;border-radius:8px;flex:0 0 auto" />'
+        )
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{escaped_title}</title>
+  <meta name="description" content="{escaped_description}" />
+  <meta property="og:title" content="{escaped_title}" />
+  <meta property="og:description" content="{escaped_description}" />
+{image_meta_tags}
+  <meta property="og:url" content="{escaped_share_url}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="怀仁商学院" />
+  <meta itemprop="name" content="{escaped_title}" />
+  <meta itemprop="description" content="{escaped_description}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{escaped_title}" />
+  <meta name="twitter:description" content="{escaped_description}" />
+  <link rel="canonical" href="{escaped_share_url}" />
+  <meta http-equiv="refresh" content="1;url={escaped_live_url}" />
+  <script>window.location.replace({live_url_json});</script>
+</head>
+<body style="margin:0;background:#f5f7fa;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <main style="max-width:640px;margin:24px auto;padding:16px">
+    <a href="{escaped_live_url}" style="display:flex;gap:14px;align-items:center;padding:16px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;text-decoration:none;color:inherit">
+      {preview_image}
+      <span style="min-width:0;display:block">
+        <strong style="display:block;font-size:17px;line-height:1.35;margin-bottom:6px;color:#111827">{escaped_title}</strong>
+        <span style="display:block;font-size:14px;line-height:1.5;color:#6b7280">{escaped_description}</span>
+      </span>
+    </a>
+  </main>
+</body>
+</html>"""
+
+
+@app.get("/share/live/{slug}", response_model=None, include_in_schema=False)
+async def live_share_entry(slug: str, request: Request):
+    meta = None
+    try:
+        async with session_scope() as session:
+            meta = await get_public_live_meta(session, slug, request)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("live share meta lookup failed slug=%s err=%s", slug, exc)
+    return HTMLResponse(_render_live_share_html(meta))
+
+
+@app.get("/live/{slug}", response_model=None, include_in_schema=False)
+async def live_public_entry(slug: str, request: Request):
+    if frontend_dist:
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            meta = None
+            try:
+                async with session_scope() as session:
+                    meta = await get_public_live_meta(session, slug, request)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("live meta lookup failed slug=%s err=%s", slug, exc)
+            html_text = index_file.read_text(encoding="utf-8")
+            return HTMLResponse(_inject_live_meta(html_text, meta))
+    return {"message": "前端尚未构建，无法打开直播页。"}
 
 
 @app.get("/{full_path:path}", response_model=None)

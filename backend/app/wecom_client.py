@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import secrets
 import time
 from typing import Any
 
@@ -35,6 +37,10 @@ class WecomClient:
     _dept_cache: tuple[list[dict[str, Any]], dict[int, str], float] | None = None
     _dept_lock = asyncio.Lock()
     _dept_cache_ttl_seconds = 300.0
+    _jsapi_ticket_lock = asyncio.Lock()
+    _jsapi_ticket_cache: tuple[str, float] | None = None
+    _agent_config_ticket_lock = asyncio.Lock()
+    _agent_config_ticket_cache: tuple[str, float] | None = None
     _http_client: httpx.AsyncClient | None = None
     _http_lock = asyncio.Lock()
 
@@ -44,6 +50,15 @@ class WecomClient:
     def ensure_app_ready(self) -> None:
         if not self.settings.wecom_push_ready:
             raise WecomApiError("企业微信推送未启用或应用配置不完整。")
+
+    def ensure_app_credentials_ready(self) -> None:
+        if not (
+            self.settings.wecom_enabled
+            and self.settings.wecom_corp_id.strip()
+            and self.settings.wecom_agent_id
+            and self.settings.wecom_app_secret.strip()
+        ):
+            raise WecomApiError("企业微信应用凭证未配置完整。")
 
     def ensure_contact_ready(self) -> None:
         if not self.settings.wecom_sync_ready:
@@ -101,11 +116,20 @@ class WecomClient:
             raise WecomApiError(f"{errmsg} (errcode={errcode})", errcode=errcode)
         return data
 
-    async def _get_access_token(self, cache_key: str, secret: str, *, require_contact: bool) -> str:
+    async def _get_access_token(
+        self,
+        cache_key: str,
+        secret: str,
+        *,
+        require_contact: bool,
+        require_push: bool = True,
+    ) -> str:
         if require_contact:
             self.ensure_contact_ready()
-        else:
+        elif require_push:
             self.ensure_app_ready()
+        else:
+            self.ensure_app_credentials_ready()
         now = time.time()
         cached = self._token_cache.get(cache_key)
         if cached and cached[1] > now:
@@ -129,11 +153,100 @@ class WecomClient:
             self._token_cache[cache_key] = (token, time.time() + ttl - 30)
             return token
 
-    async def get_app_access_token(self) -> str:
-        return await self._get_access_token("app", self.settings.wecom_app_secret, require_contact=False)
+    async def get_app_access_token(self, *, require_push: bool = True) -> str:
+        return await self._get_access_token(
+            "app",
+            self.settings.wecom_app_secret,
+            require_contact=False,
+            require_push=require_push,
+        )
 
     async def get_contact_access_token(self) -> str:
         return await self._get_access_token("contact", self.settings.wecom_contact_secret, require_contact=True)
+
+    async def get_jsapi_ticket(self) -> str:
+        self.ensure_app_credentials_ready()
+        now = time.time()
+        cached = self._jsapi_ticket_cache
+        if cached and cached[1] > now:
+            return cached[0]
+        async with self._jsapi_ticket_lock:
+            cached = self._jsapi_ticket_cache
+            if cached and cached[1] > time.time():
+                return cached[0]
+            token = await self.get_app_access_token(require_push=False)
+            data = await self._request_json(
+                "GET",
+                "https://qyapi.weixin.qq.com/cgi-bin/get_jsapi_ticket",
+                params={"access_token": token},
+            )
+            ticket = str(data.get("ticket") or "").strip()
+            if not ticket:
+                raise WecomApiError("企业微信 jsapi_ticket 为空。")
+            ttl = max(60, min(int(data.get("expires_in", 7200) or 7200), self.settings.wecom_token_cache_seconds))
+            type(self)._jsapi_ticket_cache = (ticket, time.time() + ttl - 30)
+            return ticket
+
+    async def get_agent_config_ticket(self) -> str:
+        self.ensure_app_credentials_ready()
+        now = time.time()
+        cached = self._agent_config_ticket_cache
+        if cached and cached[1] > now:
+            return cached[0]
+        async with self._agent_config_ticket_lock:
+            cached = self._agent_config_ticket_cache
+            if cached and cached[1] > time.time():
+                return cached[0]
+            token = await self.get_app_access_token(require_push=False)
+            data = await self._request_json(
+                "GET",
+                "https://qyapi.weixin.qq.com/cgi-bin/ticket/get",
+                params={"access_token": token, "type": "agent_config"},
+            )
+            ticket = str(data.get("ticket") or "").strip()
+            if not ticket:
+                raise WecomApiError("企业微信 agent_config ticket 为空。")
+            ttl = max(60, min(int(data.get("expires_in", 7200) or 7200), self.settings.wecom_token_cache_seconds))
+            type(self)._agent_config_ticket_cache = (ticket, time.time() + ttl - 30)
+            return ticket
+
+    @staticmethod
+    def _build_signature(ticket: str, url: str) -> tuple[int, str, str]:
+        timestamp = int(time.time())
+        nonce = secrets.token_hex(8)
+        raw = f"jsapi_ticket={ticket}&noncestr={nonce}&timestamp={timestamp}&url={url}"
+        signature = hashlib.sha1(raw.encode("utf-8")).hexdigest()
+        return timestamp, nonce, signature
+
+    async def build_js_sdk_config(self, url: str) -> dict[str, Any]:
+        clean_url = (url or "").strip()
+        if not clean_url:
+            raise WecomApiError("缺少 JS-SDK 签名 URL。")
+        ticket = await self.get_jsapi_ticket()
+        timestamp, nonce, signature = self._build_signature(ticket, clean_url)
+        return {
+            "enabled": True,
+            "corp_id": self.settings.wecom_corp_id,
+            "agent_id": self.settings.wecom_agent_id,
+            "timestamp": timestamp,
+            "nonce_str": nonce,
+            "signature": signature,
+        }
+
+    async def build_agent_js_sdk_config(self, url: str) -> dict[str, Any]:
+        clean_url = (url or "").strip()
+        if not clean_url:
+            raise WecomApiError("缺少 Agent JS-SDK 签名 URL。")
+        ticket = await self.get_agent_config_ticket()
+        timestamp, nonce, signature = self._build_signature(ticket, clean_url)
+        return {
+            "enabled": True,
+            "corp_id": self.settings.wecom_corp_id,
+            "agent_id": self.settings.wecom_agent_id,
+            "timestamp": timestamp,
+            "nonce_str": nonce,
+            "signature": signature,
+        }
 
     async def get_userinfo_by_code(self, code: str) -> dict[str, Any]:
         token = await self.get_app_access_token()

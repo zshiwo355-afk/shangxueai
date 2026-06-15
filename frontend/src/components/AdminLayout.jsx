@@ -19,6 +19,7 @@ import {
   TeamOutlined,
   TrophyOutlined,
   UserSwitchOutlined,
+  VideoCameraOutlined,
 } from "@ant-design/icons";
 import { Button, Layout, Menu, Space, Spin } from "antd";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +41,7 @@ const PointsAdminPage = lazy(() => import("./admin/points/PointsAdminPage"));
 const MentorsTab = lazy(() => import("./admin/mentors/MentorsTab"));
 const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
 const SyncLogsTab = lazy(() => import("./admin/SyncLogsTab"));
+const LiveAdminPage = lazy(() => import("./admin/live/LiveAdminPage"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -52,6 +54,7 @@ const MENU_GROUPS = [
     children: [
       { key: "magic-academy", icon: <ReadOutlined />, label: "课程管理", path: "/admin/magic-academy/courses" },
       { key: "magic-reading", icon: <BookOutlined />, label: "读书打卡", path: "/admin/magic-academy/reading" },
+      { key: "live", icon: <VideoCameraOutlined />, label: "直播管理", path: "/admin/live" },
       { key: "exams", icon: <FormOutlined />, label: "AI 通关", path: "/admin/exams" },
       { key: "papers", icon: <SolutionOutlined />, label: "考试管理", path: "/admin/papers" },
     ],
@@ -160,6 +163,7 @@ export default function AdminLayout() {
     if (location.pathname.startsWith("/admin/mentors")) return "mentors";
     if (location.pathname.startsWith("/admin/points")) return "points";
     if (location.pathname.startsWith("/admin/notifications")) return "notifications";
+    if (location.pathname.startsWith("/admin/live")) return "live";
     if (location.pathname.startsWith("/admin/magic-academy/reading")) return "magic-reading";
     if (location.pathname.startsWith("/admin/magic-academy")) return "magic-academy";
     if (location.pathname.startsWith("/admin/papers")) return "papers";
@@ -326,6 +330,7 @@ export default function AdminLayout() {
               <Route path="magic-academy" element={<Navigate to="/admin/magic-academy/courses" replace />} />
               <Route path="magic-academy/courses" element={<MagicAcademyPage embedded adminSection="courses" />} />
               <Route path="magic-academy/reading" element={<MagicAcademyPage embedded adminSection="reading" />} />
+              <Route path="live/*" element={<LiveAdminPage />} />
               <Route path="materials" element={<MaterialLibraryPage />} />
               <Route path="mentors" element={<MentorsTab />} />
               <Route path="points" element={<PointsAdminPage />} />

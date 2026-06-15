@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     wecom_state_ttl_seconds: int = Field(600, alias="WECOM_STATE_TTL_SECONDS")
     wecom_sync_protected_statuses: str = Field("试岗,离职", alias="WECOM_SYNC_PROTECTED_STATUSES")
 
+    # ---- 微信公众号（公开 H5 分享卡片）----
+    wechat_mp_enabled: bool = Field(False, alias="WECHAT_MP_ENABLED")
+    wechat_mp_app_id: str = Field("", alias="WECHAT_MP_APP_ID")
+    wechat_mp_app_secret: str = Field("", alias="WECHAT_MP_APP_SECRET")
+    wechat_mp_token_cache_seconds: int = Field(7000, alias="WECHAT_MP_TOKEN_CACHE_SECONDS")
+    wechat_mp_request_timeout_seconds: int = Field(10, alias="WECHAT_MP_REQUEST_TIMEOUT_SECONDS")
+
     # ---- 第三方员工通讯录同步 ----
     employee_sync_enabled: bool = Field(False, alias="EMPLOYEE_SYNC_ENABLED")
     employee_sync_base_url: str = Field("", alias="EMPLOYEE_SYNC_BASE_URL")
@@ -128,8 +135,12 @@ class Settings(BaseSettings):
     oss_bucket: str = Field("", alias="OSS_BUCKET")
     oss_public_base_url: str = Field("", alias="OSS_PUBLIC_BASE_URL")
     oss_upload_prefix: str = Field("", alias="OSS_UPLOAD_PREFIX")
-    oss_signed_url_expire_seconds: int = Field(3600, alias="OSS_SIGNED_URL_EXPIRE_SECONDS")
+    oss_signed_url_expire_seconds: int = Field(21600, alias="OSS_SIGNED_URL_EXPIRE_SECONDS")
     magic_video_max_size_mb: int = Field(10240, alias="MAGIC_VIDEO_MAX_SIZE_MB")
+    live_comment_block_words: str = Field(
+        "赌博,诈骗,色情,暴力,辱骂",
+        alias="LIVE_COMMENT_BLOCK_WORDS",
+    )
 
     _UUID_TAIL = re.compile(
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -180,6 +191,14 @@ class Settings(BaseSettings):
             and self.wecom_sync_enabled
             and self.wecom_corp_id.strip()
             and self.wecom_contact_secret.strip()
+        )
+
+    @property
+    def wechat_mp_ready(self) -> bool:
+        return bool(
+            self.wechat_mp_enabled
+            and self.wechat_mp_app_id.strip()
+            and self.wechat_mp_app_secret.strip()
         )
 
     @property

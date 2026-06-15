@@ -1,9 +1,10 @@
-import { ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined } from "@ant-design/icons";
 import {
   Button,
   Descriptions,
   Drawer,
   Empty,
+  Popconfirm,
   Select,
   Space,
   Table,
@@ -14,6 +15,7 @@ import {
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
+  adminDeleteSyncBatch,
   adminGetSyncBatchEntries,
   adminListSyncBatches,
 } from "../../lib/api.admin";
@@ -178,6 +180,28 @@ export default function SyncLogsTab() {
     }
   };
 
+  const removeBatch = async (batch) => {
+    setLoading(true);
+    try {
+      await adminDeleteSyncBatch(batch.id);
+      message.success("同步记录已删除。");
+      if (activeBatch?.id === batch.id) {
+        setDrawerOpen(false);
+        setActiveBatch(null);
+        setEntries([]);
+      }
+      if (items.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        await reload();
+      }
+    } catch (err) {
+      message.error(err?.message || "删除同步记录失败。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredEntries = useMemo(() => {
     if (!actionFilter) return entries;
     return entries.filter((e) => e.action === actionFilter);
@@ -241,12 +265,26 @@ export default function SyncLogsTab() {
     {
       title: "操作",
       key: "actions",
-      width: 100,
+      width: 180,
       fixed: "right",
       render: (_, row) => (
-        <Button type="link" size="small" onClick={() => loadEntries(row)}>
-          查看明细
-        </Button>
+        <Space size={4}>
+          <Button type="link" size="small" onClick={() => loadEntries(row)}>
+            查看明细
+          </Button>
+          <Popconfirm
+            title="确认删除该同步记录？"
+            description="只删除本次同步的批次和明细记录，不会回滚已同步的用户数据。"
+            onConfirm={() => removeBatch(row)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];

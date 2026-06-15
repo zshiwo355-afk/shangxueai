@@ -114,6 +114,13 @@ export async function adminGetSyncBatchEntries(batchId, params = {}) {
   );
 }
 
+export async function adminDeleteSyncBatch(batchId) {
+  return deleteJson(
+    `/api/admin/users/employee-sync/batches/${batchId}`,
+    "删除同步记录失败。",
+  );
+}
+
 // ---- 白名单 ----
 export async function adminListWhitelist() {
   return getJson("/api/whitelist", "白名单列表加载失败。");

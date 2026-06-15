@@ -23,6 +23,7 @@ const UserTodosPage = lazy(() => import("./components/UserTodosPage"));
 const UserPapersListPage = lazy(() => import("./components/user/papers/UserPapersListPage"));
 const UserPaperTakePage = lazy(() => import("./components/user/papers/UserPaperTakePage"));
 const UserPaperResultPage = lazy(() => import("./components/user/papers/UserPaperResultPage"));
+const LivePublicPage = lazy(() => import("./components/live/LivePublicPage"));
 
 import { isAdmin, isAuthenticated, isSuperAdmin, setUnauthorizedHandler } from "./lib/auth";
 
@@ -91,6 +92,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/wecom/callback" element={<WecomCallbackPage />} />
+        <Route path="/live/:slug" element={<LivePublicPage />} />
 
         <Route path="/" element={<HomeRedirect />} />
 

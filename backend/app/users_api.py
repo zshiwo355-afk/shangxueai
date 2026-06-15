@@ -899,6 +899,23 @@ async def list_sync_batch_entries(
     ]
 
 
+@router.delete("/employee-sync/batches/{batch_id}")
+async def delete_sync_batch(
+    batch_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict:
+    del admin
+    batch = await db.get(WecomSyncBatch, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="同步记录不存在。")
+    await db.execute(
+        sql_delete(WecomSyncEntry).where(WecomSyncEntry.batch_id == batch_id)
+    )
+    await db.execute(sql_delete(WecomSyncBatch).where(WecomSyncBatch.id == batch_id))
+    return {"success": True}
+
+
 # ---------- 单条 CRUD ----------
 
 

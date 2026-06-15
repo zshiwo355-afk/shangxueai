@@ -505,6 +505,79 @@ class MentorRecommendation(Base):
     )
 
 
+class LiveRoom(Base):
+    __tablename__ = "live_rooms"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    lecturer: Mapped[str] = mapped_column(String(50), default="")
+    intro: Mapped[str] = mapped_column(String(200), default="")
+    detail_html: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    content_type: Mapped[str] = mapped_column(String(16), default="recorded")
+    video_source: Mapped[str] = mapped_column(String(16), default="upload")
+    video_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    video_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    video_url: Mapped[str] = mapped_column(String(2048), default="")
+    video_mime_type: Mapped[str] = mapped_column(String(128), default="video/mp4")
+    video_file_name: Mapped[str] = mapped_column(String(255), default="")
+    video_file_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    stream_url: Mapped[str] = mapped_column(String(2048), default="")
+    cover_url: Mapped[str] = mapped_column(String(2048), default="")
+    cover_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    cover_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    share_title: Mapped[str] = mapped_column(String(100), default="")
+    share_desc: Mapped[str] = mapped_column(String(200), default="")
+    share_image_url: Mapped[str] = mapped_column(String(2048), default="")
+    share_image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    share_image_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    allow_like: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_comment: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_counters: Mapped[bool] = mapped_column(Boolean, default=True)
+    view_count: Mapped[int] = mapped_column(Integer, default=0)
+    like_count: Mapped[int] = mapped_column(Integer, default=0)
+    share_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_live_rooms_status_start", "status", "start_time"),
+        Index("idx_live_rooms_created", "created_at"),
+    )
+
+
+class LiveInteraction(Base):
+    __tablename__ = "live_interactions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    live_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    visitor_id: Mapped[str] = mapped_column(String(128), default="")
+    type: Mapped[str] = mapped_column(String(16), nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
+    status: Mapped[str] = mapped_column(String(16), default="visible")
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_hash: Mapped[str] = mapped_column(String(64), default="")
+    user_agent: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_live_interactions_live_type", "live_id", "type", "created_at"),
+        Index("idx_live_interactions_live_type_status_id", "live_id", "type", "status", "id"),
+        Index("idx_live_interactions_visitor", "live_id", "visitor_id", "type"),
+    )
+
+
 class TrainingSessionRow(Base):
     """训练 / 考试运行时 session 状态。和 V1 的 .sessions/*.json 对应。"""
 
