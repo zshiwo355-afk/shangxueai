@@ -250,7 +250,7 @@ export default function AdminLayout() {
           onOpenChange={setOpenKeys}
           items={menuItems}
           className="admin-sider__menu"
-          popupClassName="admin-sider-popup"
+          classNames={{ popup: "admin-sider-popup" }}
           motion={{ motionName: "" }}
           onClick={({ key }) => {
             const item = findLeaf(key);

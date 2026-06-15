@@ -133,13 +133,21 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                 size="middle"
                 dataSource={support.myAudios}
                 pagination={{ pageSize: 8 }}
+                scroll={{ x: 720 }}
                 columns={[
-                  { title: "文件名", dataIndex: "file_name" },
-                  { title: "备注", dataIndex: "remark", render: (v) => v || "—" },
-                  { title: "状态", dataIndex: "status", render: (v) => <Tag bordered={false} color="success">{v || "已上传"}</Tag> },
-                  { title: "上传时间", dataIndex: "uploaded_time", render: (v) => v?.replace("T", " ").slice(0, 19) || "—" },
+                  {
+                    title: "文件名",
+                    dataIndex: "file_name",
+                    ellipsis: { showTitle: true },
+                    render: (v) => v || "—",
+                  },
+                  { title: "备注", dataIndex: "remark", width: 120, ellipsis: true, render: (v) => v || "—" },
+                  { title: "状态", dataIndex: "status", width: 100, render: (v) => <Tag bordered={false} color="success">{v || "已上传"}</Tag> },
+                  { title: "上传时间", dataIndex: "uploaded_time", width: 170, render: (v) => v?.replace("T", " ").slice(0, 19) || "—" },
                   {
                     title: "操作",
+                    width: 90,
+                    fixed: "right",
                     render: (_, row) => (
                       <Popconfirm title="确认删除这条录音记录？" onConfirm={() => support.handleDeleteAudioRecord(row.id)}>
                         <Button size="small" danger>删除</Button>

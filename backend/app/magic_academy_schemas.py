@@ -135,6 +135,20 @@ class MagicVideoUploadFailPayload(BaseModel):
     reason: str = Field(default="上传失败", max_length=5000)
 
 
+class MagicAudioUploadInitPayload(BaseModel):
+    reading_content_id: int = Field(..., ge=1)
+    original_filename: str = Field(..., min_length=1, max_length=255)
+    file_size: int = Field(..., gt=0)
+    mime_type: str = Field(default="", max_length=128)
+    is_makeup: bool = False
+    makeup_date: str = Field(default="", max_length=32)
+
+
+class MagicAudioUploadFailPayload(BaseModel):
+    oss_object_key: str = Field(..., min_length=1, max_length=1024)
+    upload_id: str = Field(..., min_length=1, max_length=255)
+
+
 class MagicVideoReplaceInitPayload(BaseModel):
     original_filename: str = Field(..., min_length=1, max_length=255)
     file_size: int = Field(..., gt=0)

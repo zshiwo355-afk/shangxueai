@@ -59,10 +59,12 @@ function buildDepartmentTree(departments = []) {
     .sort((a, b) => String(a.title).localeCompare(String(b.title), "zh-Hans-CN"))
     .map((node) => {
       const realValue = resolveRealValue(node.displayPath);
+      // antd 要求 TreeNode 的 key 与 value 一致，统一用 value 作为 key。
+      const value = realValue ?? `${GROUP_VALUE_PREFIX}${node.displayPath}`;
       return {
         title: node.title,
-        value: realValue ?? `${GROUP_VALUE_PREFIX}${node.displayPath}`,
-        key: node.displayPath,
+        value,
+        key: value,
         selectable: realValue !== null,
         children: node.childMap.size ? toTreeData(node.childMap) : undefined,
       };

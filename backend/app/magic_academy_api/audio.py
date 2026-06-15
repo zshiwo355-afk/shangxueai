@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import mimetypes
 from datetime import date, datetime, timedelta
 from io import BytesIO
@@ -16,10 +17,13 @@ from sqlalchemy.exc import IntegrityError
 from ..access import get_user_whitelist_permissions
 from ..access import is_super_admin
 from ..auth import get_current_user, require_admin, require_super_admin
+from ..config import get_settings
 from ..db import get_db
 from ..magic_academy_schemas import (
     AdminReadingAudioStatisticsExportPayload,
     AudioMakeupSettingPayload,
+    MagicAudioUploadFailPayload,
+    MagicAudioUploadInitPayload,
 )
 from ..models import MagicAudioMakeupSetting, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, User
 from ..points_service import grant_points, record_reading_streak
@@ -33,6 +37,10 @@ from ._oss import (
     _build_oss_object_url,
     _upload_binary_to_oss,
     _validate_reading_image_payload,
+    _start_multipart_upload,
+    _complete_multipart_upload,
+    _abort_multipart_upload,
+    MULTIPART_URL_EXPIRE_SECONDS,
 )
 from ._transcribe import transcribe_audio
 from ..llm_errors import LLMError
@@ -54,6 +62,10 @@ from ._utils import (
     _xlsx_response,
 )
 from ._video_helpers import _ensure_auto_audio_checkin
+
+import logging
+
+logger = logging.getLogger("app.magic_academy_api.audio")
 
 AUTO_CHECKIN_PUBLIC_FILENAME = "录音打卡.m4a"
 AUTO_CHECKIN_PUBLIC_SIZE = 221 * 1024
@@ -1109,6 +1121,214 @@ async def get_my_audio_makeup_options(
         "setting": _serialize_audio_makeup_setting(setting),
         "days": items,
     }
+
+
+async def _assert_audio_checkin_allowed(
+    db: AsyncSession,
+    *,
+    user: User,
+    reading_content_id: int,
+    is_makeup: bool,
+    now: datetime,
+) -> tuple[MagicReadingContent, date, str]:
+    """普通打卡 / 补卡的统一前置校验。
+
+    返回 (content, 落库用 uploaded_date, source)。校验不通过抛 HTTPException。
+    直传链路的 init 与 complete 都调用它，保证两端口径一致、并发安全。
+    """
+    if is_makeup:
+        await _ensure_auto_audio_checkin(db, user, await get_user_whitelist_permissions(db, user.id))
+        content = await _get_user_target_reading_content_or_404(
+            db, user=user, reading_content_id=reading_content_id
+        )
+        target_date = content.reading_date
+        setting = await _get_audio_makeup_setting(db)
+        has_record = await _has_audio_checkin_on_content(db, user.id, reading_content_id)
+        can_makeup, reason = _evaluate_audio_makeup_date(
+            target_date, today=date.today(), setting=setting, has_record=has_record
+        )
+        if not can_makeup:
+            raise HTTPException(status_code=400, detail=reason)
+        await _assert_audio_submission_window(
+            db, user=user, reading_content_id=reading_content_id, target_date=target_date, now=now
+        )
+        return content, target_date, SOURCE_AUDIO_MAKEUP
+    content = await _assert_audio_submission_window(
+        db, user=user, reading_content_id=reading_content_id, target_date=now.date(), now=now
+    )
+    if await _has_audio_checkin_on_content(db, user.id, reading_content_id):
+        raise HTTPException(status_code=400, detail="该读书内容已完成，无需重复提交。")
+    uploaded_date = content.reading_date if content else now.date()
+    return content, uploaded_date, SOURCE_AUDIO_USER_UPLOAD
+
+
+@router.post("/my/audios/upload/init")
+async def init_my_audio_upload(
+    payload: MagicAudioUploadInitPayload,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """录音 OSS 直传第一步：校验 + 签发分片预签名 URL。不写库。"""
+    settings = get_settings()
+    suffix = Path(payload.original_filename or "").suffix.lower()
+    if suffix not in AUDIO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="音频格式不支持。")
+    if int(payload.file_size or 0) > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+    now = _now()
+    await _assert_audio_checkin_allowed(
+        db,
+        user=user,
+        reading_content_id=int(payload.reading_content_id),
+        is_makeup=bool(payload.is_makeup),
+        now=now,
+    )
+    _ensure_oss_settings()
+    mime_type = (payload.mime_type or "").strip() or mimetypes.guess_type(payload.original_filename)[0] or "audio/mpeg"
+    object_key, _stored = _build_object_key_and_name(payload.original_filename, suffix)
+    upload_plan = await asyncio.to_thread(
+        _start_multipart_upload, object_key, mime_type, int(payload.file_size or 0)
+    )
+    return {
+        "oss_object_key": object_key,
+        "upload_id": upload_plan["upload_id"],
+        "part_size": upload_plan["part_size"],
+        "part_count": upload_plan["part_count"],
+        "part_urls": upload_plan["part_urls"],
+        "mime_type": mime_type,
+        "expires_in_seconds": MULTIPART_URL_EXPIRE_SECONDS,
+    }
+
+
+@router.post("/my/audios/upload/complete")
+async def complete_my_audio_upload(
+    reading_content_id: int = Form(...),
+    oss_object_key: str = Form(...),
+    upload_id: str = Form(...),
+    file_name: str = Form(default=""),
+    file_size: int = Form(default=0),
+    mime_type: str = Form(default=""),
+    parts: str = Form(default="[]"),
+    remark: str = Form(default=""),
+    is_makeup: bool = Form(default=False),
+    image: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """录音 OSS 直传第二步：合并分片 + 落库 + 积分。"""
+    object_key = (oss_object_key or "").strip()
+    upload_id_value = (upload_id or "").strip()
+    if not object_key or not upload_id_value:
+        raise HTTPException(status_code=400, detail="缺少上传任务标识。")
+    try:
+        raw_parts = json.loads(parts or "[]")
+        normalized_parts = [
+            {"part_number": int(item["part_number"]), "etag": str(item["etag"])}
+            for item in raw_parts
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail="分片信息格式错误。") from exc
+    if not normalized_parts:
+        raise HTTPException(status_code=400, detail="没有可合并的录音分片。")
+
+    now = _now()
+    content, uploaded_date, source = await _assert_audio_checkin_allowed(
+        db,
+        user=user,
+        reading_content_id=int(reading_content_id),
+        is_makeup=bool(is_makeup),
+        now=now,
+    )
+
+    object_size = await asyncio.to_thread(
+        _complete_multipart_upload, object_key, upload_id_value, normalized_parts
+    )
+    if int(file_size or 0) > 0 and object_size != int(file_size or 0):
+        raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
+    if object_size > MAX_AUDIO_SIZE:
+        raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
+
+    resolved_mime = (mime_type or "").strip() or mimetypes.guess_type(file_name)[0] or "audio/mpeg"
+    image_payload = await _resolve_checkin_image_payload(image)
+    row = MagicAudioUpload(
+        user_id=user.id,
+        reading_content_id=int(reading_content_id),
+        file_name=_safe_filename(file_name or "reading-audio.m4a"),
+        file_path="",
+        file_size=object_size,
+        mime_type=resolved_mime,
+        audio_object_key=object_key,
+        image_object_key=image_payload["image_object_key"],
+        image_url=image_payload["image_url"],
+        image_file_name=image_payload["image_file_name"],
+        image_mime_type=image_payload["image_mime_type"],
+        image_size=image_payload["image_size"],
+        remark=(remark or "").strip(),
+        source=source,
+        auto_checkin_by_whitelist=False,
+        uploaded_on=now,
+        uploaded_date=uploaded_date,
+        is_deleted=False,
+    )
+    db.add(row)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="该读书内容已完成打卡，请勿重复提交。") from exc
+    try:
+        checkin_date = row.uploaded_date if isinstance(row.uploaded_date, date) else uploaded_date
+        await grant_points(
+            db,
+            user_id=user.id,
+            rule_code="reading_checkin",
+            business_type="audio_upload",
+            business_id=int(row.id),
+            dedupe_extra=f"d{checkin_date.isoformat()}",
+            remark=f"{'读书补卡' if source == SOURCE_AUDIO_MAKEUP else '读书打卡'} {checkin_date.isoformat()}",
+        )
+        await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
+    except Exception:  # noqa: BLE001
+        pass
+    image_signed_url = (
+        await asyncio.to_thread(_build_signed_stream_url, row.image_object_key)
+        if (row.image_object_key or "").strip()
+        else ""
+    )
+    return {
+        "id": row.id,
+        "file_name": row.file_name,
+        "file_size": int(row.file_size or 0),
+        "file_type": row.mime_type,
+        "has_audio": bool((row.audio_object_key or "").strip()),
+        "image_url": image_signed_url,
+        "has_image": bool((row.image_object_key or "").strip()),
+        "remark": row.remark or "",
+        "uploaded_date": _iso(row.uploaded_date),
+        "uploaded_time": _iso(row.uploaded_on),
+        "status": "已上传",
+        "source": source,
+        "source_label": "补卡" if source == SOURCE_AUDIO_MAKEUP else "用户上传",
+        "is_makeup": source == SOURCE_AUDIO_MAKEUP,
+    }
+
+
+@router.post("/my/audios/upload/fail")
+async def fail_my_audio_upload(
+    payload: MagicAudioUploadFailPayload,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """录音直传失败/中断：清理 OSS 未合并分片。无库记录。"""
+    del db, user
+    object_key = (payload.oss_object_key or "").strip()
+    upload_id_value = (payload.upload_id or "").strip()
+    if object_key and upload_id_value:
+        try:
+            await asyncio.to_thread(_abort_multipart_upload, object_key, upload_id_value)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to abort audio multipart upload object_key=%s", object_key)
+    return {"success": True}
 
 
 @router.post("/my/audios")

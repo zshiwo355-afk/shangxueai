@@ -99,7 +99,8 @@ async def transcribe_audio(content: bytes, *, filename: str, mime_type: str) -> 
     size = len(content)
     if size <= 0:
         raise LLMError("录音内容为空，无法转写。", status_code=400)
-    if size > settings.asr_max_file_bytes:
+    # asr_max_file_bytes <= 0 表示本地不限制大小（讯飞服务端仍有硬上限）。
+    if settings.asr_max_file_bytes > 0 and size > settings.asr_max_file_bytes:
         limit_mb = settings.asr_max_file_bytes // (1024 * 1024)
         raise LLMError(
             f"录音超过 {limit_mb}MB 上限，请压缩或截取后再上传。",
