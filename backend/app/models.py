@@ -539,6 +539,8 @@ class LiveRoom(Base):
     allow_comment: Mapped[bool] = mapped_column(Boolean, default=True)
     show_counters: Mapped[bool] = mapped_column(Boolean, default=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
+    view_pv_count: Mapped[int] = mapped_column(Integer, default=0)
+    view_uv_count: Mapped[int] = mapped_column(Integer, default=0)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
     share_count: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
@@ -560,6 +562,7 @@ class LiveInteraction(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     live_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     visitor_id: Mapped[str] = mapped_column(String(128), default="")
+    nickname: Mapped[str] = mapped_column(String(60), default="")
     type: Mapped[str] = mapped_column(String(16), nullable=False)
     dedupe_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     status: Mapped[str] = mapped_column(String(16), default="visible")
@@ -575,6 +578,33 @@ class LiveInteraction(Base):
         Index("idx_live_interactions_live_type", "live_id", "type", "created_at"),
         Index("idx_live_interactions_live_type_status_id", "live_id", "type", "status", "id"),
         Index("idx_live_interactions_visitor", "live_id", "visitor_id", "type"),
+    )
+
+
+class LiveCommentSetting(Base):
+    __tablename__ = "live_comment_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    block_words: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LiveCommentToggleLog(Base):
+    __tablename__ = "live_comment_toggle_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    live_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    allow_comment: Mapped[bool] = mapped_column(Boolean, default=True)
+    previous_allow_comment: Mapped[bool] = mapped_column(Boolean, default=True)
+    operator_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_live_comment_toggle_logs_room_time", "live_id", "created_at"),
     )
 
 

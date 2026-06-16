@@ -42,6 +42,8 @@ logger = logging.getLogger("app.materials_api")
 ASSET_TYPE_VALUES = {"video", "image", "document", "other"}
 PROJECT_VISIBILITY_VALUES = {"private", "admin", "shared"}
 MAX_MATERIAL_FILE_SIZE = 1024 * 1024 * 1024
+MAX_MATERIAL_VIDEO_FILE_SIZE = int(settings.magic_video_max_size_mb or 10240) * 1024 * 1024
+MAX_MATERIAL_UPLOAD_FILE_SIZE = max(MAX_MATERIAL_FILE_SIZE, MAX_MATERIAL_VIDEO_FILE_SIZE)
 OSS_PREFIX_RE = re.compile(r"^[A-Za-z0-9/_-]+$")
 
 
@@ -245,6 +247,19 @@ def _detect_asset_type(mime_type: str, file_name: str) -> str:
     ):
         return "document"
     return "other"
+
+
+def _material_file_size_limit(mime_type: str, file_name: str) -> int:
+    if _detect_asset_type(mime_type, file_name) == "video":
+        return MAX_MATERIAL_VIDEO_FILE_SIZE
+    return MAX_MATERIAL_FILE_SIZE
+
+
+def _ensure_material_file_size_allowed(file_size: int, mime_type: str, file_name: str) -> None:
+    limit = _material_file_size_limit(mime_type, file_name)
+    if int(file_size or 0) > limit:
+        limit_mb = limit // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"文件大小不能超过 {limit_mb}MB。")
 
 
 def _build_material_object_key(prefix: str, file_name: str) -> str:
@@ -467,7 +482,7 @@ class MaterialAssetUpdatePayload(BaseModel):
 
 class MaterialAssetUploadInitPayload(BaseModel):
     file_name: str = Field(..., min_length=1, max_length=512)
-    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_FILE_SIZE)
+    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_UPLOAD_FILE_SIZE)
     mime_type: str = Field(default="", max_length=255)
 
 
@@ -480,7 +495,7 @@ class MaterialAssetUploadCompletePayload(BaseModel):
     object_key: str = Field(..., min_length=1, max_length=1024)
     upload_id: str = Field(..., min_length=1, max_length=256)
     file_name: str = Field(..., min_length=1, max_length=512)
-    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_FILE_SIZE)
+    file_size: int = Field(..., ge=1, le=MAX_MATERIAL_UPLOAD_FILE_SIZE)
     parts: list[MaterialAssetUploadPartPayload] = Field(..., min_length=1)
     name: str = Field(default="", max_length=255)
     mime_type: str = Field(default="", max_length=255)
@@ -839,8 +854,6 @@ async def create_material_asset(
     file_size = await _upload_file_size(file)
     if file_size <= 0:
         raise HTTPException(status_code=400, detail="文件内容不能为空。")
-    if file_size > MAX_MATERIAL_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="文件大小超过限制。")
     safe_name = _safe_filename(file.filename or "asset")
     raw_browser_mime = (file.content_type or "").strip().lower()
     guessed_by_ext = (mimetypes.guess_type(safe_name)[0] or "").strip().lower()
@@ -850,6 +863,7 @@ async def create_material_asset(
         mime_type = guessed_by_ext or raw_browser_mime or "application/octet-stream"
     else:
         mime_type = raw_browser_mime
+    _ensure_material_file_size_allowed(file_size, mime_type, safe_name)
     object_key = _build_material_object_key(project.oss_prefix or "materials", safe_name)
     await file.seek(0)
     await asyncio.to_thread(_upload_file_to_oss, object_key, file.file, mime_type)
@@ -891,6 +905,7 @@ async def init_material_asset_upload(
         mime_type = guessed_by_ext or raw_browser_mime or "application/octet-stream"
     else:
         mime_type = raw_browser_mime
+    _ensure_material_file_size_allowed(int(payload.file_size or 0), mime_type, safe_name)
     object_key = _build_material_object_key(project.oss_prefix or "materials", safe_name)
     upload_plan = await asyncio.to_thread(
         _start_multipart_upload,
@@ -933,14 +948,13 @@ async def complete_material_asset_upload(
     )
     if object_size != int(payload.file_size or 0):
         raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
-    if object_size > MAX_MATERIAL_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="文件大小超过限制。")
     claimed_mime = (payload.mime_type or "").strip().lower()
     guessed_by_ext = (mimetypes.guess_type(safe_name)[0] or "").strip().lower()
     if claimed_mime and claimed_mime != "application/octet-stream":
         mime_type = claimed_mime
     else:
         mime_type = guessed_by_ext or claimed_mime or "application/octet-stream"
+    _ensure_material_file_size_allowed(object_size, mime_type, safe_name)
     row = MaterialAsset(
         project_id=project_id,
         sort_order=await _next_asset_sort_order(db, project_id),

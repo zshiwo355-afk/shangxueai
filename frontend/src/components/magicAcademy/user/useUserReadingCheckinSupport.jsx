@@ -152,6 +152,7 @@ export default function useUserReadingCheckinSupport({
 
   const renderAudioRecordList = useCallback((records, showUser = false) => (
     <List
+      className="reading-checkin-record-list"
       dataSource={records}
       locale={{ emptyText: "当天暂无录音上传" }}
       renderItem={(item) => {
@@ -161,11 +162,11 @@ export default function useUserReadingCheckinSupport({
           ? "录音打卡.m4a"
           : (item.file_name || "未命名录音");
         return (
-          <List.Item>
+          <List.Item className="reading-checkin-record-list__item">
             <List.Item.Meta
               title={(
-                <Space wrap>
-                  <Text strong>{displayFileName}</Text>
+                <Space wrap className="reading-checkin-record-list__title">
+                  <Text strong className="reading-checkin-record-list__name">{displayFileName}</Text>
                   <Tag color={sourceMeta.color}>
                     {superAdminMode ? (item.source_label || sourceMeta.label) : sourceMeta.label}
                   </Tag>

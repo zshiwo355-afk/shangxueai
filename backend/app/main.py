@@ -270,6 +270,12 @@ def _resolve_frontend_dist() -> Path | None:
 frontend_dist = _resolve_frontend_dist()
 assets_dir = (frontend_dist / "assets") if frontend_dist else None
 
+FRONTEND_HTML_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 class _ImmutableStaticFiles(StaticFiles):
     """Vite 产物文件名带内容 hash，可长期强缓存；内容变了文件名也变，不会读到旧版本。"""
@@ -399,7 +405,7 @@ async def live_share_entry(slug: str, request: Request):
             meta = await get_public_live_meta(session, slug, request)
     except Exception as exc:  # noqa: BLE001
         logger.warning("live share meta lookup failed slug=%s err=%s", slug, exc)
-    return HTMLResponse(_render_live_share_html(meta))
+    return HTMLResponse(_render_live_share_html(meta), headers=FRONTEND_HTML_HEADERS)
 
 
 @app.get("/live/{slug}", response_model=None, include_in_schema=False)
@@ -414,7 +420,7 @@ async def live_public_entry(slug: str, request: Request):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("live meta lookup failed slug=%s err=%s", slug, exc)
             html_text = index_file.read_text(encoding="utf-8")
-            return HTMLResponse(_inject_live_meta(html_text, meta))
+            return HTMLResponse(_inject_live_meta(html_text, meta), headers=FRONTEND_HTML_HEADERS)
     return {"message": "前端尚未构建，无法打开直播页。"}
 
 
@@ -430,10 +436,12 @@ async def frontend(full_path: str):
         if normalized and "\\" not in normalized:
             candidate = (frontend_dist / normalized).resolve()
             if candidate.is_file() and frontend_dist.resolve() in candidate.parents:
+                if candidate.name == "index.html":
+                    return FileResponse(candidate, headers=FRONTEND_HTML_HEADERS)
                 return FileResponse(candidate)
         index_file = frontend_dist / "index.html"
         if index_file.exists():
-            return FileResponse(index_file)
+            return FileResponse(index_file, headers=FRONTEND_HTML_HEADERS)
     return {
         "message": "前端尚未构建或目录不对。请确认 frontend/dist/index.html 存在，"
                    "或设置 FRONTEND_DIST_PATH 环境变量指向 dist 目录。",

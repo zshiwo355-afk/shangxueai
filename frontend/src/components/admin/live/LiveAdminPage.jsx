@@ -11,9 +11,11 @@ import {
   VideoCameraOutlined,
 } from "@ant-design/icons";
 import {
+  Alert,
   App as AntdApp,
   Button,
   DatePicker,
+  Divider,
   Drawer,
   Empty,
   Form,
@@ -40,18 +42,23 @@ import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-do
 import MaterialAssetPickerModal from "../../common/MaterialAssetPickerModal";
 import { buildMaterialAssetPreviewUrl } from "../../../lib/api.materials";
 import {
+  batchUpdateLiveComments,
   createLiveRoom,
   deleteLiveRoom,
   deleteLiveComment,
   disableLiveRoom,
+  getLiveCommentSettings,
   getLiveRoom,
+  getPublicLiveShareConfig,
   hideLiveComment,
+  listLiveCommentToggleLogs,
   listLiveComments,
   listLiveRooms,
   publishLiveRoom,
   restoreLiveComment,
   toggleLiveRoomComments,
   updateLiveRoom,
+  updateLiveCommentSettings,
   uploadLiveImage,
   uploadLiveVideo,
 } from "../../../lib/api.live";
@@ -81,6 +88,7 @@ const COMMENT_STATUS_OPTIONS = [
   { value: "", label: "全部" },
   { value: "visible", label: "可见" },
   { value: "hidden", label: "已隐藏" },
+  { value: "deleted", label: "已删除" },
 ];
 
 const COMMENT_STATUS_META = {
@@ -177,7 +185,11 @@ function getShareInfo(row) {
 
 function getPreviewUrl(row) {
   const slug = (row?.slug || "").trim();
-  return slug ? `/live/${encodeURIComponent(slug)}` : (row?.public_url || "");
+  return slug ? `/live/${encodeURIComponent(slug)}?preview=1` : (row?.public_url || "");
+}
+
+function canOpenPreview(row) {
+  return Boolean((row?.slug || "").trim() || row?.public_url);
 }
 
 function openPreview(row) {
@@ -186,9 +198,41 @@ function openPreview(row) {
   window.open(url, "_blank", "noopener");
 }
 
+function sdkStatusTag(item) {
+  if (item?.enabled) return <Tag color="success" bordered={false}>已启用</Tag>;
+  if (item?.configured) return <Tag color="warning" bordered={false}>签名失败</Tag>;
+  return <Tag bordered={false}>未配置</Tag>;
+}
+
 function LiveShareModal({ room, open, onCancel, onCopy }) {
   const share = getShareInfo(room);
   const qrValue = share.shareUrl || share.liveUrl || " ";
+  const previewEnabled = canOpenPreview(room);
+  const [loading, setLoading] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(null);
+
+  useEffect(() => {
+    if (!open || !room?.slug) {
+      setDiagnostics(null);
+      return undefined;
+    }
+    let alive = true;
+    setLoading(true);
+    getPublicLiveShareConfig(room.slug, share.shareUrl || share.liveUrl)
+      .then((data) => {
+        if (alive) setDiagnostics(data?.diagnostics || null);
+      })
+      .catch((error) => {
+        if (alive) setDiagnostics({ error: error?.message || "分享诊断加载失败。" });
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, room?.slug, share.liveUrl, share.shareUrl]);
+
   return (
     <Modal
       open={open}
@@ -222,8 +266,22 @@ function LiveShareModal({ room, open, onCancel, onCopy }) {
           <Input.TextArea value={share.shareUrl} readOnly autoSize={{ minRows: 2, maxRows: 3 }} />
           <Space wrap>
             <Button onClick={() => window.open(share.shareUrl, "_blank", "noopener")}>打开卡片入口</Button>
-            <Button onClick={() => window.open(share.liveUrl, "_blank", "noopener")}>预览观看页</Button>
+            <Button disabled={!previewEnabled} onClick={() => window.open(getPreviewUrl(room), "_blank", "noopener")}>预览观看页</Button>
           </Space>
+          <Divider style={{ margin: "6px 0" }} />
+          <div className="live-share-diagnostics">
+            <Text strong>分享诊断</Text>
+            {diagnostics?.error ? <Alert type="warning" showIcon message={diagnostics.error} /> : null}
+            <div className="live-share-diagnostics__grid">
+              <span>卡片标题</span><Text copyable>{share.title}</Text>
+              <span>卡片描述</span><Text>{share.description || "暂无"}</Text>
+              <span>卡片图片</span><Text copyable ellipsis={{ tooltip: share.image }}>{share.image || "暂无"}</Text>
+              <span>签名地址</span><Text copyable ellipsis={{ tooltip: diagnostics?.sign_url }}>{diagnostics?.sign_url || (loading ? "检测中..." : "暂无")}</Text>
+              <span>企微 JS-SDK</span><Space size={6}>{sdkStatusTag(diagnostics?.wecom)}<Text type="secondary">{diagnostics?.wecom?.reason || ""}</Text></Space>
+              <span>企微 Agent</span><Space size={6}>{sdkStatusTag(diagnostics?.wecom_agent)}<Text type="secondary">{diagnostics?.wecom_agent?.reason || ""}</Text></Space>
+              <span>微信公众号</span><Space size={6}>{sdkStatusTag(diagnostics?.wechat)}<Text type="secondary">{diagnostics?.wechat?.reason || ""}</Text></Space>
+            </div>
+          </div>
         </div>
       </div>
     </Modal>
@@ -238,6 +296,11 @@ function LiveCommentsDrawer({ room, open, onClose, onRoomUpdated }) {
   const [filters, setFilters] = useState({ status: "", keyword: "" });
   const [allowComment, setAllowComment] = useState(true);
   const [switching, setSwitching] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+  const [settingsText, setSettingsText] = useState("");
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [toggleLogs, setToggleLogs] = useState([]);
 
   const load = useCallback(async (page = pagination.current, pageSize = pagination.pageSize) => {
     if (!room?.id) return;
@@ -259,10 +322,35 @@ function LiveCommentsDrawer({ room, open, onClose, onRoomUpdated }) {
     }
   }, [filters.keyword, filters.status, message, pagination.current, pagination.pageSize, room?.id]);
 
+  const loadCommentSettings = useCallback(async () => {
+    setSettingsLoading(true);
+    try {
+      const data = await getLiveCommentSettings();
+      setSettingsText(data?.block_words || "");
+    } catch (error) {
+      message.error(error?.message || "评论设置加载失败。");
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [message]);
+
+  const loadToggleLogs = useCallback(async () => {
+    if (!room?.id) return;
+    try {
+      const data = await listLiveCommentToggleLogs(room.id, { limit: 6 });
+      setToggleLogs(data?.items || []);
+    } catch {
+      setToggleLogs([]);
+    }
+  }, [room?.id]);
+
   useEffect(() => {
     if (!open || !room?.id) return;
     setAllowComment(Boolean(room.allow_comment));
+    setSelectedRowKeys([]);
     load(1, pagination.pageSize);
+    loadCommentSettings();
+    loadToggleLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, room?.id]);
 
@@ -279,6 +367,7 @@ function LiveCommentsDrawer({ room, open, onClose, onRoomUpdated }) {
       const updated = await toggleLiveRoomComments(room.id, checked);
       setAllowComment(Boolean(updated?.allow_comment));
       message.success(checked ? "已开启评论。" : "已关闭评论。");
+      loadToggleLogs();
       onRoomUpdated?.();
     } catch (error) {
       message.error(error?.message || "更新评论开关失败。");
@@ -305,7 +394,38 @@ function LiveCommentsDrawer({ room, open, onClose, onRoomUpdated }) {
     }
   };
 
+  const saveCommentSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      await updateLiveCommentSettings({ block_words: settingsText });
+      message.success("敏感词配置已保存。");
+      loadCommentSettings();
+    } catch (error) {
+      message.error(error?.message || "评论设置保存失败。");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const batchAction = async (action) => {
+    if (!selectedRowKeys.length) return;
+    try {
+      const result = await batchUpdateLiveComments({ ids: selectedRowKeys, action });
+      message.success(`已处理 ${result?.affected || 0} 条评论。`);
+      setSelectedRowKeys([]);
+      load();
+    } catch (error) {
+      message.error(error?.message || "批量操作失败。");
+    }
+  };
+
   const columns = [
+    {
+      title: "昵称",
+      dataIndex: "nickname",
+      width: 120,
+      render: (text, row) => text || (row.visitor_id ? "匿名访客" : "访客"),
+    },
     {
       title: "评论内容",
       dataIndex: "content",
@@ -376,11 +496,44 @@ function LiveCommentsDrawer({ room, open, onClose, onRoomUpdated }) {
               onSearch={() => load(1, pagination.pageSize)}
               style={{ width: 240 }}
             />
+            <Button disabled={!selectedRowKeys.length} onClick={() => batchAction("hide")}>批量隐藏</Button>
+            <Button disabled={!selectedRowKeys.length} onClick={() => batchAction("restore")}>批量恢复</Button>
+            <Popconfirm title="确认批量删除选中的评论？" onConfirm={() => batchAction("delete")}>
+              <Button danger disabled={!selectedRowKeys.length}>批量删除</Button>
+            </Popconfirm>
           </Space>
           <Button onClick={() => load(1, pagination.pageSize)}>刷新</Button>
         </div>
+        <div className="live-comment-settings">
+          <div className="live-comment-settings__main">
+            <Text strong>敏感词配置</Text>
+            <Input.TextArea
+              value={settingsText}
+              onChange={(event) => setSettingsText(event.target.value)}
+              placeholder="多个词用逗号、顿号或换行分隔"
+              autoSize={{ minRows: 2, maxRows: 4 }}
+              disabled={settingsLoading}
+            />
+            <Text type="secondary">用户评论命中敏感词时会被拦截，不会进入评论区。</Text>
+          </div>
+          <Button loading={settingsSaving} onClick={saveCommentSettings}>保存敏感词</Button>
+        </div>
+        <div className="live-comment-logs">
+          <Text strong>评论开关记录</Text>
+          <Space size={6} wrap>
+            {toggleLogs.length ? toggleLogs.map((item) => (
+              <Tag key={item.id} bordered={false} color={item.allow_comment ? "success" : "default"}>
+                {item.allow_comment ? "开启" : "关闭"} · {item.created_at ? dayjs(item.created_at).format("MM-DD HH:mm") : ""}
+              </Tag>
+            )) : <Text type="secondary">暂无记录</Text>}
+          </Space>
+        </div>
         <Table
           rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+          }}
           columns={columns}
           dataSource={rows}
           loading={loading}
@@ -497,12 +650,13 @@ function LiveRoomList() {
     { title: "状态", width: 100, render: (_, row) => statusTag(row) },
     {
       title: "数据",
-      width: 170,
+      width: 230,
       render: (_, row) => (
         <Space size={8} wrap>
-          <Tag bordered={false}>看 {row.view_count || 0}</Tag>
+          <Tag bordered={false}>PV {row.pv_count ?? row.view_pv_count ?? row.view_count ?? 0}</Tag>
+          <Tag bordered={false}>UV {row.uv_count ?? row.view_uv_count ?? 0}</Tag>
           <Tag bordered={false}>赞 {row.like_count || 0}</Tag>
-          <Tag bordered={false}>享 {row.share_count || 0}</Tag>
+          <Tag bordered={false}>分享 {row.share_count || 0}</Tag>
         </Space>
       ),
     },
@@ -510,22 +664,25 @@ function LiveRoomList() {
       title: "操作",
       width: 430,
       fixed: "right",
-      render: (_, row) => (
-        <Space className="live-admin-actions" size={6}>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => openPreview(row)}>预览</Button>
-          <Button size="small" icon={<CopyOutlined />} onClick={() => setShareRoom(row)}>分享卡片</Button>
-          <Button size="small" icon={<CommentOutlined />} onClick={() => setCommentRoom(row)}>评论</Button>
-          <Button size="small" icon={<SaveOutlined />} onClick={() => navigate(`${row.id}/edit`)}>编辑</Button>
-          {row.status === "disabled" || row.status === "draft" ? (
-            <Button size="small" type="primary" onClick={() => publish(row)}>发布</Button>
-          ) : (
-            <Button size="small" onClick={() => disable(row)}>下架</Button>
-          )}
-          <Popconfirm title="确认删除该直播活动？" onConfirm={() => remove(row)}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_, row) => {
+        const previewEnabled = canOpenPreview(row);
+        return (
+          <Space className="live-admin-actions" size={6}>
+            <Button size="small" icon={<EyeOutlined />} disabled={!previewEnabled} onClick={() => openPreview(row)}>预览</Button>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => setShareRoom(row)}>分享卡片</Button>
+            <Button size="small" icon={<CommentOutlined />} onClick={() => setCommentRoom(row)}>评论</Button>
+            <Button size="small" icon={<SaveOutlined />} onClick={() => navigate(`${row.id}/edit`)}>编辑</Button>
+            {row.status === "disabled" || row.status === "draft" ? (
+              <Button size="small" type="primary" onClick={() => publish(row)}>发布</Button>
+            ) : (
+              <Button size="small" onClick={() => disable(row)}>下架</Button>
+            )}
+            <Popconfirm title="确认删除该直播活动？" onConfirm={() => remove(row)}>
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -822,10 +979,10 @@ function LiveRoomEditor() {
 
             <section className="live-editor-section">
               <Title level={5}>视频内容</Title>
-              <Form.Item label="内容类型" name="content_type">
+              <Form.Item label="内容类型" name="content_type" extra="当前阶段先按录播活动发布，直播流能力暂不开放。">
                 <Radio.Group optionType="button" buttonStyle="solid">
                   <Radio.Button value="recorded">录播视频</Radio.Button>
-                  <Radio.Button value="live_stream">直播流</Radio.Button>
+                  <Radio.Button value="live_stream" disabled>直播流</Radio.Button>
                 </Radio.Group>
               </Form.Item>
 

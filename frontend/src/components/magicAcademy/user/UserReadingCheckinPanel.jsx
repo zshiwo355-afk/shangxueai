@@ -16,8 +16,11 @@ const { Text } = Typography;
 export default function UserReadingCheckinPanel({ support, makeupSetting }) {
   const [activeSection, setActiveSection] = useState("upload");
   const uploadSectionRef = useRef(null);
+  const uploadActionRef = useRef(null);
   const calendarSectionRef = useRef(null);
   const historySectionRef = useRef(null);
+  const primaryUploadItemId = support.selectedReadingContents.find((item) => !item.completed)?.id
+    ?? support.selectedReadingContents[0]?.id;
 
   const navItems = [
     {
@@ -45,11 +48,17 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
 
   const handleNavigate = (key, targetRef) => {
     setActiveSection(key);
-    targetRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const actionTarget = key === "upload" ? uploadActionRef.current : null;
+    const target = actionTarget || targetRef.current;
+    target?.scrollIntoView({
+      behavior: "smooth",
+      block: actionTarget ? "center" : "start",
+      inline: "nearest",
+    });
   };
 
   return (
-    <>
+    <div className="reading-checkin-page">
       <div className="reading-checkin-nav" role="tablist" aria-label="读书打卡功能导航">
         {navItems.map((item) => (
           <button
@@ -68,7 +77,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
       </div>
 
       <div className="workspace-dual workspace-dual--lined">
-        <div className="workspace-panel">
+        <div className="workspace-panel reading-checkin-main">
           <section ref={uploadSectionRef} className="reading-checkin-section">
             <div className="workspace-panel" style={{ marginBottom: 16 }}>
               <div className="workspace-panel__head">
@@ -86,6 +95,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                       statusColor={item.current_status === "已完成" ? "success" : item.current_status === "已过补卡时间" ? "default" : "processing"}
                       canMakeup={!!support.myAudioMakeupMap[item.id]?.can_makeup}
                       makeupReason={support.myAudioMakeupMap[item.id]?.reason || ""}
+                      actionRef={item.id === primaryUploadItemId ? uploadActionRef : undefined}
                       onSubmit={({ audioFile, imageFile }) => support.handleUploadAudioRecord({
                         readingItem: item,
                         audioFile,
@@ -121,7 +131,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
           </section>
 
           <section ref={historySectionRef} className="reading-checkin-section">
-            <div className="workspace-panel" style={{ marginTop: 16 }}>
+            <div className="workspace-panel reading-checkin-history-panel" style={{ marginTop: 16 }}>
               <div className="workspace-panel__head">
                 <Space>
                   <CalendarOutlined />
@@ -129,6 +139,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                 </Space>
               </div>
               <Table
+                className="reading-checkin-history-table"
                 rowKey="id"
                 size="middle"
                 dataSource={support.myAudios}
@@ -160,9 +171,9 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
           </section>
         </div>
 
-        <aside className="workspace-panel workspace-panel--aside">
+        <aside className="workspace-panel workspace-panel--aside reading-checkin-side">
           <section ref={calendarSectionRef} className="reading-checkin-section">
-            <div className="workspace-panel">
+            <div className="workspace-panel reading-checkin-calendar-panel">
               <div className="workspace-panel__head">
                 <Space>
                   <CalendarOutlined />
@@ -170,6 +181,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                 </Space>
               </div>
               <Calendar
+                className="reading-checkin-calendar"
                 fullscreen={false}
                 value={dayjs(support.myAudioSelectedDate)}
                 onSelect={(value) => support.setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
@@ -181,7 +193,7 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
               />
             </div>
 
-            <div className="workspace-panel">
+            <div className="workspace-panel reading-checkin-day-record-panel">
               <div className="workspace-panel__head">
                 <Space>
                   <BookOutlined />
@@ -203,6 +215,6 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
           </section>
         </aside>
       </div>
-    </>
+    </div>
   );
 }

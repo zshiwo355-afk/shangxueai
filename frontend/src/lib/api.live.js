@@ -66,8 +66,27 @@ export async function restoreLiveComment(id) {
   return postAdminJson(`/api/admin/live/comments/${id}/restore`, {}, "恢复评论失败。");
 }
 
+export async function batchUpdateLiveComments(payload) {
+  return postAdminJson("/api/admin/live/comments/batch", payload, "批量操作评论失败。");
+}
+
 export async function deleteLiveComment(id) {
   return deleteJson(`/api/admin/live/comments/${id}`, "删除评论失败。");
+}
+
+export async function getLiveCommentSettings() {
+  return getJson("/api/admin/live/comments/settings", "评论设置加载失败。");
+}
+
+export async function updateLiveCommentSettings(payload) {
+  return putJson("/api/admin/live/comments/settings", payload, "评论设置保存失败。");
+}
+
+export async function listLiveCommentToggleLogs(id, params = {}) {
+  return getJson(
+    `/api/admin/live/rooms/${id}/comments/toggle-logs${toQs(params)}`,
+    "评论开关记录加载失败。",
+  );
 }
 
 export async function toggleLiveRoomComments(id, allowComment) {
@@ -148,8 +167,12 @@ export function buildPublicLiveStreamUrl(slug) {
   return buildApiUrl(`/api/public/live/${encodeURIComponent(slug)}/stream`);
 }
 
-export async function getPublicLiveRoom(slug) {
-  return getJson(`/api/public/live/${encodeURIComponent(slug)}`, "直播加载失败。");
+export async function getPublicLiveRoom(slug, params = {}) {
+  return getJson(`/api/public/live/${encodeURIComponent(slug)}${toQs(params)}`, "直播加载失败。");
+}
+
+export async function getPublicLivePlaybackUrl(slug, params = {}) {
+  return getJson(`/api/public/live/${encodeURIComponent(slug)}/playback-url${toQs(params)}`, "视频地址加载失败。");
 }
 
 export async function getPublicLiveShareConfig(slug, url = "") {

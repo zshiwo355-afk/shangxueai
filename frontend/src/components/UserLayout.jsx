@@ -4,6 +4,7 @@ import {
   HomeOutlined,
   LogoutOutlined,
   MenuOutlined,
+  ReloadOutlined,
   RocketOutlined,
   ScheduleOutlined,
   SettingOutlined,
@@ -14,6 +15,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
 import { fetchGuideStatus } from "../lib/api.guide";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
+import { clearFrontendCacheAndReload } from "../lib/cacheRefresh";
 import logoImg from "../assets/logo.png";
 import NewbieGuide from "./NewbieGuide";
 import FloatingAiButton from "./FloatingAiButton";
@@ -57,6 +59,7 @@ export default function UserLayout() {
   const showAdminEntry = isAdmin();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [guideActive, setGuideActive] = useState(false);
+  const [cacheClearing, setCacheClearing] = useState(false);
 
   useEffect(() => {
     if (user?.guide_completed_at) return;
@@ -78,6 +81,12 @@ export default function UserLayout() {
     }
     clearAuth();
     navigate("/login", { replace: true });
+  };
+
+  const handleClearCache = async () => {
+    setCacheClearing(true);
+    await clearFrontendCacheAndReload();
+    setCacheClearing(false);
   };
 
   const goTo = (path) => {
@@ -122,6 +131,10 @@ export default function UserLayout() {
           </nav>
 
           <div className="user-layout__actions">
+            <Button icon={<ReloadOutlined />} loading={cacheClearing} onClick={handleClearCache}>
+              清缓存
+            </Button>
+
             {showAdminEntry ? (
               <Button icon={<SettingOutlined />} onClick={() => navigate("/admin")}>
                 管理后台
@@ -146,6 +159,16 @@ export default function UserLayout() {
               退出
             </Button>
           </div>
+
+          <button
+            type="button"
+            className="user-layout__refresh-trigger"
+            aria-label="清除缓存并刷新"
+            disabled={cacheClearing}
+            onClick={handleClearCache}
+          >
+            <ReloadOutlined spin={cacheClearing} />
+          </button>
 
           <button
             type="button"
@@ -206,6 +229,9 @@ export default function UserLayout() {
               管理后台
             </Button>
           ) : null}
+          <Button block icon={<ReloadOutlined />} loading={cacheClearing} onClick={handleClearCache}>
+            清除缓存并刷新
+          </Button>
           <Button block icon={<LogoutOutlined />} onClick={handleLogout}>
             退出登录
           </Button>

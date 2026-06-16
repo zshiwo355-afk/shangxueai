@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS `live_rooms` (
   `allow_comment` tinyint(1) NOT NULL DEFAULT '1',
   `show_counters` tinyint(1) NOT NULL DEFAULT '1',
   `view_count` int NOT NULL DEFAULT '0',
+  `view_pv_count` int NOT NULL DEFAULT '0',
+  `view_uv_count` int NOT NULL DEFAULT '0',
   `like_count` int NOT NULL DEFAULT '0',
   `share_count` int NOT NULL DEFAULT '0',
   `created_by` bigint DEFAULT NULL,
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS `live_interactions` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `live_id` bigint NOT NULL,
   `visitor_id` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '匿名访客 ID',
+  `nickname` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '评论昵称',
   `type` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'view/like/share/comment',
   `dedupe_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'view/like 幂等键',
   `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'visible' COMMENT 'visible/hidden/deleted',
@@ -70,16 +73,33 @@ CREATE TABLE IF NOT EXISTS `live_interactions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='公开直播互动记录';
 
 
+CREATE TABLE IF NOT EXISTS `live_comment_settings` (
+  `id` int NOT NULL,
+  `block_words` text COLLATE utf8mb4_unicode_ci,
+  `updated_by` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='直播评论配置';
+
+
+CREATE TABLE IF NOT EXISTS `live_comment_toggle_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `live_id` bigint NOT NULL,
+  `allow_comment` tinyint(1) NOT NULL DEFAULT '1',
+  `previous_allow_comment` tinyint(1) NOT NULL DEFAULT '1',
+  `operator_id` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_live_comment_toggle_logs_room_time` (`live_id`,`created_at`) USING BTREE,
+  KEY `idx_live_comment_toggle_logs_operator` (`operator_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='直播评论开关记录';
+
+
 ALTER TABLE `live_rooms` MODIFY `allow_comment` tinyint(1) NOT NULL DEFAULT '1';
 UPDATE `live_rooms` SET `allow_comment` = 1 WHERE `deleted_at` IS NULL;
 UPDATE `live_rooms`
 SET `status` = CASE WHEN `content_type` = 'live_stream' THEN 'live' ELSE 'replay' END
 WHERE `status` = 'published' AND `deleted_at` IS NULL;
 
--- Existing databases: run these once before enabling comment moderation and deduped counters.
-ALTER TABLE `live_interactions` ADD COLUMN `dedupe_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'view/like 幂等键';
-ALTER TABLE `live_interactions` ADD COLUMN `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'visible' COMMENT 'visible/hidden/deleted';
-ALTER TABLE `live_interactions` ADD COLUMN `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
-CREATE UNIQUE INDEX `uk_live_interactions_dedupe` ON `live_interactions` (`dedupe_key`);
-CREATE INDEX `idx_live_interactions_live_type_status_id` ON `live_interactions` (`live_id`,`type`,`status`,`id`);
-UPDATE `live_interactions` SET `status` = 'visible' WHERE `status` IS NULL OR `status` = '';
+-- Existing databases: run backend/sql/live_management_enhancements.sql after this file.

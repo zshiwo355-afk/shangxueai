@@ -365,12 +365,40 @@ async def build_employee_sync_preview(
             continue
 
         if local_user is not None:
+            reason = ""
+            local_mobile = normalize_mobile(local_user.username or "")
+            if mobile and local_mobile != mobile:
+                mobile_conflict = next(
+                    (
+                        user
+                        for user in local_by_mobile.get(mobile, [])
+                        if int(user.id) != int(local_user.id)
+                    ),
+                    None,
+                )
+                if mobile_conflict is not None:
+                    items.append(
+                        _make_item(
+                            action="conflict",
+                            employee=employee,
+                            local_user=local_user,
+                            match_type="wecom_userid",
+                            reason="已绑定账号的第三方手机号已变更，但新手机号已被本地其他账号占用；本条跳过，需人工处理。",
+                        )
+                    )
+                    summary["conflict"] += 1
+                    seen_local_user_ids.add(int(local_user.id))
+                    if wecom_userid:
+                        seen_wecom_userids.add(wecom_userid)
+                    continue
+                reason = "已绑定账号手机号将更新为第三方手机号，并重置密码为新手机号后六位。"
             items.append(
                 _make_item(
                     action="update_bound",
                     employee=employee,
                     local_user=local_user,
                     match_type="wecom_userid",
+                    reason=reason,
                 )
             )
             summary["update_bound"] += 1
@@ -734,12 +762,38 @@ async def execute_employee_sync(
                 reason = "执行同步时按姓名唯一匹配到本地旧手机号账号；将以第三方新手机号更新原账号，并重置密码为新手机号后六位。"
 
         if action in {"update_bound", "bind_by_mobile"} and local_user is not None:
-            _apply_employee_to_user(local_user, employee, synced_at=now)
-            status = "applied"
-            counters["matched"] += 1
-            counters["updated"] += 1
-            if action == "bind_by_mobile":
-                counters["bound"] += 1
+            can_apply_bound_update = True
+            if action == "update_bound":
+                mobile = item.get("mobile") or _source_mobile(employee)
+                local_mobile = normalize_mobile(local_user.username or "")
+                if mobile and local_mobile != mobile:
+                    password_md5 = _mobile_password_md5(mobile)
+                    conflict_user = (
+                        await db.execute(
+                            select(User)
+                            .where(User.username == mobile, User.id != int(local_user.id))
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if not password_md5:
+                        reason = "已绑定账号的第三方手机号不可用，无法更新本地登录手机号和密码。"
+                        can_apply_bound_update = False
+                        counters["skipped"] += 1
+                    elif conflict_user is not None:
+                        reason = "执行同步时发现已绑定账号的新手机号已被本地其他账号占用，本条跳过，需人工处理。"
+                        can_apply_bound_update = False
+                        counters["conflict"] += 1
+                    else:
+                        local_user.username = mobile
+                        local_user.password_md5 = password_md5
+                        reason = reason or "已绑定账号手机号已更新，密码已重置为新手机号后六位。"
+            if can_apply_bound_update:
+                _apply_employee_to_user(local_user, employee, synced_at=now)
+                status = "applied"
+                counters["matched"] += 1
+                counters["updated"] += 1
+                if action == "bind_by_mobile":
+                    counters["bound"] += 1
         elif action == "update_by_name" and local_user is not None:
             mobile = item.get("mobile") or ""
             password_md5 = _mobile_password_md5(mobile)

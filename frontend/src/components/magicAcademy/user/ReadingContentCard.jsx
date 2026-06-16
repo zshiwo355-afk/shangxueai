@@ -1,6 +1,6 @@
 import { AudioOutlined, FileImageOutlined, UploadOutlined } from "@ant-design/icons";
 import { Button, Card, Image, Space, Tag, Typography, Upload } from "antd";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const { Paragraph, Text } = Typography;
 
@@ -18,14 +18,59 @@ export default function ReadingContentCard({
   statusColor,
   canMakeup,
   makeupReason,
+  actionRef,
   onSubmit,
   onSubmitMakeup,
 }) {
   const [audioFile, setAudioFile] = useState(null);
   const [imageFile, setImageFile] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const actionRowRef = useRef(null);
+  const lastImageTapAtRef = useRef(0);
 
   const hasSelection = !!audioFile || !!imageFile;
+
+  const setActionRowNode = (node) => {
+    actionRowRef.current = node;
+    if (actionRef) actionRef.current = node;
+  };
+
+  const revealActionButton = () => {
+    const scroll = () => {
+      actionRowRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(scroll);
+      return;
+    }
+    setTimeout(scroll, 0);
+  };
+
+  const openImagePreview = () => {
+    setPreviewOpen(true);
+  };
+
+  const handleImageTap = () => {
+    const now = Date.now();
+    if (now - lastImageTapAtRef.current <= 360) {
+      lastImageTapAtRef.current = 0;
+      openImagePreview();
+      return;
+    }
+    lastImageTapAtRef.current = now;
+  };
+
+  const handleImageKeyDown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openImagePreview();
+    }
+  };
 
   const handleSubmit = async () => {
     if (!hasSelection || submitting) return;
@@ -52,9 +97,9 @@ export default function ReadingContentCard({
   };
 
   return (
-    <Card key={item.id} size="small">
+    <Card key={item.id} size="small" className="reading-content-card">
       <Space direction="vertical" size={12} style={{ width: "100%" }}>
-        <Space wrap>
+        <Space wrap className="reading-content-card__header">
           <Text strong>{item.title}</Text>
           <Tag bordered={false} color="blue">{item.reading_date}</Tag>
           <Tag bordered={false} color={statusColor}>
@@ -62,27 +107,66 @@ export default function ReadingContentCard({
           </Tag>
         </Space>
         {item.description ? <Paragraph style={{ marginBottom: 0 }}>{item.description}</Paragraph> : null}
-        <Space wrap>
+        <Space wrap className="reading-content-card__meta">
           <Text type="secondary">推送时间：{item.push_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
           <Text type="secondary">补卡截止：{item.makeup_deadline_at?.replace("T", " ").slice(0, 19) || "—"}</Text>
         </Space>
         {item.image_url ? (
-          <Image
-            src={item.image_url}
-            alt={item.title}
-            style={{ maxWidth: 420, borderRadius: 12 }}
-            preview={{ src: item.image_url }}
-          />
+          <div
+            className="reading-content-card__image-frame"
+            role="button"
+            tabIndex={0}
+            aria-label="双击放大读书材料图片"
+            onClick={handleImageTap}
+            onDoubleClick={openImagePreview}
+            onKeyDown={handleImageKeyDown}
+          >
+            <Image
+              src={item.image_url}
+              alt={item.title}
+              preview={false}
+              classNames={{
+                root: "reading-content-card__image-root",
+                image: "reading-content-card__image",
+              }}
+              styles={{
+                root: { width: "100%", maxWidth: "100%" },
+                image: {
+                  width: "100%",
+                  maxWidth: "100%",
+                  height: "100%",
+                  borderRadius: 12,
+                  objectFit: "cover",
+                  objectPosition: "top center",
+                },
+              }}
+            />
+            <span className="reading-content-card__image-hint">双击放大</span>
+            <Image
+              src={item.image_url}
+              alt={item.title}
+              styles={{
+                root: { display: "none" },
+                image: { display: "none" },
+              }}
+              preview={{
+                src: item.image_url,
+                open: previewOpen,
+                onOpenChange: setPreviewOpen,
+              }}
+            />
+          </div>
         ) : null}
         {!item.completed ? (
           <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <Space wrap>
+            <Space wrap className="reading-content-card__pickers">
               <Upload
                 showUploadList={false}
                 accept={AUDIO_ACCEPT}
                 maxCount={1}
                 beforeUpload={(file) => {
                   setAudioFile(file);
+                  revealActionButton();
                   return false;
                 }}
               >
@@ -96,6 +180,7 @@ export default function ReadingContentCard({
                 maxCount={1}
                 beforeUpload={(file) => {
                   setImageFile(file);
+                  revealActionButton();
                   return false;
                 }}
               >
@@ -109,7 +194,8 @@ export default function ReadingContentCard({
             <Text type="secondary">录音和图片至少提交一项。</Text>
           </Space>
         ) : null}
-        <Space wrap>
+        <div ref={setActionRowNode} className="reading-content-card__submit-actions">
+          <Space wrap>
           {item.completed ? (
             <Button type="primary" disabled>已完成</Button>
           ) : (
@@ -132,7 +218,8 @@ export default function ReadingContentCard({
           {!item.completed && !item.can_submit && !item.submit_disabled_reason && makeupReason ? (
             <Text type="secondary">{makeupReason}</Text>
           ) : null}
-        </Space>
+          </Space>
+        </div>
       </Space>
     </Card>
   );

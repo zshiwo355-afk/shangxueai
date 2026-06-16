@@ -53,8 +53,8 @@ export function renderAudioStatusTag(status, count = 0, uploadedUsers = 0) {
   if (status === "future") return <Tag bordered={false} color="default">未来</Tag>;
   if (status === "makeup_available") return <Tag bordered={false} color="processing">可补卡</Tag>;
   if (status === "makeup_expired") return <Tag bordered={false} color="default">已过期</Tag>;
-  if (status === "today_uploaded") return <Tag bordered={false} color="success">今日已上传</Tag>;
-  if (status === "today_missing") return <Tag bordered={false} color="error">今日未上传</Tag>;
+  if (status === "today_uploaded") return <Tag bordered={false} color="success">已上传</Tag>;
+  if (status === "today_missing") return <Tag bordered={false} color="error">未上传</Tag>;
   if (status === "uploaded") {
     return <Tag bordered={false} color="success">{uploadedUsers > 0 ? `已上传 ${uploadedUsers} 人` : `已上传${count > 1 ? ` ${count} 条` : ""}`}</Tag>;
   }

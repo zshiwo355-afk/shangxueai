@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 
 import { fetchAdminAudiosByDate, transcribeAdminAudio } from "../../../../lib/api.magic";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 const TRANSCRIPT_STATUS_META = {
   done: { color: "success", label: "已完成" },
@@ -13,6 +13,47 @@ const TRANSCRIPT_STATUS_META = {
   failed: { color: "error", label: "失败" },
   "": { color: "default", label: "未转写" },
 };
+
+function formatAudioDuration(value) {
+  const seconds = Number(value || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  const rounded = Math.floor(seconds);
+  const minutes = Math.floor(rounded / 60);
+  const rest = String(rounded % 60).padStart(2, "0");
+  return `${minutes}:${rest}`;
+}
+
+function AdminAudioPreview({ src }) {
+  const [duration, setDuration] = useState(0);
+  const [metadataFailed, setMetadataFailed] = useState(false);
+
+  const handleMetadata = useCallback((event) => {
+    const nextDuration = Number(event.currentTarget.duration || 0);
+    setDuration(Number.isFinite(nextDuration) ? nextDuration : 0);
+    setMetadataFailed(false);
+  }, []);
+
+  if (!src) {
+    return <Text type="secondary">无录音</Text>;
+  }
+
+  const durationText = formatAudioDuration(duration);
+  return (
+    <div className="admin-audio-preview">
+      <audio
+        controls
+        preload="metadata"
+        src={src}
+        onLoadedMetadata={handleMetadata}
+        onDurationChange={handleMetadata}
+        onError={() => setMetadataFailed(true)}
+      />
+      <Text type={metadataFailed ? "danger" : "secondary"} className="admin-audio-preview__duration">
+        {metadataFailed ? "时长读取失败" : durationText ? `时长 ${durationText}` : "读取时长中"}
+      </Text>
+    </div>
+  );
+}
 
 export default function AdminAudioTranscribePanel({ users = [] }) {
   const { message } = AntdApp.useApp();
@@ -23,6 +64,7 @@ export default function AdminAudioTranscribePanel({ users = [] }) {
   const [loaded, setLoaded] = useState(false);
   const [rows, setRows] = useState([]);
   const [transcribingId, setTranscribingId] = useState(null);
+  const [expandedTranscriptIds, setExpandedTranscriptIds] = useState(() => new Set());
 
   const departmentOptions = useMemo(
     () => Array.from(new Set(users.map((item) => item.department).filter(Boolean))).map((item) => ({ value: item, label: item })),
@@ -48,6 +90,7 @@ export default function AdminAudioTranscribePanel({ users = [] }) {
         user_id: userId || undefined,
       });
       setRows(Array.isArray(result?.items) ? result.items : []);
+      setExpandedTranscriptIds(new Set());
       setLoaded(true);
     } catch (error) {
       message.error(error?.message || "录音列表加载失败。");
@@ -73,6 +116,45 @@ export default function AdminAudioTranscribePanel({ users = [] }) {
     }
   }, [message]);
 
+  const toggleTranscript = useCallback((rowId) => {
+    setExpandedTranscriptIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  }, []);
+
+  const renderTranscript = useCallback((value, row) => {
+    if (row.transcript_error) {
+      return <Text type="danger">{row.transcript_error}</Text>;
+    }
+    const text = String(value || "").trim();
+    if (!text) {
+      return <Text type="secondary">—</Text>;
+    }
+    const isExpanded = expandedTranscriptIds.has(row.id);
+    const canToggle = text.length > 120 || text.includes("\n");
+    return (
+      <div className={`admin-audio-transcript ${isExpanded ? "is-expanded" : "is-collapsed"}`}>
+        <div className="admin-audio-transcript__text">{text}</div>
+        {canToggle ? (
+          <Button
+            className="admin-audio-transcript__toggle"
+            type="link"
+            size="small"
+            onClick={() => toggleTranscript(row.id)}
+          >
+            {isExpanded ? "收起" : "展开"}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }, [expandedTranscriptIds, toggleTranscript]);
+
   const columns = [
     { title: "员工", dataIndex: "user_name", width: 140, render: (value) => value || "—" },
     { title: "部门", dataIndex: "department", width: 140, render: (value) => value || "—" },
@@ -87,9 +169,7 @@ export default function AdminAudioTranscribePanel({ users = [] }) {
       title: "录音",
       dataIndex: "audio_play_url",
       width: 260,
-      render: (value) => (value
-        ? <audio controls preload="none" src={value} style={{ width: 240, height: 36 }} />
-        : <Text type="secondary">无录音</Text>),
+      render: (value) => <AdminAudioPreview src={value} />,
     },
     {
       title: "转写状态",
@@ -103,9 +183,8 @@ export default function AdminAudioTranscribePanel({ users = [] }) {
     {
       title: "转写文本",
       dataIndex: "transcript_text",
-      render: (value) => (value
-        ? <Paragraph style={{ marginBottom: 0, maxWidth: 420 }} ellipsis={{ rows: 3, expandable: true, symbol: "展开" }}>{value}</Paragraph>
-        : <Text type="secondary">—</Text>),
+      width: 520,
+      render: renderTranscript,
     },
     {
       title: "操作",

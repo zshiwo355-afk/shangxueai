@@ -36,7 +36,8 @@ from .magic_academy_api._oss import (
 from .magic_academy_api._resource_cleanup import schedule_oss_object_cleanup
 from .magic_academy_api._utils import _iso, _now, _safe_filename
 from .magic_academy_api._video_helpers import _get_material_asset_or_403
-from .models import LiveInteraction, LiveRoom, User
+from .live_status import LIVE_STATUSES, PUBLIC_STATUSES, default_publish_status, resolve_live_status, status_label
+from .models import LiveCommentSetting, LiveCommentToggleLog, LiveInteraction, LiveRoom, User
 from .wechat_client import WechatApiError, WechatMpClient
 from .wecom_client import WecomApiError, WecomClient
 
@@ -47,11 +48,10 @@ _wechat_mp_client = WechatMpClient()
 
 CONTENT_TYPES = {"recorded", "live_stream"}
 VIDEO_SOURCES = {"upload", "material", "external_url"}
-LIVE_STATUSES = {"draft", "scheduled", "live", "replay", "ended", "disabled", "published"}
-PUBLIC_STATUSES = {"scheduled", "live", "replay", "ended"}
 COMMENT_STATUSES = {"visible", "hidden", "deleted"}
 COMMENT_RATE_LIMIT_SECONDS = 5
 SHARE_RATE_LIMIT_SECONDS = 3
+COMMENT_SETTINGS_ID = 1
 
 
 class LiveUploadPart(BaseModel):
@@ -145,6 +145,23 @@ class LiveCommentTogglePayload(BaseModel):
     allow_comment: bool = True
 
 
+class LiveCommentSettingsPayload(BaseModel):
+    block_words: str = Field(default="", max_length=4000)
+
+
+class LiveCommentBatchPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=200)
+    action: str = Field(..., max_length=16)
+
+    @field_validator("action")
+    @classmethod
+    def _action(cls, value: str) -> str:
+        action = (value or "").strip().lower()
+        if action not in {"hide", "restore", "delete"}:
+            raise ValueError("不支持的批量操作。")
+        return action
+
+
 def _page_payload(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
     return {"items": items, "total": int(total), "page": int(page), "page_size": int(page_size)}
 
@@ -203,25 +220,11 @@ async def _unique_slug(db: AsyncSession) -> str:
 
 
 def _effective_status(room: LiveRoom) -> str:
-    status = (room.status or "draft").strip().lower()
-    if status == "published":
-        return "live" if (room.content_type or "") == "live_stream" else "replay"
-    if status == "scheduled" and room.start_time and room.start_time <= _now():
-        return "live" if (room.content_type or "") == "live_stream" else "replay"
-    return status
+    return resolve_live_status(room, now=_now())
 
 
 def _status_label(room: LiveRoom) -> str:
-    status = _effective_status(room)
-    labels = {
-        "draft": "草稿",
-        "scheduled": "未开始",
-        "live": "进行中",
-        "replay": "回放中",
-        "ended": "已结束",
-        "disabled": "已下架",
-    }
-    return labels.get(status, status)
+    return status_label(_effective_status(room))
 
 
 def _share_payload(room: LiveRoom, request: Request | None = None) -> dict[str, str]:
@@ -239,8 +242,16 @@ def _share_payload(room: LiveRoom, request: Request | None = None) -> dict[str, 
     }
 
 
-def _room_to_dict(room: LiveRoom, request: Request | None = None, *, public: bool = False) -> dict[str, Any]:
+def _room_to_dict(
+    room: LiveRoom,
+    request: Request | None = None,
+    *,
+    public: bool = False,
+    preview: bool = False,
+) -> dict[str, Any]:
     status = _effective_status(room)
+    pv_count = int(getattr(room, "view_pv_count", None) or room.view_count or 0)
+    uv_count = int(getattr(room, "view_uv_count", None) or 0)
     payload = {
         "id": int(room.id),
         "slug": room.slug,
@@ -274,16 +285,26 @@ def _room_to_dict(room: LiveRoom, request: Request | None = None, *, public: boo
         "allow_like": bool(room.allow_like),
         "allow_comment": bool(room.allow_comment),
         "show_counters": bool(room.show_counters),
-        "view_count": int(room.view_count or 0),
+        "view_count": pv_count,
+        "view_pv_count": pv_count,
+        "view_uv_count": uv_count,
+        "pv_count": pv_count,
+        "uv_count": uv_count,
         "like_count": int(room.like_count or 0),
         "share_count": int(room.share_count or 0),
+        "stats": {
+            "pv_count": pv_count,
+            "uv_count": uv_count,
+            "like_count": int(room.like_count or 0),
+            "share_count": int(room.share_count or 0),
+        },
         "created_by": int(room.created_by) if room.created_by else None,
         "created_at": _iso(room.created_at),
         "updated_at": _iso(room.updated_at),
         "public_url": _build_public_live_url(request, room.slug) if request else f"/live/{room.slug}",
         "share": _share_payload(room, request),
         "share_url": _build_public_live_share_url(request, room.slug) if request else f"/share/live/{room.slug}",
-        "can_play": status in {"live", "replay", "ended"} and bool(
+        "can_play": status != "scheduled" and (preview or status in {"live", "replay", "ended"}) and bool(
             (room.stream_url or "").strip() if (room.content_type or "") == "live_stream" else ((room.video_object_key or "").strip() or (room.video_url or "").strip())
         ),
     }
@@ -297,7 +318,7 @@ async def _get_room_or_404(db: AsyncSession, room_id: int) -> LiveRoom:
     return room
 
 
-async def _get_public_room_or_404(db: AsyncSession, slug: str) -> LiveRoom:
+async def _get_public_room_or_404(db: AsyncSession, slug: str, *, preview: bool = False) -> LiveRoom:
     room = (
         await db.execute(
             select(LiveRoom).where(
@@ -306,9 +327,28 @@ async def _get_public_room_or_404(db: AsyncSession, slug: str) -> LiveRoom:
             )
         )
     ).scalar_one_or_none()
-    if not room or _effective_status(room) not in PUBLIC_STATUSES:
+    if not room or (not preview and _effective_status(room) not in PUBLIC_STATUSES):
         raise HTTPException(status_code=404, detail="直播活动不存在或尚未发布。")
     return room
+
+
+def _effective_status_filter(status: str):
+    now = _now()
+    if status == "scheduled":
+        return and_(
+            LiveRoom.status == "scheduled",
+            or_(LiveRoom.start_time.is_(None), LiveRoom.start_time > now),
+        )
+    if status == "replay":
+        return or_(
+            LiveRoom.status == "replay",
+            LiveRoom.status == "published",
+            and_(LiveRoom.status == "scheduled", LiveRoom.start_time.is_not(None), LiveRoom.start_time <= now),
+            and_(LiveRoom.status == "live", LiveRoom.content_type != "live_stream"),
+        )
+    if status == "live":
+        return and_(LiveRoom.status == "live", LiveRoom.content_type == "live_stream")
+    return LiveRoom.status == status
 
 
 async def _resolve_image(
@@ -400,9 +440,7 @@ async def _resolve_video(
 
 
 def _default_publish_status(room: LiveRoom) -> str:
-    if room.start_time and room.start_time > _now():
-        return "scheduled"
-    return "live" if (room.content_type or "") == "live_stream" else "replay"
+    return default_publish_status(room, now=_now())
 
 
 def _cleanup_owned_keys(*keys: str) -> None:
@@ -564,8 +602,9 @@ async def list_live_rooms(
         normalized = (status or "").strip().lower()
         if normalized not in LIVE_STATUSES:
             raise HTTPException(status_code=400, detail="不支持的状态筛选。")
-        stmt = stmt.where(LiveRoom.status == normalized)
-        count_stmt = count_stmt.where(LiveRoom.status == normalized)
+        status_clause = _effective_status_filter(normalized)
+        stmt = stmt.where(status_clause)
+        count_stmt = count_stmt.where(status_clause)
     if (keyword or "").strip():
         like_value = f"%{keyword.strip()}%"
         stmt = stmt.where(LiveRoom.title.like(like_value))
@@ -609,7 +648,6 @@ async def get_live_room(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     room = await _get_room_or_404(db, room_id)
     return _room_to_dict(room, request)
 
@@ -656,7 +694,6 @@ async def publish_live_room(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     room = await _get_room_or_404(db, room_id)
     if not (room.cover_url or "").strip():
         raise HTTPException(status_code=400, detail="请先设置封面图片。")
@@ -678,7 +715,6 @@ async def disable_live_room(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     room = await _get_room_or_404(db, room_id)
     room.status = "disabled"
     await db.commit()
@@ -691,6 +727,53 @@ async def _get_comment_or_404(db: AsyncSession, comment_id: int) -> LiveInteract
     if not row or row.type != "comment":
         raise HTTPException(status_code=404, detail="评论不存在。")
     return row
+
+
+def _comment_setting_payload(row: LiveCommentSetting | None) -> dict[str, Any]:
+    raw = row.block_words if row is not None else settings.live_comment_block_words
+    return {
+        "block_words": raw or "",
+        "block_word_list": _split_comment_block_words(raw or ""),
+        "updated_at": _iso(row.updated_at) if row is not None else "",
+        "updated_by": int(row.updated_by) if row is not None and row.updated_by else None,
+    }
+
+
+def _toggle_log_to_dict(row: LiveCommentToggleLog) -> dict[str, Any]:
+    return {
+        "id": int(row.id),
+        "live_id": int(row.live_id),
+        "allow_comment": bool(row.allow_comment),
+        "previous_allow_comment": bool(row.previous_allow_comment),
+        "operator_id": int(row.operator_id) if row.operator_id else None,
+        "created_at": _iso(row.created_at),
+    }
+
+
+@admin_router.get("/comments/settings")
+async def get_live_comment_settings(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    return _comment_setting_payload(await _get_comment_setting(db))
+
+
+@admin_router.put("/comments/settings")
+async def update_live_comment_settings(
+    payload: LiveCommentSettingsPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    row = await _get_comment_setting(db)
+    if row is None:
+        row = LiveCommentSetting(id=COMMENT_SETTINGS_ID)
+        db.add(row)
+    row.block_words = payload.block_words.strip()
+    row.updated_by = int(admin.id)
+    await db.commit()
+    await db.refresh(row)
+    return _comment_setting_payload(row)
 
 
 @admin_router.get("/comments")
@@ -720,7 +803,7 @@ async def list_live_comments(
     text = (keyword or "").strip()
     if text:
         like = f"%{text}%"
-        filters.append(or_(LiveInteraction.content.like(like), LiveRoom.title.like(like)))
+        filters.append(or_(LiveInteraction.content.like(like), LiveInteraction.nickname.like(like), LiveRoom.title.like(like)))
     total = (
         await db.execute(
             select(func.count(LiveInteraction.id))
@@ -741,6 +824,31 @@ async def list_live_comments(
     ).all()
     items = [_comment_to_dict(item, room) for item, room in rows]
     return _page_payload(items, int(total or 0), page, page_size)
+
+
+@admin_router.post("/comments/batch")
+async def batch_update_live_comments(
+    payload: LiveCommentBatchPayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    target_ids = sorted({int(item) for item in payload.ids if int(item) > 0})
+    if not target_ids:
+        raise HTTPException(status_code=400, detail="请选择要操作的评论。")
+    next_status = {"hide": "hidden", "restore": "visible", "delete": "deleted"}[payload.action]
+    rows = (
+        await db.execute(
+            select(LiveInteraction).where(
+                LiveInteraction.id.in_(target_ids),
+                LiveInteraction.type == "comment",
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.status = next_status
+    await db.commit()
+    return {"success": True, "affected": len(rows), "status": next_status}
 
 
 @admin_router.post("/comments/{comment_id}/hide")
@@ -784,6 +892,26 @@ async def delete_live_comment(
     return {"success": True}
 
 
+@admin_router.get("/rooms/{room_id}/comments/toggle-logs")
+async def list_live_comment_toggle_logs(
+    room_id: int,
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    await _get_room_or_404(db, room_id)
+    rows = (
+        await db.execute(
+            select(LiveCommentToggleLog)
+            .where(LiveCommentToggleLog.live_id == int(room_id))
+            .order_by(desc(LiveCommentToggleLog.created_at), desc(LiveCommentToggleLog.id))
+            .limit(limit)
+        )
+    ).scalars().all()
+    return {"items": [_toggle_log_to_dict(item) for item in rows]}
+
+
 @admin_router.post("/rooms/{room_id}/comments/toggle")
 async def toggle_live_room_comments(
     room_id: int,
@@ -792,9 +920,17 @@ async def toggle_live_room_comments(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
-    del admin
     room = await _get_room_or_404(db, room_id)
+    previous = bool(room.allow_comment)
     room.allow_comment = bool(payload.allow_comment)
+    db.add(
+        LiveCommentToggleLog(
+            live_id=int(room.id),
+            allow_comment=bool(payload.allow_comment),
+            previous_allow_comment=previous,
+            operator_id=int(admin.id),
+        )
+    )
     await db.commit()
     await db.refresh(room)
     return _room_to_dict(room, request)
@@ -802,6 +938,10 @@ async def toggle_live_room_comments(
 
 def _visitor_id(payload: LiveInteractionPayload) -> str:
     return (payload.visitor_id or "").strip()[:128]
+
+
+def _nickname(payload: LiveInteractionPayload) -> str:
+    return (payload.nickname or "").strip()[:60]
 
 
 def _ip_hash(request: Request) -> str:
@@ -868,16 +1008,25 @@ async def _ensure_interaction_rate_limit(
         raise HTTPException(status_code=429, detail="操作太频繁，请稍后再试。")
 
 
-def _comment_block_words() -> list[str]:
-    raw = settings.live_comment_block_words or ""
+def _split_comment_block_words(raw: str) -> list[str]:
     for sep in ("，", "、", "\n", "\r", "\t", ";", "；"):
         raw = raw.replace(sep, ",")
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-def _ensure_comment_allowed(content: str) -> None:
+async def _get_comment_setting(db: AsyncSession) -> LiveCommentSetting | None:
+    return await db.get(LiveCommentSetting, COMMENT_SETTINGS_ID)
+
+
+async def _comment_block_words(db: AsyncSession) -> list[str]:
+    row = await _get_comment_setting(db)
+    raw = row.block_words if row is not None else settings.live_comment_block_words
+    return _split_comment_block_words(raw or "")
+
+
+def _ensure_comment_allowed(content: str, block_words: list[str]) -> None:
     lowered = content.lower()
-    for word in _comment_block_words():
+    for word in block_words:
         if word.lower() in lowered:
             raise HTTPException(status_code=400, detail="评论包含敏感词，请调整后再发送。")
 
@@ -887,8 +1036,10 @@ def _comment_to_dict(item: LiveInteraction, room: LiveRoom | None = None) -> dic
         "id": int(item.id),
         "live_id": int(item.live_id),
         "visitor_id": item.visitor_id or "",
+        "nickname": item.nickname or "",
         "content": item.content or "",
         "status": item.status or "visible",
+        "status_label": {"visible": "可见", "hidden": "已隐藏", "deleted": "已删除"}.get(item.status or "visible", item.status or ""),
         "created_at": _iso(item.created_at),
         "updated_at": _iso(item.updated_at),
     }
@@ -908,10 +1059,11 @@ def _comment_to_dict(item: LiveInteraction, room: LiveRoom | None = None) -> dic
 async def get_public_live_room(
     slug: str,
     request: Request,
+    preview: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    room = await _get_public_room_or_404(db, slug)
-    return _room_to_dict(room, request, public=True)
+    room = await _get_public_room_or_404(db, slug, preview=preview)
+    return _room_to_dict(room, request, public=True, preview=preview)
 
 
 @public_router.get("/{slug}/share-config")
@@ -936,12 +1088,15 @@ async def get_public_live_share_config(
     }
     agent_sdk: dict[str, Any] = {**sdk}
     wechat_sdk: dict[str, Any] = {**sdk}
-    if (
+    wecom_configured = bool(
         settings.wecom_enabled
         and settings.wecom_corp_id.strip()
         and settings.wecom_agent_id
         and settings.wecom_app_secret.strip()
-    ):
+    )
+    wecom_error = ""
+    wechat_error = ""
+    if wecom_configured:
         try:
             sdk = await _wecom_client.build_js_sdk_config(sign_url)
             sdk["js_api_list"] = [
@@ -953,8 +1108,10 @@ async def get_public_live_share_config(
             agent_sdk = await _wecom_client.build_agent_js_sdk_config(sign_url)
             agent_sdk["js_api_list"] = ["sendChatMessage"]
         except WecomApiError as exc:
+            wecom_error = str(exc) or "企微 JS-SDK 签名失败。"
             logger.warning("live share js sdk config failed slug=%s err=%s", slug, exc)
-    if settings.wechat_mp_ready:
+    wechat_configured = bool(settings.wechat_mp_ready)
+    if wechat_configured:
         try:
             wechat_sdk = await _wechat_mp_client.build_js_sdk_config(sign_url)
             wechat_sdk["js_api_list"] = [
@@ -964,16 +1121,85 @@ async def get_public_live_share_config(
                 "onMenuShareTimeline",
             ]
         except WechatApiError as exc:
+            wechat_error = str(exc) or "微信公众号 JS-SDK 签名失败。"
             logger.warning("live wechat share js sdk config failed slug=%s err=%s", slug, exc)
-    return {"share": share, "sdk": sdk, "agent_sdk": agent_sdk, "wechat_sdk": wechat_sdk}
+    diagnostics = {
+        "sign_url": sign_url,
+        "share_url": share["url"],
+        "live_url": share["live_url"],
+        "wecom": {
+            "configured": wecom_configured,
+            "enabled": bool(sdk.get("enabled")),
+            "reason": "" if wecom_configured else "未配置企微应用参数。",
+        },
+        "wecom_agent": {
+            "configured": wecom_configured,
+            "enabled": bool(agent_sdk.get("enabled")),
+            "reason": wecom_error if wecom_error else ("" if wecom_configured else "未配置企微应用参数。"),
+        },
+        "wechat": {
+            "configured": wechat_configured,
+            "enabled": bool(wechat_sdk.get("enabled")),
+            "reason": wechat_error if wechat_error else ("" if wechat_configured else "未配置微信公众号参数。"),
+        },
+    }
+    if wecom_error:
+        diagnostics["wecom"]["reason"] = wecom_error
+    return {"share": share, "sdk": sdk, "agent_sdk": agent_sdk, "wechat_sdk": wechat_sdk, "diagnostics": diagnostics}
+
+
+async def _public_playback_payload(room: LiveRoom, *, preview: bool = False) -> dict[str, Any]:
+    status = _effective_status(room)
+    if status == "scheduled":
+        raise HTTPException(status_code=409, detail="Live has not started.")
+    if (room.content_type or "") == "live_stream":
+        url = (room.stream_url or "").strip()
+        if not url:
+            raise HTTPException(status_code=404, detail="Live stream is not available.")
+        return {
+            "url": url,
+            "mime_type": room.video_mime_type or "application/vnd.apple.mpegurl",
+            "source": "live_stream",
+            "expires_in": 0,
+        }
+
+    object_key = (room.video_object_key or "").strip()
+    if object_key:
+        signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+        return {
+            "url": signed_url,
+            "mime_type": room.video_mime_type or "video/mp4",
+            "source": "oss",
+            "expires_in": max(int(settings.oss_signed_url_expire_seconds or 21600), 21600),
+        }
+    url = (room.video_url or "").strip()
+    if url:
+        return {
+            "url": url,
+            "mime_type": room.video_mime_type or "video/mp4",
+            "source": "external_url",
+            "expires_in": 0,
+        }
+    raise HTTPException(status_code=404, detail="Video is not available.")
+
+
+@public_router.get("/{slug}/playback-url")
+async def get_public_live_playback_url(
+    slug: str,
+    preview: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    room = await _get_public_room_or_404(db, slug, preview=preview)
+    return await _public_playback_payload(room, preview=preview)
 
 
 @public_router.get("/{slug}/stream")
 async def stream_public_live_room(
     slug: str,
+    preview: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
-    room = await _get_public_room_or_404(db, slug)
+    room = await _get_public_room_or_404(db, slug, preview=preview)
     status = _effective_status(room)
     if status == "scheduled":
         raise HTTPException(status_code=409, detail="直播尚未开始。")
@@ -1001,7 +1227,7 @@ async def record_public_live_view(
     visitor_id = _visitor_id(payload)
     ip_hash = _ip_hash(request)
     dedupe_key = _interaction_dedupe_key(int(room.id), "view", visitor_id, ip_hash)
-    existing = await _existing_deduped_interaction(
+    is_unique_visitor = not await _existing_deduped_interaction(
         db,
         live_id=int(room.id),
         interaction_type="view",
@@ -1009,24 +1235,23 @@ async def record_public_live_view(
         ip_hash=ip_hash,
         dedupe_key=dedupe_key,
     )
-    if existing:
-        return {"view_count": int(room.view_count or 0)}
     db.add(
         LiveInteraction(
             live_id=int(room.id),
             visitor_id=visitor_id,
             type="view",
-            dedupe_key=dedupe_key,
             status="visible",
             ip_hash=ip_hash,
             user_agent=(request.headers.get("user-agent") or "")[:500],
         )
     )
-    await db.execute(
-        update(LiveRoom)
-        .where(LiveRoom.id == int(room.id))
-        .values(view_count=LiveRoom.view_count + 1)
-    )
+    values = {
+        "view_count": LiveRoom.view_count + 1,
+        "view_pv_count": LiveRoom.view_pv_count + 1,
+    }
+    if is_unique_visitor:
+        values["view_uv_count"] = LiveRoom.view_uv_count + 1
+    await db.execute(update(LiveRoom).where(LiveRoom.id == int(room.id)).values(**values))
     try:
         await db.commit()
     except IntegrityError:
@@ -1034,7 +1259,15 @@ async def record_public_live_view(
         room = await _get_public_room_or_404(db, slug)
     else:
         await db.refresh(room)
-    return {"view_count": int(room.view_count or 0)}
+    pv_count = int(getattr(room, "view_pv_count", None) or room.view_count or 0)
+    uv_count = int(getattr(room, "view_uv_count", None) or 0)
+    return {
+        "view_count": pv_count,
+        "view_pv_count": pv_count,
+        "view_uv_count": uv_count,
+        "pv_count": pv_count,
+        "uv_count": uv_count,
+    }
 
 
 @public_router.post("/{slug}/like")
@@ -1173,8 +1406,9 @@ async def create_public_live_comment(
     content = (payload.content or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="评论内容不能为空。")
-    _ensure_comment_allowed(content)
+    _ensure_comment_allowed(content, await _comment_block_words(db))
     visitor_id = _visitor_id(payload)
+    nickname = _nickname(payload)
     ip_hash = _ip_hash(request)
     await _ensure_interaction_rate_limit(
         db,
@@ -1187,6 +1421,7 @@ async def create_public_live_comment(
     row = LiveInteraction(
         live_id=int(room.id),
         visitor_id=visitor_id,
+        nickname=nickname,
         type="comment",
         content=content,
         status="visible",

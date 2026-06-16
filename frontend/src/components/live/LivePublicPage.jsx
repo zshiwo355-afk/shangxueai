@@ -7,7 +7,7 @@ import {
   ShareAltOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { App as AntdApp, Button, Empty, Input, Space, Spin, Tag, Typography } from "antd";
+import { Alert, App as AntdApp, Button, Empty, Input, Space, Spin, Tag, Typography } from "antd";
 import dayjs from "dayjs";
 import Hls from "hls.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,7 @@ import { useParams } from "react-router-dom";
 import {
   buildPublicLiveStreamUrl,
   createPublicLiveComment,
+  getPublicLivePlaybackUrl,
   getPublicLiveRoom,
   getPublicLiveShareConfig,
   likePublicLive,
@@ -26,9 +27,16 @@ import {
 
 const { Paragraph, Text, Title } = Typography;
 const VISITOR_KEY = "shangxueai-public-live-visitor";
+const LIVE_NICKNAME_KEY = "shangxueai-public-live-nickname";
 const LIVE_LIKED_KEY_PREFIX = "shangxueai-public-live-liked:";
 const WECHAT_SDK_SRC = "https://res.wx.qq.com/open/js/jweixin-1.6.0.js";
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2];
+const MEDIA_ERROR_MESSAGES = {
+  1: "视频加载已取消，请重新点击播放。",
+  2: "视频网络加载失败，请检查网络或稍后重试。",
+  3: "视频文件无法解码，请确认视频编码为浏览器支持的 H.264/AAC。",
+  4: "当前浏览器不支持这个视频格式，请更换为 MP4(H.264/AAC) 后再试。",
+};
 let wechatSdkPromise = null;
 
 function getVisitorId() {
@@ -48,6 +56,22 @@ function getLikedKey(slug) {
   return `${LIVE_LIKED_KEY_PREFIX}${slug || ""}`;
 }
 
+function getSavedNickname() {
+  try {
+    return window.localStorage.getItem(LIVE_NICKNAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveNickname(value) {
+  try {
+    window.localStorage.setItem(LIVE_NICKNAME_KEY, (value || "").trim().slice(0, 60));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function hasLocalLiked(slug) {
   try {
     return window.localStorage.getItem(getLikedKey(slug)) === "1";
@@ -62,6 +86,11 @@ function markLocalLiked(slug) {
   } catch {
     // localStorage may be unavailable in restricted browsers.
   }
+}
+
+function getMediaErrorMessage(video) {
+  const code = video?.error?.code;
+  return MEDIA_ERROR_MESSAGES[code] || "视频加载失败，请检查后台视频文件或稍后重试。";
 }
 
 function formatTime(value) {
@@ -281,10 +310,20 @@ export default function LivePublicPage() {
   const [liked, setLiked] = useState(false);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
+  const [nickname, setNickname] = useState(() => getSavedNickname());
   const [commenting, setCommenting] = useState(false);
   const [activePanel, setActivePanel] = useState("interaction");
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [playbackUrl, setPlaybackUrl] = useState("");
+  const [playerError, setPlayerError] = useState("");
   const visitorId = useMemo(() => getVisitorId(), []);
+  const previewMode = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("preview") === "1";
+    } catch {
+      return false;
+    }
+  }, []);
 
   const loadComments = useCallback(async ({ reset = false } = {}) => {
     if (!slug) return;
@@ -316,7 +355,9 @@ export default function LivePublicPage() {
     setLoading(true);
     lastCommentIdRef.current = 0;
     setComments([]);
-    getPublicLiveRoom(slug)
+    setPlaybackUrl("");
+    setPlayerError("");
+    getPublicLiveRoom(slug, previewMode ? { preview: 1 } : {})
       .then(async (data) => {
         if (!alive) return;
         setRoom(data);
@@ -328,15 +369,24 @@ export default function LivePublicPage() {
         ensureMeta("og:description", data?.share?.description || data?.intro || "", true);
         ensureMeta("og:image", data?.share?.image || data?.cover_url || "", true);
         prepareWechatShare({ slug, room: data, visitorId }).catch(() => {});
-        try {
-          const result = await recordPublicLiveView(slug, { visitor_id: visitorId });
-          if (alive && result?.view_count !== undefined) {
-            setRoom((prev) => prev ? { ...prev, view_count: result.view_count } : prev);
+        if (!previewMode) {
+          try {
+            const result = await recordPublicLiveView(slug, { visitor_id: visitorId });
+            if (alive && result?.view_count !== undefined) {
+              setRoom((prev) => prev ? {
+                ...prev,
+                view_count: result.view_count,
+                view_pv_count: result.view_pv_count ?? result.pv_count ?? result.view_count,
+                view_uv_count: result.view_uv_count ?? result.uv_count ?? prev.view_uv_count,
+                pv_count: result.pv_count ?? result.view_pv_count ?? result.view_count,
+                uv_count: result.uv_count ?? result.view_uv_count ?? prev.uv_count,
+              } : prev);
+            }
+          } catch {
+            // view tracking must never block watching
           }
-        } catch {
-          // view tracking must never block watching
         }
-        if (data?.allow_comment) loadComments({ reset: true });
+        if (!previewMode && data?.allow_comment) loadComments({ reset: true });
       })
       .catch((err) => {
         if (!alive) return;
@@ -348,20 +398,74 @@ export default function LivePublicPage() {
     return () => {
       alive = false;
     };
-  }, [loadComments, slug, visitorId]);
+  }, [loadComments, previewMode, slug, visitorId]);
 
   useEffect(() => {
-    if (!room?.allow_comment || !slug) return undefined;
+    if (previewMode || !room?.allow_comment || !slug) return undefined;
     const timer = window.setInterval(() => {
       loadComments();
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [loadComments, room?.allow_comment, slug]);
+  }, [loadComments, previewMode, room?.allow_comment, slug]);
 
-  const canPlay = room?.can_play && room?.effective_status !== "scheduled";
-  const streamUrl = room?.slug ? buildPublicLiveStreamUrl(room.slug) : "";
+  useEffect(() => {
+    if (room?.effective_status !== "scheduled" || !room?.start_time || !slug) {
+      return undefined;
+    }
+    let alive = true;
+    let retryTimer = 0;
+    const refreshAfterStart = () => {
+      getPublicLiveRoom(slug, previewMode ? { preview: 1 } : {})
+        .then((data) => {
+          if (!alive) return;
+          setRoom(data);
+          setError("");
+          if (data?.effective_status === "scheduled") {
+            retryTimer = window.setTimeout(refreshAfterStart, 3000);
+          }
+        })
+        .catch(() => {});
+    };
+    const delay = Math.max(dayjs(room.start_time).valueOf() - Date.now() + 2000, 1000);
+    const timer = window.setTimeout(refreshAfterStart, Math.min(delay, 2147483647));
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [previewMode, room?.effective_status, room?.start_time, slug]);
+
+  const canPlay = Boolean(room?.can_play) && room?.effective_status !== "scheduled";
+  const streamUrl = playbackUrl;
   const shareUrl = room?.share?.url || window.location.href;
   const canAdjustSpeed = canPlay && room?.content_type !== "live_stream";
+
+  useEffect(() => {
+    let alive = true;
+    if (!canPlay || !room?.slug) {
+      setPlaybackUrl("");
+      setPlayerError("");
+      return undefined;
+    }
+    setPlaybackUrl("");
+    setPlayerError("");
+    getPublicLivePlaybackUrl(room.slug, previewMode ? { preview: 1 } : {})
+      .then((data) => {
+        if (!alive) return;
+        const url = (data?.url || "").trim();
+        setPlaybackUrl(url);
+        if (!url) setPlayerError("视频地址为空，请检查后台视频配置。");
+      })
+      .catch((err) => {
+        if (!alive) return;
+        const fallback = `${buildPublicLiveStreamUrl(room.slug)}${previewMode ? "?preview=1" : ""}`;
+        setPlaybackUrl(fallback);
+        setPlayerError(err?.message || "视频地址加载失败，已尝试使用兼容播放地址。");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [canPlay, previewMode, room?.slug]);
 
   const applyPlaybackRate = useCallback((rate) => {
     setPlaybackRate(rate);
@@ -373,23 +477,34 @@ export default function LivePublicPage() {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !canPlay || !streamUrl) return undefined;
+    setPlayerError("");
     const shouldUseHls = room?.content_type === "live_stream"
       || /\.m3u8($|\?)/i.test(streamUrl)
       || /mpegurl/i.test(room?.video_mime_type || "");
     let hls = null;
+    const handleCanPlay = () => setPlayerError("");
+    const handleError = () => setPlayerError(getMediaErrorMessage(video));
+    video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("error", handleError);
     if (shouldUseHls && Hls.isSupported()) {
       hls = new Hls({
         enableWorker: true,
         lowLatencyMode: room?.content_type === "live_stream",
       });
       hlsRef.current = hls;
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data?.fatal) setPlayerError("视频流加载失败，请检查直播流地址或网络。");
+      });
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
     } else {
       video.src = streamUrl;
+      video.load();
     }
     video.playbackRate = playbackRate;
     return () => {
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("error", handleError);
       if (hls) {
         hls.destroy();
         if (hlsRef.current === hls) hlsRef.current = null;
@@ -452,7 +567,9 @@ export default function LivePublicPage() {
     if (!content || !room) return;
     setCommenting(true);
     try {
-      const result = await createPublicLiveComment(room.slug, { visitor_id: visitorId, content });
+      const cleanNickname = nickname.trim().slice(0, 60);
+      saveNickname(cleanNickname);
+      const result = await createPublicLiveComment(room.slug, { visitor_id: visitorId, nickname: cleanNickname, content });
       lastCommentIdRef.current = Math.max(lastCommentIdRef.current, Number(result?.id || 0));
       setComments((prev) => (
         result?.id && prev.some((item) => item.id === result.id)
@@ -493,10 +610,19 @@ export default function LivePublicPage() {
                 ref={videoRef}
                 controls
                 playsInline
+                preload="metadata"
                 poster={room.cover_url || ""}
                 className="public-live-video"
                 onLoadedMetadata={() => applyPlaybackRate(playbackRate)}
               />
+              {playerError ? (
+                <Alert
+                  className="public-live-player-alert"
+                  type="warning"
+                  showIcon
+                  message={playerError}
+                />
+              ) : null}
               {canAdjustSpeed ? (
                 <div className="public-live-speedbar">
                   <Text type="secondary">倍速</Text>
@@ -536,7 +662,8 @@ export default function LivePublicPage() {
           <Title level={2}>{room.title}</Title>
           <Space size={12} wrap className="public-live-meta">
             <span><UserOutlined /> {room.lecturer || "怀仁商学院"}</span>
-            {room.show_counters ? <span>观看 {room.view_count || 0}</span> : null}
+            {room.show_counters ? <span>观看 {room.pv_count ?? room.view_pv_count ?? room.view_count ?? 0}</span> : null}
+            {room.show_counters ? <span>访客 {room.uv_count ?? room.view_uv_count ?? 0}</span> : null}
             {room.show_counters ? <span>点赞 {room.like_count || 0}</span> : null}
           </Space>
           {room.intro ? <Paragraph className="public-live-intro">{room.intro}</Paragraph> : null}
@@ -588,24 +715,46 @@ export default function LivePublicPage() {
               <div className="public-live-comment-list">
                 {comments.length ? comments.map((item) => (
                   <div key={item.id} className="public-live-comment">
-                    <span>{item.content}</span>
-                    <Text type="secondary">{item.created_at ? dayjs(item.created_at).format("HH:mm") : ""}</Text>
+                    <div className="public-live-comment__avatar">
+                      {(item.nickname || "访客").trim().slice(0, 1) || "访"}
+                    </div>
+                    <div className="public-live-comment__body">
+                      <div className="public-live-comment__head">
+                        <Text strong>{item.nickname || "访客"}</Text>
+                        <Text type="secondary">{item.created_at ? dayjs(item.created_at).format("HH:mm") : ""}</Text>
+                      </div>
+                      <div className="public-live-comment__content">{item.content}</div>
+                    </div>
                   </div>
                 )) : (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={room.allow_comment ? "暂无评论" : "评论已关闭"} />
                 )}
               </div>
               {room.allow_comment ? (
-                <Space.Compact style={{ width: "100%" }}>
-                  <Input
-                    value={commentText}
-                    onChange={(event) => setCommentText(event.target.value)}
-                    onPressEnter={submitComment}
-                    maxLength={500}
-                    placeholder="写下你的评论"
-                  />
-                  <Button type="primary" icon={<SendOutlined />} loading={commenting} onClick={submitComment}>发送</Button>
-                </Space.Compact>
+                <div className="public-live-comment-form">
+                  <div className="public-live-comment-form__avatar">
+                    {(nickname || "我").trim().slice(0, 1) || "我"}
+                  </div>
+                  <div className="public-live-comment-form__body">
+                    <Input
+                      value={nickname}
+                      onChange={(event) => setNickname(event.target.value)}
+                      maxLength={60}
+                      placeholder="填写昵称"
+                      className="public-live-comment-form__name"
+                    />
+                    <div className="public-live-comment-form__send">
+                      <Input
+                        value={commentText}
+                        onChange={(event) => setCommentText(event.target.value)}
+                        onPressEnter={submitComment}
+                        maxLength={500}
+                        placeholder="写下你的评论"
+                      />
+                      <Button type="primary" icon={<SendOutlined />} loading={commenting} onClick={submitComment}>发送</Button>
+                    </div>
+                  </div>
+                </div>
               ) : null}
             </div>
           ) : (
