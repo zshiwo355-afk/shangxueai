@@ -16,6 +16,7 @@ import { logoutApi } from "../lib/api.auth";
 import { fetchGuideStatus } from "../lib/api.guide";
 import { clearAuth, getCurrentUser, isAdmin } from "../lib/auth";
 import { clearFrontendCacheAndReload } from "../lib/cacheRefresh";
+import { useIsMobile } from "../lib/useIsMobile";
 import logoImg from "../assets/logo.png";
 import NewbieGuide from "./NewbieGuide";
 import FloatingAiButton from "./FloatingAiButton";
@@ -60,6 +61,7 @@ export default function UserLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [guideActive, setGuideActive] = useState(false);
   const [cacheClearing, setCacheClearing] = useState(false);
+  const mobileShell = useIsMobile(900);
 
   useEffect(() => {
     if (user?.guide_completed_at) return;
@@ -95,7 +97,7 @@ export default function UserLayout() {
   };
 
   return (
-    <div className="user-layout">
+    <div className={`user-layout${mobileShell ? " user-layout--mobile-shell" : ""}`}>
       <header className="user-layout__header">
         <div className="user-layout__header-inner">
           <button type="button" className="user-layout__brand" onClick={() => navigate("/home")}>
@@ -108,6 +110,8 @@ export default function UserLayout() {
             </div>
           </button>
 
+          {!mobileShell ? (
+            <>
           <nav className="user-layout__nav" aria-label="用户端主导航">
             {NAV_ITEMS.map((item) => {
               const active = location.pathname === item.path
@@ -159,6 +163,8 @@ export default function UserLayout() {
               退出
             </Button>
           </div>
+            </>
+          ) : null}
 
           <button
             type="button"
@@ -166,6 +172,7 @@ export default function UserLayout() {
             aria-label="清除缓存并刷新"
             disabled={cacheClearing}
             onClick={handleClearCache}
+            style={mobileShell ? { display: "inline-flex" } : undefined}
           >
             <ReloadOutlined spin={cacheClearing} />
           </button>
@@ -175,6 +182,7 @@ export default function UserLayout() {
             className="user-layout__menu-trigger"
             aria-label="打开菜单"
             onClick={() => setDrawerOpen(true)}
+            style={mobileShell ? { display: "inline-flex" } : undefined}
           >
             <MenuOutlined />
           </button>

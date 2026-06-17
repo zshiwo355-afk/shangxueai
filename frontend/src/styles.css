@@ -8719,3 +8719,279 @@ body {
     min-width: 240px;
   }
 }
+
+/* Mobile WebView fallback: some embedded browsers report a desktop layout
+   viewport while still running on a coarse-pointer phone. Keep the user-facing
+   shell from rendering desktop navigation and multi-column pages there. */
+@media (max-width: 900px), (max-width: 1180px) and (hover: none) and (pointer: coarse) {
+  .user-layout__header-inner {
+    padding: 10px 14px;
+    gap: 10px;
+    flex-wrap: nowrap;
+    max-width: 100%;
+  }
+
+  .user-layout__brand {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .user-layout__brand-mark {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+  }
+
+  .user-layout__brand-copy {
+    min-width: 0;
+  }
+
+  .user-layout__brand-copy strong,
+  .user-layout__brand-copy span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-layout__nav,
+  .user-layout__actions {
+    display: none !important;
+  }
+
+  .user-layout__menu-trigger,
+  .user-layout__refresh-trigger {
+    display: inline-flex;
+    margin-left: 0;
+    flex: 0 0 40px;
+  }
+
+  .user-layout__content {
+    width: 100%;
+    max-width: 100%;
+    padding: 20px 14px 56px;
+    overflow-x: hidden;
+  }
+
+  .portal-home,
+  .workspace-shell,
+  .workspace-stage,
+  .workspace-dual,
+  .workspace-panel,
+  .magic-academy-detail,
+  .page-shell,
+  .page-shell--wide,
+  .page-shell--narrow {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-stage,
+  .workspace-dual,
+  .workspace-line-item,
+  .workspace-mini-grid,
+  .entry-grid,
+  .entry-grid--two,
+  .reading-checkin-nav {
+    grid-template-columns: 1fr !important;
+  }
+
+  .workspace-panel__head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .showcase-title {
+    font-size: 30px !important;
+    line-height: 1.15 !important;
+    letter-spacing: 0;
+  }
+
+  .showcase-lead {
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .entry-card {
+    min-height: 0;
+    padding: 24px 22px;
+    gap: 14px;
+  }
+
+  .entry-card__title {
+    font-size: 22px;
+  }
+
+  .reading-checkin-page,
+  .reading-checkin-page .workspace-dual,
+  .reading-checkin-calendar-panel,
+  .reading-checkin-day-record-panel,
+  .reading-checkin-history-panel,
+  .reading-content-card {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .reading-checkin-calendar,
+  .reading-checkin-calendar .ant-picker-panel,
+  .reading-checkin-calendar .ant-picker-date-panel {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .reading-checkin-calendar table {
+    width: 100% !important;
+    table-layout: fixed;
+  }
+
+  .reading-checkin-calendar th,
+  .reading-checkin-calendar td,
+  .reading-checkin-calendar .ant-picker-cell-inner {
+    min-width: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+.user-layout--mobile-shell .user-layout__header-inner {
+  padding: 10px 14px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+
+.user-layout--mobile-shell .user-layout__brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.user-layout--mobile-shell .user-layout__brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+
+.user-layout--mobile-shell .user-layout__brand-copy {
+  min-width: 0;
+}
+
+.user-layout--mobile-shell .user-layout__brand-copy strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-layout--mobile-shell .user-layout__brand-copy span {
+  display: none;
+}
+
+.user-layout--mobile-shell .user-layout__nav,
+.user-layout--mobile-shell .user-layout__actions {
+  display: none !important;
+}
+
+.user-layout--mobile-shell .user-layout__menu-trigger,
+.user-layout--mobile-shell .user-layout__refresh-trigger {
+  display: inline-flex;
+  margin-left: 0;
+  flex: 0 0 40px;
+}
+
+.user-layout--mobile-shell .user-layout__content {
+  width: 100%;
+  max-width: 100%;
+  padding: 20px 14px 56px;
+  overflow-x: hidden;
+}
+
+.user-layout--mobile-shell :where(
+  .portal-home,
+  .workspace-shell,
+  .workspace-stage,
+  .workspace-dual,
+  .workspace-panel,
+  .magic-academy-detail,
+  .page-shell,
+  .page-shell--wide,
+  .page-shell--narrow
+) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.user-layout--mobile-shell :where(
+  .workspace-stage,
+  .workspace-dual,
+  .workspace-line-item,
+  .workspace-mini-grid,
+  .entry-grid,
+  .entry-grid--two,
+  .reading-checkin-nav
+) {
+  grid-template-columns: 1fr !important;
+}
+
+.user-layout--mobile-shell .workspace-panel__head {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.user-layout--mobile-shell .showcase-title {
+  font-size: 30px !important;
+  line-height: 1.15 !important;
+  letter-spacing: 0;
+}
+
+.user-layout--mobile-shell .showcase-lead {
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.user-layout--mobile-shell .entry-card {
+  min-height: 0;
+  padding: 24px 22px;
+  gap: 14px;
+}
+
+.user-layout--mobile-shell .entry-card__title {
+  font-size: 22px;
+}
+
+.user-layout--mobile-shell :where(
+  .reading-checkin-page,
+  .reading-checkin-page .workspace-dual,
+  .reading-checkin-calendar-panel,
+  .reading-checkin-day-record-panel,
+  .reading-checkin-history-panel,
+  .reading-content-card
+) {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.user-layout--mobile-shell :where(
+  .reading-checkin-calendar,
+  .reading-checkin-calendar .ant-picker-panel,
+  .reading-checkin-calendar .ant-picker-date-panel
+) {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.user-layout--mobile-shell .reading-checkin-calendar table {
+  width: 100% !important;
+  table-layout: fixed;
+}
+
+.user-layout--mobile-shell .reading-checkin-calendar th,
+.user-layout--mobile-shell .reading-checkin-calendar td,
+.user-layout--mobile-shell .reading-checkin-calendar .ant-picker-cell-inner {
+  min-width: 0 !important;
+  padding: 0 !important;
+}

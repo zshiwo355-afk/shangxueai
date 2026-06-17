@@ -1,40 +1,61 @@
 import { useEffect, useState } from "react";
 
-/**
- * 监听窗口宽度判断是否处于移动端断点。
- * 默认与 styles.css 中 P0/P1/P2 块的 768px 断点保持一致。
- * 用 matchMedia + change 事件，避免高频 resize 监听。
- */
+function readFiniteWidth(value) {
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function detectMobile(maxWidth, query) {
+  if (typeof window === "undefined") return false;
+
+  const widths = [
+    readFiniteWidth(window.innerWidth),
+    readFiniteWidth(window.visualViewport?.width),
+    readFiniteWidth(document.documentElement?.clientWidth),
+    readFiniteWidth(window.screen?.width),
+    readFiniteWidth(window.screen?.availWidth),
+  ].filter(Boolean);
+
+  const narrowWidth = widths.some((width) => width <= maxWidth);
+  const mediaMatch = typeof window.matchMedia === "function"
+    ? window.matchMedia(query).matches
+    : false;
+  const userAgent = window.navigator?.userAgent || "";
+  const phoneUserAgent = /(iPhone|iPod|Android.*Mobile|Windows Phone)/i.test(userAgent);
+
+  return mediaMatch || narrowWidth || phoneUserAgent;
+}
+
 export function useIsMobile(maxWidth = 768) {
   const query = `(max-width: ${maxWidth}px)`;
-  const [match, setMatch] = useState(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return false;
-    }
-    return window.matchMedia(query).matches;
-  });
+  const [match, setMatch] = useState(() => detectMobile(maxWidth, query));
 
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return undefined;
+    if (typeof window === "undefined") return undefined;
+
+    const update = () => setMatch(detectMobile(maxWidth, query));
+    const mql = typeof window.matchMedia === "function" ? window.matchMedia(query) : null;
+
+    if (mql?.addEventListener) {
+      mql.addEventListener("change", update);
+    } else if (mql?.addListener) {
+      mql.addListener(update);
     }
-    const mql = window.matchMedia(query);
-    const handler = (event) => setMatch(event.matches);
-    // matchMedia 在旧 Safari 仍用 addListener；新 API 用 addEventListener
-    if (mql.addEventListener) {
-      mql.addEventListener("change", handler);
-    } else if (mql.addListener) {
-      mql.addListener(handler);
-    }
-    setMatch(mql.matches);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    window.visualViewport?.addEventListener?.("resize", update);
+    update();
+
     return () => {
-      if (mql.removeEventListener) {
-        mql.removeEventListener("change", handler);
-      } else if (mql.removeListener) {
-        mql.removeListener(handler);
+      if (mql?.removeEventListener) {
+        mql.removeEventListener("change", update);
+      } else if (mql?.removeListener) {
+        mql.removeListener(update);
       }
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      window.visualViewport?.removeEventListener?.("resize", update);
     };
-  }, [query]);
+  }, [maxWidth, query]);
 
   return match;
 }
