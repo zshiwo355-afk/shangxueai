@@ -108,7 +108,7 @@ async def transcribe_audio(content: bytes, *, filename: str, mime_type: str) -> 
         )
 
     safe_name = (filename or "").strip() or "audio.m4a"
-    order_id, estimate_seconds = await _xf_upload(
+    order_id, estimate_seconds, signature_random = await _xf_upload(
         settings, filename=safe_name, data=content
     )
     logger.info(
@@ -118,18 +118,20 @@ async def transcribe_audio(content: bytes, *, filename: str, mime_type: str) -> 
     payload = await _xf_poll(
         settings,
         order_id=order_id,
+        signature_random=signature_random,
         initial_wait=estimate_seconds,
     )
     text = _parse_order_result(payload)
     return text or "（音频内未检测到可识别的语音内容）"
 
 
-async def _xf_upload(settings, *, filename: str, data: bytes) -> tuple[str, int]:
+async def _xf_upload(settings, *, filename: str, data: bytes) -> tuple[str, int, str]:
+    signature_random = _random_alphanum(16)
     params: dict[str, object] = {
         "appId": settings.xf_appid,
         "accessKeyId": settings.xf_api_key,
         "dateTime": _xf_datetime(),
-        "signatureRandom": _random_alphanum(16),
+        "signatureRandom": signature_random,
         "fileSize": str(len(data)),
         "fileName": filename,
         "language": settings.asr_language or "autodialect",
@@ -153,7 +155,8 @@ async def _xf_upload(settings, *, filename: str, data: bytes) -> tuple[str, int]
     except httpx.HTTPError as exc:
         raise LLMError(f"无法连接讯飞转写接口：{exc}", status_code=502) from exc
 
-    return _parse_upload_response(resp)
+    order_id, estimate_seconds = _parse_upload_response(resp)
+    return order_id, estimate_seconds, signature_random
 
 
 def _parse_upload_response(resp: httpx.Response) -> tuple[str, int]:
@@ -193,7 +196,7 @@ def _parse_upload_response(resp: httpx.Response) -> tuple[str, int]:
     return str(order_id), estimate_seconds
 
 
-async def _xf_poll(settings, *, order_id: str, initial_wait: int) -> dict:
+async def _xf_poll(settings, *, order_id: str, signature_random: str, initial_wait: int) -> dict:
     url = f"{XF_BASE_URL}{XF_GET_RESULT_PATH}"
     interval = max(settings.asr_poll_interval_seconds, 1)
     deadline = time.monotonic() + max(settings.asr_poll_max_seconds, 30)
@@ -206,16 +209,19 @@ async def _xf_poll(settings, *, order_id: str, initial_wait: int) -> dict:
             "appId": settings.xf_appid,
             "accessKeyId": settings.xf_api_key,
             "dateTime": _xf_datetime(),
-            "signatureRandom": _random_alphanum(16),
+            "signatureRandom": signature_random,
             "orderId": order_id,
             "resultType": "transfer",
         }
         signature = _sign(params, settings.xf_api_secret)
-        headers = {"signature": signature}
+        headers = {
+            "Content-Type": "application/json",
+            "signature": signature,
+        }
 
         try:
             async with httpx.AsyncClient(timeout=settings.asr_timeout_seconds) as client:
-                resp = await client.post(url, params=params, headers=headers)
+                resp = await client.post(url, params=params, headers=headers, json={})
         except httpx.TimeoutException:
             await asyncio.sleep(interval)
             continue
@@ -242,7 +248,11 @@ async def _xf_poll(settings, *, order_id: str, initial_wait: int) -> dict:
 
         content = payload.get("content") or {}
         order_info = content.get("orderInfo") or {}
-        status = order_info.get("status")
+        status_raw = order_info.get("status")
+        try:
+            status = int(status_raw)
+        except (TypeError, ValueError):
+            status = status_raw
 
         if status == _XF_STATUS_DONE:
             return content

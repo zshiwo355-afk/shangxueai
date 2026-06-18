@@ -87,9 +87,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class _SelectiveGZipMiddleware(GZipMiddleware):
+    """直播视频代理流（/api/public/live/*/stream）必须保留 Content-Length / Content-Range，
+    供微信 X5 等内核做 Range 播放；gzip 会删除 Content-Length 并把 206 改成 chunked，
+    导致微信/企微内打开无法播放（视频本身是二进制，压缩也无收益），故对该端点跳过压缩。"""
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path", "") or ""
+            if path.startswith("/api/public/live/") and path.endswith("/stream"):
+                await self.app(scope, receive, send)
+                return
+        await super().__call__(scope, receive, send)
+
+
 # 静态资源 + JSON 响应 gzip 压缩（>1KB 才压，省 CPU）。
 # vendor-antd 等大 chunk 体积可降到约 1/3，首屏传输量大幅下降。
-app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+app.add_middleware(_SelectiveGZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 @app.middleware("http")
@@ -380,7 +394,7 @@ def _render_live_share_html(meta: dict[str, str] | None) -> str:
   <meta name="twitter:title" content="{escaped_title}" />
   <meta name="twitter:description" content="{escaped_description}" />
   <link rel="canonical" href="{escaped_share_url}" />
-  <meta http-equiv="refresh" content="1;url={escaped_live_url}" />
+  <meta http-equiv="refresh" content="0;url={escaped_live_url}" />
   <script>window.location.replace({live_url_json});</script>
 </head>
 <body style="margin:0;background:#f5f7fa;color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">

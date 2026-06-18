@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     oss_endpoint: str = Field("", alias="OSS_ENDPOINT")
     oss_bucket: str = Field("", alias="OSS_BUCKET")
     oss_public_base_url: str = Field("", alias="OSS_PUBLIC_BASE_URL")
+    # 绑定到 OSS bucket 的自有已备案域名（如 video.shanyinzhijia.com）。填写后，
+    # 签名/直链都改用该域名访问，规避阿里云默认 *.aliyuncs.com 域名强制的
+    # Content-Disposition: attachment（导致视频在浏览器/微信被当下载而非播放）。
+    # 留空则维持原有默认域名行为，不影响任何现有功能。
+    oss_cname_domain: str = Field("", alias="OSS_CNAME_DOMAIN")
     oss_upload_prefix: str = Field("", alias="OSS_UPLOAD_PREFIX")
     oss_signed_url_expire_seconds: int = Field(21600, alias="OSS_SIGNED_URL_EXPIRE_SECONDS")
     magic_video_max_size_mb: int = Field(10240, alias="MAGIC_VIDEO_MAX_SIZE_MB")

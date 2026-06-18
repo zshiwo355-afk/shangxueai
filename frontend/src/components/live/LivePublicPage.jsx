@@ -302,8 +302,17 @@ export default function LivePublicPage() {
   const { slug } = useParams();
   const { message } = AntdApp.useApp();
   const videoRef = useRef(null);
+  const [videoEl, setVideoEl] = useState(null);
+  // callback ref：video 元素挂载/卸载时同步到 state，确保加载 effect 在元素真正
+  // 进入 DOM 后必然重跑一次——避免 canPlay/streamUrl 先就绪、video 后挂载时 effect
+  // 拿到 null 直接 return、之后再不重跑导致永远不加载（微信里表现为 0:00 卡死）。
+  const setVideoRef = useCallback((node) => {
+    videoRef.current = node;
+    setVideoEl(node);
+  }, []);
   const hlsRef = useRef(null);
   const lastCommentIdRef = useRef(0);
+  const proxyFallbackRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [room, setRoom] = useState(null);
   const [error, setError] = useState("");
@@ -316,6 +325,12 @@ export default function LivePublicPage() {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [playbackUrl, setPlaybackUrl] = useState("");
   const [playerError, setPlayerError] = useState("");
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerNotice, setPlayerNotice] = useState("");
+  const [playbackRetryToken, setPlaybackRetryToken] = useState(0);
+  // 录播默认走 OSS 直链（和素材库一致，跑满 OSS 带宽，最快）；只有直链在微信里
+  // 真的播不了时，才自动切到后端代理流兜底（兼容，但走服务器窄带宽较慢）。
+  const [useProxyPlayback, setUseProxyPlayback] = useState(false);
   const visitorId = useMemo(() => getVisitorId(), []);
   const previewMode = useMemo(() => {
     try {
@@ -357,6 +372,10 @@ export default function LivePublicPage() {
     setComments([]);
     setPlaybackUrl("");
     setPlayerError("");
+    setPlayerLoading(false);
+    setPlayerNotice("");
+    proxyFallbackRef.current = false;
+    setUseProxyPlayback(false);
     getPublicLiveRoom(slug, previewMode ? { preview: 1 } : {})
       .then(async (data) => {
         if (!alive) return;
@@ -436,6 +455,14 @@ export default function LivePublicPage() {
   }, [previewMode, room?.effective_status, room?.start_time, slug]);
 
   const canPlay = Boolean(room?.can_play) && room?.effective_status !== "scheduled";
+  // 录播视频默认走 OSS 直链：后端 307 跳转到 OSS 签名直链，<video> 标签忽略
+  // Content-Disposition（attachment 策略不影响内联播放），字节直接 OSS→用户，
+  // 跑满 OSS 大带宽——和素材库视频同一条路、同样快。
+  // 仅当直链在微信 X5 里确实播不了时（handleError/超时），才自动切到后端代理流
+  // /api/public/live/{slug}/stream?proxy=1 兜底：后端读 OSS 设 inline 头、nginx 透传
+  // Range 关缓存关缓冲保证 206 分段，能播但走服务器窄带宽，较慢，故只作兜底。
+  const isWechatLike = useMemo(() => isWechatLikeBrowser(), []);
+  const preferProxyPlayback = room?.content_type !== "live_stream" && useProxyPlayback;
   const streamUrl = playbackUrl;
   const shareUrl = room?.share?.url || window.location.href;
   const canAdjustSpeed = canPlay && room?.content_type !== "live_stream";
@@ -445,27 +472,45 @@ export default function LivePublicPage() {
     if (!canPlay || !room?.slug) {
       setPlaybackUrl("");
       setPlayerError("");
+      setPlayerLoading(false);
+      setPlayerNotice("");
       return undefined;
     }
     setPlaybackUrl("");
     setPlayerError("");
-    getPublicLivePlaybackUrl(room.slug, previewMode ? { preview: 1 } : {})
+    setPlayerLoading(true);
+    setPlayerNotice("正在获取视频地址...");
+    proxyFallbackRef.current = false;
+    const playbackParams = {
+      ...(previewMode ? { preview: 1 } : {}),
+      ...(preferProxyPlayback ? { proxy: 1 } : {}),
+    };
+    getPublicLivePlaybackUrl(room.slug, playbackParams)
       .then((data) => {
         if (!alive) return;
-        const url = (data?.url || "").trim();
+        const isProxyPlayback = data?.source === "oss_proxy";
+        const url = isProxyPlayback
+          ? buildPublicLiveStreamUrl(room.slug, {
+            ...(previewMode ? { preview: 1 } : {}),
+            proxy: 1,
+          })
+          : (data?.url || "").trim();
+        proxyFallbackRef.current = isProxyPlayback || preferProxyPlayback;
         setPlaybackUrl(url);
+        setPlayerNotice(url ? (proxyFallbackRef.current ? "正在使用兼容线路加载视频..." : "正在加载视频...") : "");
         if (!url) setPlayerError("视频地址为空，请检查后台视频配置。");
       })
       .catch((err) => {
         if (!alive) return;
-        const fallback = `${buildPublicLiveStreamUrl(room.slug)}${previewMode ? "?preview=1" : ""}`;
-        setPlaybackUrl(fallback);
-        setPlayerError(err?.message || "视频地址加载失败，已尝试使用兼容播放地址。");
+        setPlaybackUrl("");
+        setPlayerLoading(false);
+        setPlayerNotice("");
+        setPlayerError(err?.message || "视频地址加载失败，请点击重试。");
       });
     return () => {
       alive = false;
     };
-  }, [canPlay, previewMode, room?.slug]);
+  }, [canPlay, playbackRetryToken, preferProxyPlayback, previewMode, room?.slug]);
 
   const applyPlaybackRate = useCallback((rate) => {
     setPlaybackRate(rate);
@@ -474,17 +519,107 @@ export default function LivePublicPage() {
     }
   }, []);
 
+  const retryPlayback = useCallback(() => {
+    proxyFallbackRef.current = false;
+    setUseProxyPlayback(false);
+    setPlaybackUrl("");
+    setPlayerError("");
+    setPlayerLoading(true);
+    setPlayerNotice("正在重新加载视频...");
+    setPlaybackRetryToken((value) => value + 1);
+  }, []);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !canPlay || !streamUrl) return undefined;
     setPlayerError("");
+    setPlayerLoading(true);
+    setPlayerNotice(proxyFallbackRef.current ? "正在使用兼容线路加载视频..." : "正在加载视频...");
     const shouldUseHls = room?.content_type === "live_stream"
       || /\.m3u8($|\?)/i.test(streamUrl)
       || /mpegurl/i.test(room?.video_mime_type || "");
     let hls = null;
-    const handleCanPlay = () => setPlayerError("");
-    const handleError = () => setPlayerError(getMediaErrorMessage(video));
+    let mediaReady = false;
+    let slowTimer = 0;
+    let timeoutTimer = 0;
+    const clearTimers = () => {
+      if (slowTimer) window.clearTimeout(slowTimer);
+      if (timeoutTimer) window.clearTimeout(timeoutTimer);
+      slowTimer = 0;
+      timeoutTimer = 0;
+    };
+    const switchToProxy = () => {
+      // 直链兜底：OSS 直链最快，但极端情况下（个别微信内核 / 网络环境）可能播不了。
+      // 此时切到后端代理流兜底——nginx 已透传 Range、关 proxy_cache/buffering，保证 206
+      // 分段，能在微信里播放（虽走服务器带宽较慢）。仅切一次，避免来回抖动。
+      if (proxyFallbackRef.current) return false;
+      if (room?.content_type === "live_stream") return false;
+      proxyFallbackRef.current = true;
+      clearTimers();
+      setUseProxyPlayback(true);
+      setPlayerError("");
+      setPlayerLoading(true);
+      setPlayerNotice("正在使用兼容线路加载视频...");
+      return true;
+    };
+    const markReady = () => {
+      mediaReady = true;
+      clearTimers();
+      setPlayerLoading(false);
+      setPlayerNotice("");
+      setPlayerError("");
+    };
+    const handleLoadStart = () => {
+      if (!mediaReady) {
+        setPlayerLoading(true);
+        setPlayerNotice(proxyFallbackRef.current ? "正在使用兼容线路加载视频..." : "正在加载视频...");
+      }
+    };
+    const handleCanPlay = markReady;
+    const handleLoadedMetadata = markReady;
+    const handleLoadedData = markReady;
+    const handleDurationChange = () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        markReady();
+      }
+    };
+    const handlePlaying = markReady;
+    const handleWaiting = () => {
+      if (!mediaReady) return;
+      setPlayerNotice("网络缓冲中...");
+    };
+    const handleStalled = () => {
+      if (!mediaReady) setPlayerNotice("视频加载较慢，正在继续尝试...");
+    };
+    const handleError = () => {
+      clearTimers();
+      if (switchToProxy()) {
+        return;
+      }
+      setPlayerLoading(false);
+      setPlayerNotice("");
+      setPlayerError(getMediaErrorMessage(video));
+    };
+    slowTimer = window.setTimeout(() => {
+      if (mediaReady) return;
+      if (!switchToProxy()) {
+        setPlayerNotice("视频仍在加载，网络或视频文件可能较慢。");
+      }
+    }, 5000);
+    timeoutTimer = window.setTimeout(() => {
+      if (mediaReady) return;
+      setPlayerLoading(false);
+      setPlayerNotice("");
+      setPlayerError("视频加载超时。请点击重试，或检查后台视频文件是否为 MP4(H.264/AAC) 并开启 fast start。");
+    }, 20000);
+    video.addEventListener("loadstart", handleLoadStart);
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("durationchange", handleDurationChange);
     video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("playing", handlePlaying);
+    video.addEventListener("waiting", handleWaiting);
+    video.addEventListener("stalled", handleStalled);
     video.addEventListener("error", handleError);
     if (shouldUseHls && Hls.isSupported()) {
       hls = new Hls({
@@ -493,7 +628,12 @@ export default function LivePublicPage() {
       });
       hlsRef.current = hls;
       hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data?.fatal) setPlayerError("视频流加载失败，请检查直播流地址或网络。");
+        if (!data?.fatal) return;
+        clearTimers();
+        if (switchToProxy()) return;
+        setPlayerLoading(false);
+        setPlayerNotice("");
+        setPlayerError("视频流加载失败，请检查直播流地址或网络。");
       });
       hls.loadSource(streamUrl);
       hls.attachMedia(video);
@@ -503,7 +643,15 @@ export default function LivePublicPage() {
     }
     video.playbackRate = playbackRate;
     return () => {
+      clearTimers();
+      video.removeEventListener("loadstart", handleLoadStart);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("durationchange", handleDurationChange);
       video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("waiting", handleWaiting);
+      video.removeEventListener("stalled", handleStalled);
       video.removeEventListener("error", handleError);
       if (hls) {
         hls.destroy();
@@ -514,7 +662,7 @@ export default function LivePublicPage() {
     };
     // playbackRate is applied by applyPlaybackRate without reloading the media source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPlay, room?.content_type, room?.video_mime_type, streamUrl]);
+  }, [canPlay, previewMode, room?.content_type, room?.slug, room?.video_mime_type, streamUrl, videoEl]);
 
   const handleLike = async () => {
     if (!room || liked) return;
@@ -587,7 +735,10 @@ export default function LivePublicPage() {
   if (loading) {
     return (
       <div className="public-live-page public-live-page--center">
-        <Spin size="large" />
+        <Space direction="vertical" align="center" size={12}>
+          <Spin size="large" />
+          <Text type="secondary">正在进入直播间...</Text>
+        </Space>
       </div>
     );
   }
@@ -606,21 +757,32 @@ export default function LivePublicPage() {
         <section className="public-live-player">
           {canPlay ? (
             <>
-              <video
-                ref={videoRef}
-                controls
-                playsInline
-                preload="metadata"
-                poster={room.cover_url || ""}
-                className="public-live-video"
-                onLoadedMetadata={() => applyPlaybackRate(playbackRate)}
-              />
+              <div className="public-live-video-wrap">
+                <video
+                  ref={setVideoRef}
+                  controls
+                  playsInline
+                  webkit-playsinline="true"
+                  x5-playsinline="true"
+                  preload={isWechatLike ? "auto" : "metadata"}
+                  poster={room.cover_url || ""}
+                  className="public-live-video"
+                  onLoadedMetadata={() => applyPlaybackRate(playbackRate)}
+                />
+                {playerLoading ? (
+                  <div className="public-live-player-status">
+                    <Spin size="small" />
+                    <span>{playerNotice || "视频加载中..."}</span>
+                  </div>
+                ) : null}
+              </div>
               {playerError ? (
                 <Alert
                   className="public-live-player-alert"
                   type="warning"
                   showIcon
                   message={playerError}
+                  action={<Button size="small" onClick={retryPlayback}>重试</Button>}
                 />
               ) : null}
               {canAdjustSpeed ? (

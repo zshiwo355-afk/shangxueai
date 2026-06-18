@@ -163,8 +163,8 @@ export async function uploadLiveVideo(file, { onProgress, durationSeconds = 0 } 
   }
 }
 
-export function buildPublicLiveStreamUrl(slug) {
-  return buildApiUrl(`/api/public/live/${encodeURIComponent(slug)}/stream`);
+export function buildPublicLiveStreamUrl(slug, params = {}) {
+  return buildApiUrl(`/api/public/live/${encodeURIComponent(slug)}/stream${toQs(params)}`);
 }
 
 export async function getPublicLiveRoom(slug, params = {}) {

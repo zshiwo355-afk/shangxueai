@@ -7872,12 +7872,36 @@ body {
   border-right: 0;
 }
 
+.public-live-video-wrap {
+  position: relative;
+  background: #0f172a;
+}
+
 .public-live-video,
 .public-live-cover {
   width: 100%;
   aspect-ratio: 16 / 9;
   display: block;
   background: #0f172a;
+}
+
+.public-live-player-status {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.4;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .public-live-cover {

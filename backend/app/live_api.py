@@ -3,13 +3,15 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import mimetypes
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
+import oss2
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import and_, desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +23,7 @@ from .magic_academy_api._oss import (
     MULTIPART_URL_EXPIRE_SECONDS,
     _abort_multipart_upload,
     _build_object_key_and_name,
+    _build_oss_bucket,
     _build_oss_object_url,
     _build_public_base_url,
     _build_signed_stream_url,
@@ -30,6 +33,7 @@ from .magic_academy_api._oss import (
     _upload_binary_to_oss,
     _validate_reading_image_payload,
     _validate_video_payload,
+    ensure_mp4_faststart,
     logger,
     settings,
 )
@@ -52,6 +56,8 @@ COMMENT_STATUSES = {"visible", "hidden", "deleted"}
 COMMENT_RATE_LIMIT_SECONDS = 5
 SHARE_RATE_LIMIT_SECONDS = 3
 COMMENT_SETTINGS_ID = 1
+RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$", re.IGNORECASE)
+STREAM_CHUNK_SIZE = 256 * 1024
 
 
 class LiveUploadPart(BaseModel):
@@ -202,6 +208,145 @@ def _build_public_live_share_url(request: Request, slug: str) -> str:
     configured_base = settings.resolved_wecom_frontend_base_url
     base = (configured_base or str(request.base_url)).rstrip("/")
     return f"{base}/share/live/{quote(slug, safe='')}"
+
+
+def _build_public_live_stream_url(
+    request: Request,
+    slug: str,
+    *,
+    preview: bool = False,
+    proxy: bool = False,
+) -> str:
+    del request
+    params: dict[str, str] = {}
+    if preview:
+        params["preview"] = "1"
+    if proxy:
+        params["proxy"] = "1"
+    query = f"?{urlencode(params)}" if params else ""
+    return f"/api/public/live/{quote(slug, safe='')}/stream{query}"
+
+
+def _parse_single_range(range_header: str, total_size: int) -> tuple[int, int] | None:
+    if total_size <= 0:
+        return None
+    match = RANGE_RE.match((range_header or "").strip())
+    if not match:
+        return None
+    start_text, end_text = match.groups()
+    if not start_text and not end_text:
+        return None
+    if start_text:
+        start = int(start_text)
+        end = int(end_text) if end_text else total_size - 1
+    else:
+        suffix_length = int(end_text)
+        if suffix_length <= 0:
+            return None
+        start = max(total_size - suffix_length, 0)
+        end = total_size - 1
+    if start >= total_size or start > end:
+        return None
+    return start, min(end, total_size - 1)
+
+
+def _stream_chunks(stream, chunk_size: int = STREAM_CHUNK_SIZE):
+    try:
+        while True:
+            chunk = stream.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        close = getattr(stream, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _content_disposition_inline(file_name: str | None) -> str:
+    name = (file_name or "").strip()
+    if not name:
+        return "inline"
+    try:
+        ascii_name = name.encode("ascii").decode("ascii")
+        return f'inline; filename="{ascii_name}"'
+    except UnicodeEncodeError:
+        return f"inline; filename*=UTF-8''{quote(name)}"
+
+
+async def _proxy_oss_video_response(
+    request: Request,
+    *,
+    object_key: str,
+    mime_type: str,
+    file_name: str,
+    head_only: bool = False,
+) -> Response | StreamingResponse:
+    bucket = await asyncio.to_thread(_build_oss_bucket)
+    try:
+        head = await asyncio.to_thread(bucket.head_object, object_key)
+    except oss2.exceptions.NoSuchKey as exc:
+        raise HTTPException(status_code=404, detail="Video file is not available.") from exc
+    except oss2.exceptions.OssError as exc:
+        raise HTTPException(status_code=502, detail=f"Video file read failed: {exc}") from exc
+
+    total_size = int(getattr(head, "content_length", None) or 0)
+    guessed_mime = mimetypes.guess_type(file_name or object_key)[0] or ""
+    stored_mime = (mime_type or "").strip().lower()
+    head_mime = (getattr(head, "content_type", None) or "").strip().lower()
+    resolved_mime = (
+        guessed_mime
+        or (stored_mime if stored_mime and stored_mime != "application/octet-stream" else "")
+        or (head_mime if head_mime and head_mime != "application/octet-stream" else "")
+        or "video/mp4"
+    )
+    range_header = (request.headers.get("range") or "").strip()
+    byte_range: tuple[int, int] | None = None
+    status_code = 200
+    content_length = total_size
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=300",
+        "Content-Disposition": _content_disposition_inline(file_name),
+    }
+
+    if range_header:
+        parsed = _parse_single_range(range_header, total_size)
+        if parsed is None:
+            return Response(
+                status_code=416,
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Content-Range": f"bytes */{total_size}",
+                },
+            )
+        start, end = parsed
+        byte_range = (start, end)
+        status_code = 206
+        content_length = end - start + 1
+        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+    if content_length:
+        headers["Content-Length"] = str(content_length)
+
+    if head_only:
+        return Response(status_code=status_code, media_type=resolved_mime, headers=headers)
+
+    try:
+        oss_object = await asyncio.to_thread(bucket.get_object, object_key, byte_range=byte_range)
+    except oss2.exceptions.NoSuchKey as exc:
+        raise HTTPException(status_code=404, detail="Video file is not available.") from exc
+    except oss2.exceptions.OssError as exc:
+        raise HTTPException(status_code=502, detail=f"Video file read failed: {exc}") from exc
+
+    return StreamingResponse(
+        _stream_chunks(oss_object),
+        status_code=status_code,
+        media_type=resolved_mime,
+        headers=headers,
+    )
 
 
 def _make_slug() -> str:
@@ -508,6 +653,29 @@ async def _apply_room_payload(
     )
 
 
+_faststart_tasks: set[asyncio.Task] = set()
+
+
+def _schedule_faststart(object_key: str, mime_type: str) -> None:
+    """在后台异步执行 faststart，不阻塞上传完成请求。持有任务引用防止被 GC。"""
+    async def _runner() -> None:
+        try:
+            changed = await asyncio.to_thread(ensure_mp4_faststart, object_key, mime_type)
+            if changed:
+                logger.info("faststart 后台完成 object_key=%s", object_key)
+        except Exception:  # noqa: BLE001
+            logger.exception("faststart 后台处理失败 object_key=%s", object_key)
+
+    try:
+        task = asyncio.create_task(_runner())
+    except RuntimeError:
+        # 无事件循环（极少见），退化为同步线程执行。
+        ensure_mp4_faststart(object_key, mime_type)
+        return
+    _faststart_tasks.add(task)
+    task.add_done_callback(_faststart_tasks.discard)
+
+
 @admin_router.post("/rooms/upload/init")
 async def init_live_video_upload(
     payload: LiveVideoUploadInitPayload,
@@ -541,12 +709,16 @@ async def complete_live_video_upload(
     object_size = await asyncio.to_thread(_complete_multipart_upload, payload.object_key.strip(), payload.upload_id.strip(), parts)
     if int(payload.file_size or 0) > 0 and object_size != int(payload.file_size):
         raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
+    resolved_mime = payload.mime_type.strip() or mimetypes.guess_type(payload.file_name)[0] or "video/mp4"
+    # faststart（moov 前移）在后台异步执行：大视频（GB 级）处理需数分钟，
+    # 同步等待会让上传完成请求超时。后台跑不阻塞前端，处理期间播放退而求其次仍可用。
+    _schedule_faststart(payload.object_key.strip(), resolved_mime)
     return {
         "object_key": payload.object_key.strip(),
         "url": _object_public_url(payload.object_key.strip()),
         "file_name": _safe_filename(payload.file_name),
         "file_size": object_size,
-        "mime_type": payload.mime_type.strip() or mimetypes.guess_type(payload.file_name)[0] or "video/mp4",
+        "mime_type": resolved_mime,
         "duration_seconds": int(payload.duration_seconds or 0),
     }
 
@@ -1148,7 +1320,13 @@ async def get_public_live_share_config(
     return {"share": share, "sdk": sdk, "agent_sdk": agent_sdk, "wechat_sdk": wechat_sdk, "diagnostics": diagnostics}
 
 
-async def _public_playback_payload(room: LiveRoom, *, preview: bool = False) -> dict[str, Any]:
+async def _public_playback_payload(
+    room: LiveRoom,
+    request: Request,
+    *,
+    preview: bool = False,
+    proxy: bool = False,
+) -> dict[str, Any]:
     status = _effective_status(room)
     if status == "scheduled":
         raise HTTPException(status_code=409, detail="Live has not started.")
@@ -1165,6 +1343,13 @@ async def _public_playback_payload(room: LiveRoom, *, preview: bool = False) -> 
 
     object_key = (room.video_object_key or "").strip()
     if object_key:
+        if proxy:
+            return {
+                "url": _build_public_live_stream_url(request, room.slug, preview=preview, proxy=True),
+                "mime_type": room.video_mime_type or "video/mp4",
+                "source": "oss_proxy",
+                "expires_in": 0,
+            }
         signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
         return {
             "url": signed_url,
@@ -1186,17 +1371,21 @@ async def _public_playback_payload(room: LiveRoom, *, preview: bool = False) -> 
 @public_router.get("/{slug}/playback-url")
 async def get_public_live_playback_url(
     slug: str,
+    request: Request,
     preview: bool = Query(False),
+    proxy: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     room = await _get_public_room_or_404(db, slug, preview=preview)
-    return await _public_playback_payload(room, preview=preview)
+    return await _public_playback_payload(room, request, preview=preview, proxy=proxy)
 
 
 @public_router.get("/{slug}/stream")
 async def stream_public_live_room(
     slug: str,
+    request: Request,
     preview: bool = Query(False),
+    proxy: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     room = await _get_public_room_or_404(db, slug, preview=preview)
@@ -1209,6 +1398,46 @@ async def stream_public_live_room(
         return RedirectResponse(room.stream_url, status_code=307)
     object_key = (room.video_object_key or "").strip()
     if object_key:
+        if proxy:
+            return await _proxy_oss_video_response(
+                request,
+                object_key=object_key,
+                mime_type=room.video_mime_type or "video/mp4",
+                file_name=room.video_file_name or f"{room.slug}.mp4",
+            )
+        signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+        return RedirectResponse(signed_url, status_code=307)
+    if (room.video_url or "").strip():
+        return RedirectResponse(room.video_url, status_code=307)
+    raise HTTPException(status_code=404, detail="视频暂不可用。")
+
+
+@public_router.head("/{slug}/stream")
+async def head_public_live_room_stream(
+    slug: str,
+    request: Request,
+    preview: bool = Query(False),
+    proxy: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    room = await _get_public_room_or_404(db, slug, preview=preview)
+    status = _effective_status(room)
+    if status == "scheduled":
+        raise HTTPException(status_code=409, detail="直播尚未开始。")
+    if (room.content_type or "") == "live_stream":
+        if not (room.stream_url or "").strip():
+            raise HTTPException(status_code=404, detail="直播流暂不可用。")
+        return RedirectResponse(room.stream_url, status_code=307)
+    object_key = (room.video_object_key or "").strip()
+    if object_key:
+        if proxy:
+            return await _proxy_oss_video_response(
+                request,
+                object_key=object_key,
+                mime_type=room.video_mime_type or "video/mp4",
+                file_name=room.video_file_name or f"{room.slug}.mp4",
+                head_only=True,
+            )
         signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
         return RedirectResponse(signed_url, status_code=307)
     if (room.video_url or "").strip():

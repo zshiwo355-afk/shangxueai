@@ -619,6 +619,7 @@ def _serialize_audio_record(
         "has_audio": bool((item.audio_object_key or "").strip()),
         "transcript_status": item.transcript_status or "",
         "transcript_text": item.transcript_text or "",
+        "transcript_error": item.transcript_error or "",
         "has_image": bool((item.image_object_key or "").strip()),
         "remark": remark,
         "uploaded_date": _iso(item.uploaded_date),
@@ -1627,6 +1628,7 @@ async def list_admin_audios_by_date(
             "audio_play_url": play_url,
             "transcript_status": item.transcript_status or "",
             "transcript_text": item.transcript_text or "",
+            "transcript_error": item.transcript_error or "",
             "transcribed_at": _iso(item.transcribed_at),
             "uploaded_time": _iso(item.uploaded_on),
         })
@@ -1660,12 +1662,12 @@ async def transcribe_admin_audio(
     except LLMError as exc:
         row.transcript_status = "failed"
         row.transcript_error = exc.message[:512]
-        await db.flush()
+        await db.commit()
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except Exception as exc:  # noqa: BLE001
         row.transcript_status = "failed"
         row.transcript_error = str(exc)[:512]
-        await db.flush()
+        await db.commit()
         raise HTTPException(status_code=502, detail=f"转写失败：{exc}") from exc
 
     row.transcript_text = text
@@ -1677,6 +1679,7 @@ async def transcribe_admin_audio(
         "id": int(row.id),
         "transcript_status": row.transcript_status,
         "transcript_text": row.transcript_text or "",
+        "transcript_error": row.transcript_error or "",
         "transcribed_at": _iso(row.transcribed_at),
     }
 

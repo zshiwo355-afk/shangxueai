@@ -206,7 +206,7 @@ function sdkStatusTag(item) {
 
 function LiveShareModal({ room, open, onCancel, onCopy }) {
   const share = getShareInfo(room);
-  const qrValue = share.shareUrl || share.liveUrl || " ";
+  const qrValue = share.liveUrl || share.shareUrl || " ";
   const previewEnabled = canOpenPreview(room);
   const [loading, setLoading] = useState(false);
   const [diagnostics, setDiagnostics] = useState(null);
@@ -245,6 +245,7 @@ function LiveShareModal({ room, open, onCancel, onCopy }) {
       <div className="live-share-modal">
         <div className="live-share-modal__qr">
           <QRCode value={qrValue} size={184} bordered={false} />
+          <Text type="secondary">扫码直达观看页</Text>
           <Button type="primary" onClick={() => onCopy(share.shareUrl)}>复制卡片入口</Button>
           <Button type="link" onClick={() => onCopy(share.liveUrl)}>复制观看链接</Button>
         </div>
