@@ -691,7 +691,7 @@ def build_reading_notification_message(content: MagicReadingContent) -> tuple[st
     return (
         "读书打卡提醒",
         description,
-        _frontend_url("/magic-academy?tab=audio"),
+        _frontend_url(f"/magic-academy?tab=audio&date={content.reading_date.isoformat()}"),
     )
 
 

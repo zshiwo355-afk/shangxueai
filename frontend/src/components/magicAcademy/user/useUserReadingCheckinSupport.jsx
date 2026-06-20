@@ -1,5 +1,5 @@
 import { List, Space, Tag, Typography } from "antd";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   deleteMyAudio,
@@ -20,20 +20,39 @@ import {
 
 const { Text } = Typography;
 
+function normalizeDateText(value, dayjs) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const parsed = dayjs(text);
+  return parsed.isValid() && parsed.format("YYYY-MM-DD") === text ? text : "";
+}
+
 export default function useUserReadingCheckinSupport({
   audioStatsSupport,
   dayjs,
+  initialSelectedDate = "",
   message,
   reloadMyData,
   superAdminMode,
 }) {
+  const normalizedInitialSelectedDate = normalizeDateText(initialSelectedDate, dayjs);
+  const initialDate = normalizedInitialSelectedDate || getTodayText();
+  const lastAppliedInitialDateRef = useRef(normalizedInitialSelectedDate);
   const [audioRemark, setAudioRemark] = useState("");
   const [myReadingContents, setMyReadingContents] = useState([]);
   const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
-  const [myAudioMonth, setMyAudioMonth] = useState(getCurrentMonthText());
+  const [myAudioMonth, setMyAudioMonth] = useState(initialDate.slice(0, 7) || getCurrentMonthText());
   const [myAudioCalendarDays, setMyAudioCalendarDays] = useState([]);
-  const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(getTodayText());
+  const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(initialDate);
   const [myAudios, setMyAudios] = useState([]);
+
+  useEffect(() => {
+    const normalized = normalizeDateText(initialSelectedDate, dayjs);
+    if (!normalized || normalized === lastAppliedInitialDateRef.current) return;
+    lastAppliedInitialDateRef.current = normalized;
+    setMyAudioSelectedDate(normalized);
+    setMyAudioMonth(normalized.slice(0, 7));
+  }, [dayjs, initialSelectedDate]);
 
   const myAudioCalendarMap = useMemo(() => buildAudioCalendarMap(myAudioCalendarDays), [myAudioCalendarDays]);
   const myAudioMakeupMap = useMemo(

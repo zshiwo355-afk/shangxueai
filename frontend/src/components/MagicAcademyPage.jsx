@@ -448,9 +448,11 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
     setQuizPoints,
     message,
   });
+  const readingDeepLinkDate = searchParams.get("date") || "";
   const userReadingCheckinSupport = useUserReadingCheckinSupport({
     audioStatsSupport,
     dayjs,
+    initialSelectedDate: readingDeepLinkDate,
     message,
     reloadMyData: async () => reloadMyData(),
     superAdminMode,
