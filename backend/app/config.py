@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 BACKEND_ENV_FILE = BACKEND_DIR / ".env"
-DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB = 50 * 1024
+DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB = 80 * 1024
 
 
 class Settings(BaseSettings):
