@@ -55,6 +55,7 @@ export default function useAudioStatsExportAdmin({
     lines.push(`完成状态：${({
       all: "全部",
       completed: "已完成",
+      deleted: "已删除记录",
       pending: "未完成",
       expired: "已过补卡截止时间",
       future: "未到推送时间",

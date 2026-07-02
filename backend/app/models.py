@@ -988,6 +988,42 @@ class MagicAudioUpload(Base):
     )
 
 
+class MagicAudioUploadLog(Base):
+    __tablename__ = "magic_audio_upload_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    audio_upload_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    reading_content_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="")
+    operator_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    operator_role: Mapped[str] = mapped_column(String(32), default="")
+    reason: Mapped[str] = mapped_column(String(255), default="")
+    has_audio: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_image: Mapped[bool] = mapped_column(Boolean, default=False)
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    file_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    mime_type: Mapped[str] = mapped_column(String(128), default="")
+    audio_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    image_file_name: Mapped[str] = mapped_column(String(255), default="")
+    image_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    uploaded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    uploaded_on: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    snapshot_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    __table_args__ = (
+        Index("idx_magic_audio_upload_logs_upload", "audio_upload_id", "created_at"),
+        Index("idx_magic_audio_upload_logs_user_content", "user_id", "reading_content_id", "created_at"),
+        Index("idx_magic_audio_upload_logs_action", "action", "created_at"),
+        Index("idx_magic_audio_upload_logs_operator", "operator_user_id", "created_at"),
+        Index("idx_magic_audio_upload_logs_content", "reading_content_id", "created_at"),
+    )
+
+
 class MagicAutoAction(Base):
     __tablename__ = "magic_auto_actions"
 

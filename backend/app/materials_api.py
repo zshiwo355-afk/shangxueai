@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .access import is_super_admin
 from .auth import get_current_user, require_admin
-from .config import get_settings
+from .config import DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, get_settings
 from .db import get_db
 from .magic_academy_api._oss import (
     MULTIPART_URL_EXPIRE_SECONDS,
@@ -42,7 +42,7 @@ logger = logging.getLogger("app.materials_api")
 ASSET_TYPE_VALUES = {"video", "image", "document", "other"}
 PROJECT_VISIBILITY_VALUES = {"private", "admin", "shared"}
 MAX_MATERIAL_FILE_SIZE = 1024 * 1024 * 1024
-MAX_MATERIAL_VIDEO_FILE_SIZE = int(settings.magic_video_max_size_mb or 10240) * 1024 * 1024
+MAX_MATERIAL_VIDEO_FILE_SIZE = int(settings.magic_video_max_size_mb or DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB) * 1024 * 1024
 MAX_MATERIAL_UPLOAD_FILE_SIZE = max(MAX_MATERIAL_FILE_SIZE, MAX_MATERIAL_VIDEO_FILE_SIZE)
 OSS_PREFIX_RE = re.compile(r"^[A-Za-z0-9/_-]+$")
 

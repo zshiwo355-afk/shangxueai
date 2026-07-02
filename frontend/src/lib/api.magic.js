@@ -608,6 +608,16 @@ export async function fetchAdminReadingAudioStatisticUsers(readingContentId, par
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return getJson(`/api/magic-academy/admin/audio-statistics/reading-contents/${readingContentId}/users${suffix}`, "读书内容完成明细加载失败。");
 }
+export async function fetchAdminAudioUploadLogs(params = {}) {
+  const search = new URLSearchParams();
+  if (params.reading_content_id) search.set("reading_content_id", String(params.reading_content_id));
+  if (params.user_id) search.set("user_id", String(params.user_id));
+  if (params.audio_upload_id) search.set("audio_upload_id", String(params.audio_upload_id));
+  if (params.action) search.set("action", params.action);
+  if (params.limit) search.set("limit", String(params.limit));
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return getJson(`/api/magic-academy/admin/audio-upload-logs${suffix}`, "打卡上传日志加载失败。");
+}
 export async function fetchAdminAudioCalendar(params = {}) {
   const search = new URLSearchParams();
   if (params.month) search.set("month", params.month);

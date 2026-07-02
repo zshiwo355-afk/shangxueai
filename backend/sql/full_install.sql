@@ -143,6 +143,17 @@ CREATE TABLE `magic_audio_uploads` (
   `file_path` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size` bigint NOT NULL DEFAULT '0',
   `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_object_key` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_url` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_size` bigint NOT NULL DEFAULT '0',
+  `audio_object_key` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `audio_url` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `transcript_text` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `transcript_status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `transcript_error` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `transcribed_at` datetime DEFAULT NULL,
   `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
   `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `auto_checkin_by_whitelist` tinyint(1) NOT NULL DEFAULT '0',
@@ -155,8 +166,49 @@ CREATE TABLE `magic_audio_uploads` (
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_magic_audio_uploads_user_month` (`user_id`,`uploaded_date`,`is_deleted`) USING BTREE,
   KEY `idx_magic_audio_uploads_reading_content_id` (`reading_content_id`),
-  KEY `idx_magic_audio_uploads_user_content` (`user_id`,`reading_content_id`,`is_deleted`)
+  KEY `idx_magic_audio_uploads_user_content` (`user_id`,`reading_content_id`,`is_deleted`),
+  KEY `idx_magic_audio_uploads_uploaded_on` (`uploaded_on`,`is_deleted`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院读书录音上传';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `magic_audio_upload_logs`
+--
+
+DROP TABLE IF EXISTS `magic_audio_upload_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `magic_audio_upload_logs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `audio_upload_id` bigint DEFAULT NULL,
+  `user_id` bigint DEFAULT NULL,
+  `reading_content_id` bigint DEFAULT NULL,
+  `action` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `operator_user_id` bigint DEFAULT NULL,
+  `operator_role` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `reason` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `has_audio` tinyint(1) NOT NULL DEFAULT '0',
+  `has_image` tinyint(1) NOT NULL DEFAULT '0',
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `file_size` bigint NOT NULL DEFAULT '0',
+  `mime_type` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `audio_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_object_key` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `image_size` bigint NOT NULL DEFAULT '0',
+  `uploaded_date` date DEFAULT NULL,
+  `uploaded_on` datetime DEFAULT NULL,
+  `deleted_at` datetime DEFAULT NULL,
+  `snapshot_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_magic_audio_upload_logs_upload` (`audio_upload_id`,`created_at`) USING BTREE,
+  KEY `idx_magic_audio_upload_logs_user_content` (`user_id`,`reading_content_id`,`created_at`) USING BTREE,
+  KEY `idx_magic_audio_upload_logs_action` (`action`,`created_at`) USING BTREE,
+  KEY `idx_magic_audio_upload_logs_operator` (`operator_user_id`,`created_at`) USING BTREE,
+  KEY `idx_magic_audio_upload_logs_content` (`reading_content_id`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='Reading check-in upload audit logs';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --

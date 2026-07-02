@@ -167,6 +167,7 @@ export default function MagicAcademyPageModals({
             { title: "推送对象", render: (_, row) => getReadingTargetSummary(row), width: 180 },
             { title: "推送人数", dataIndex: "push_count", width: 90 },
             { title: "已完成", dataIndex: "completed_count", width: 90 },
+            { title: "已删除记录", dataIndex: "deleted_count", width: 110 },
             { title: "未完成", dataIndex: "pending_count", width: 90 },
             { title: "完成率", dataIndex: "completion_rate", width: 90, render: (value) => `${value || 0}%` },
             { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
@@ -255,6 +256,8 @@ export default function MagicAcademyPageModals({
               { title: "应完成", dataIndex: "should_complete", render: (value) => value ? "是" : "否" },
               { title: "已完成", dataIndex: "completed", render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
               { title: "上传时间", dataIndex: "uploaded_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "删除时间", dataIndex: "deleted_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "删除原因", dataIndex: "delete_reason", render: (value) => value || "—" },
               {
                 title: "打卡图片",
                 dataIndex: "has_image",

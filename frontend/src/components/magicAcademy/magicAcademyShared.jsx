@@ -1,7 +1,14 @@
 import { Tag, Checkbox, Input, Radio } from "antd";
-import dayjs from "dayjs";
 
 export { multipartUploadToOss, logOssUploadError } from "../../lib/ossMultipart";
+export {
+  buildAudioCalendarMap,
+  buildAudioMakeupDateMap,
+  getAudioCalendarCellState,
+  getAudioDayStatus,
+  getCurrentMonthText,
+  getTodayText,
+} from "./audioCalendarUtils";
 
 export function formatTime(totalSeconds) {
   const seconds = Math.max(0, Math.floor(totalSeconds || 0));
@@ -26,27 +33,6 @@ export function formatFileSize(bytes) {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(2)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-export function getCurrentMonthText() {
-  return dayjs().format("YYYY-MM");
-}
-
-export function getTodayText() {
-  return dayjs().format("YYYY-MM-DD");
-}
-
-export function buildAudioCalendarMap(days) {
-  return Object.fromEntries((Array.isArray(days) ? days : []).map((item) => [item.date, item]));
-}
-
-export function getAudioDayStatus(dateText, dayData) {
-  const todayText = getTodayText();
-  if (dateText > todayText) return "future";
-  if (dayData?.uploaded) {
-    return dateText === todayText ? "today_uploaded" : "uploaded";
-  }
-  return dateText === todayText ? "today_missing" : "missing";
 }
 
 export function renderAudioStatusTag(status, count = 0, uploadedUsers = 0) {

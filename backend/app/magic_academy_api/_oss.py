@@ -14,7 +14,7 @@ import oss2
 from oss2.models import PartInfo
 from fastapi import HTTPException
 
-from ..config import get_settings
+from ..config import DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, get_settings
 from ._utils import _strip_slashes
 
 logger = logging.getLogger("app.magic_academy_api.oss")
@@ -23,7 +23,7 @@ settings = get_settings()
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_READING_IMAGE_SIZE = 10 * 1024 * 1024
-MULTIPART_URL_EXPIRE_SECONDS = 3600
+MULTIPART_URL_EXPIRE_SECONDS = max(int(settings.oss_signed_url_expire_seconds or 21600), 21600)
 STREAM_URL_EXPIRE_SECONDS = 600
 MIN_MULTIPART_PART_SIZE = 8 * 1024 * 1024
 MAX_MULTIPART_PARTS = 1000
@@ -129,11 +129,12 @@ def _validate_reading_image_payload(original_filename: str, file_size: int, mime
 def _validate_video_payload(original_filename: str, file_size: int, mime_type: str | None = None) -> str:
     if int(file_size or 0) <= 0:
         raise HTTPException(status_code=400, detail="文件大小必须大于 0。")
-    max_bytes = int(settings.magic_video_max_size_mb or 10240) * 1024 * 1024
+    max_size_mb = int(settings.magic_video_max_size_mb or DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB)
+    max_bytes = max_size_mb * 1024 * 1024
     if int(file_size or 0) > max_bytes:
         raise HTTPException(
             status_code=400,
-            detail=f"视频大小不能超过 {int(settings.magic_video_max_size_mb or 10240)}MB。",
+            detail=f"视频大小不能超过 {max_size_mb}MB。",
         )
     return _guess_video_extension(original_filename, mime_type)
 

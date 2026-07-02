@@ -184,7 +184,10 @@ export default function UserReadingCheckinPanel({ support, makeupSetting }) {
                 className="reading-checkin-calendar"
                 fullscreen={false}
                 value={dayjs(support.myAudioSelectedDate)}
-                onSelect={(value) => support.setMyAudioSelectedDate(value.format("YYYY-MM-DD"))}
+                onSelect={(value) => {
+                  support.setMyAudioMonth(value.format("YYYY-MM"));
+                  support.setMyAudioSelectedDate(value.format("YYYY-MM-DD"));
+                }}
                 onPanelChange={(value) => {
                   support.setMyAudioMonth(value.format("YYYY-MM"));
                   support.setMyAudioSelectedDate(value.startOf("month").format("YYYY-MM-DD"));

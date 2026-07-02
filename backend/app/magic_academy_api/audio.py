@@ -25,7 +25,22 @@ from ..magic_academy_schemas import (
     MagicAudioUploadFailPayload,
     MagicAudioUploadInitPayload,
 )
-from ..models import MagicAudioMakeupSetting, MagicAudioUpload, MagicReadingContent, MagicReadingContentTarget, MagicReadingSeries, User
+from ..magic_audio_audit import (
+    AUDIO_LOG_MANUAL_DELETE,
+    AUDIO_LOG_SYSTEM_DELETE,
+    AUDIO_LOG_UPLOAD_COMPLETED,
+    log_audio_upload_event,
+    log_audio_upload_failure,
+)
+from ..models import (
+    MagicAudioMakeupSetting,
+    MagicAudioUpload,
+    MagicAudioUploadLog,
+    MagicReadingContent,
+    MagicReadingContentTarget,
+    MagicReadingSeries,
+    User,
+)
 from ..points_service import grant_points, record_reading_streak
 from . import router
 from ._oss import (
@@ -52,6 +67,7 @@ from ._utils import (
     SOURCE_AUDIO_USER_UPLOAD,
     SOURCE_WHITELIST_AUTO,
     _iso,
+    _json_loads,
     _month_last_day,
     _now,
     _parse_month,
@@ -82,6 +98,8 @@ DEFAULT_READING_AUDIO_EXPORT_COLUMNS = [
     "should_complete",
     "is_completed",
     "uploaded_at",
+    "deleted_at",
+    "delete_reason",
     "is_makeup",
     "makeup_deadline",
     "current_status",
@@ -90,6 +108,23 @@ READING_CONTENT_STATUS_LABELS = {
     "active": "启用",
     "disabled": "已停用",
 }
+
+
+INTERNAL_AUDIO_LOG_REASONS = {"whitelist_auto_checkin", "auto_action_duplicate_cleanup"}
+
+
+def _is_internal_audio_log(log: MagicAudioUploadLog | None) -> bool:
+    if log is None:
+        return False
+    return (
+        (log.action or "") == AUDIO_LOG_SYSTEM_DELETE
+        or (log.source or "") == SOURCE_WHITELIST_AUTO
+        or (log.reason or "") in INTERNAL_AUDIO_LOG_REASONS
+    )
+
+
+def _should_reveal_internal_audio(admin: User) -> bool:
+    return is_super_admin(admin)
 
 
 async def _resolve_checkin_image_payload(image: UploadFile | None) -> dict[str, Any]:
@@ -296,12 +331,15 @@ def _status_code_for_user_content(
     content: MagicReadingContent,
     upload: MagicAudioUpload | None,
     *,
+    deleted_upload: MagicAudioUpload | None = None,
     now: datetime,
 ) -> tuple[str, str]:
     if now < _effective_push_at(content):
         return "future", "未到推送时间"
     if upload is not None:
         return "completed", "已完成"
+    if deleted_upload is not None:
+        return "deleted", "已上传后删除"
     if content.makeup_deadline_at and now > content.makeup_deadline_at:
         return "expired", "已过补卡截止时间"
     return "pending", "待完成"
@@ -524,6 +562,51 @@ async def _build_uploads_map_for_contents(
     return uploads_map
 
 
+async def _build_deleted_uploads_map_for_contents(
+    db: AsyncSession,
+    *,
+    content_ids: list[int],
+    user_ids: list[int],
+) -> dict[tuple[int, int], MagicAudioUpload]:
+    if not content_ids or not user_ids:
+        return {}
+    result = await db.execute(
+        select(MagicAudioUpload)
+        .where(
+            MagicAudioUpload.reading_content_id.in_(content_ids),
+            MagicAudioUpload.user_id.in_(user_ids),
+            MagicAudioUpload.is_deleted.is_(True),
+        )
+        .order_by(desc(MagicAudioUpload.deleted_at), desc(MagicAudioUpload.uploaded_on), desc(MagicAudioUpload.id))
+    )
+    uploads_map: dict[tuple[int, int], MagicAudioUpload] = {}
+    for item in result.scalars().all():
+        key = (int(item.reading_content_id), int(item.user_id))
+        uploads_map.setdefault(key, item)
+    return uploads_map
+
+
+async def _build_latest_audio_logs_map(
+    db: AsyncSession,
+    upload_ids: list[int],
+) -> dict[int, MagicAudioUploadLog]:
+    if not upload_ids:
+        return {}
+    result = await db.execute(
+        select(MagicAudioUploadLog)
+        .where(
+            MagicAudioUploadLog.audio_upload_id.in_(sorted(set(upload_ids))),
+            MagicAudioUploadLog.action.in_([AUDIO_LOG_MANUAL_DELETE, AUDIO_LOG_SYSTEM_DELETE]),
+        )
+        .order_by(desc(MagicAudioUploadLog.created_at), desc(MagicAudioUploadLog.id))
+    )
+    logs_map: dict[int, MagicAudioUploadLog] = {}
+    for item in result.scalars().all():
+        if item.audio_upload_id:
+            logs_map.setdefault(int(item.audio_upload_id), item)
+    return logs_map
+
+
 async def _build_reading_content_user_rows(
     db: AsyncSession,
     *,
@@ -546,11 +629,37 @@ async def _build_reading_content_user_rows(
         content_ids=[int(content.id)],
         user_ids=[int(item.id) for item in expected_users],
     )
+    deleted_uploads_map = await _build_deleted_uploads_map_for_contents(
+        db,
+        content_ids=[int(content.id)],
+        user_ids=[int(item.id) for item in expected_users],
+    )
+    delete_logs_map = await _build_latest_audio_logs_map(
+        db,
+        [int(item.id) for item in deleted_uploads_map.values()],
+    )
+    reveal_internal = _should_reveal_internal_audio(admin)
     now = _now()
     rows: list[dict[str, Any]] = []
     for target in expected_users:
         upload = uploads_map.get((int(content.id), int(target.id)))
-        status_code, status_text = _status_code_for_user_content(content, upload, now=now)
+        deleted_upload = deleted_uploads_map.get((int(content.id), int(target.id)))
+        delete_log = delete_logs_map.get(int(deleted_upload.id)) if deleted_upload else None
+        status_code, status_text = _status_code_for_user_content(
+            content,
+            upload,
+            deleted_upload=deleted_upload,
+            now=now,
+        )
+        trace_upload = upload or deleted_upload
+        remark = (trace_upload.remark or "") if trace_upload else ""
+        if trace_upload and (trace_upload.source or "") == SOURCE_WHITELIST_AUTO and not reveal_internal:
+            remark = ""
+        delete_reason = (delete_log.reason or "") if delete_log else ""
+        delete_action = (delete_log.action or "") if delete_log else ""
+        if _is_internal_audio_log(delete_log) and not reveal_internal:
+            delete_reason = ""
+            delete_action = ""
         row = {
             "reading_content_id": int(content.id),
             "user_id": int(target.id),
@@ -561,10 +670,14 @@ async def _build_reading_content_user_rows(
             "completed": upload is not None,
             "upload_id": int(upload.id) if upload else None,
             "has_image": bool(upload and (upload.image_object_key or "").strip()),
-            "uploaded_at": _iso(upload.uploaded_on) if upload else None,
-            "is_makeup": bool(upload and (upload.source or "") == SOURCE_AUDIO_MAKEUP),
-            "makeup_at": _iso(upload.uploaded_on) if upload and (upload.source or "") == SOURCE_AUDIO_MAKEUP else None,
-            "remark": (upload.remark or "") if upload else "",
+            "uploaded_at": _iso(trace_upload.uploaded_on) if trace_upload else None,
+            "is_makeup": bool(trace_upload and (trace_upload.source or "") == SOURCE_AUDIO_MAKEUP),
+            "makeup_at": _iso(trace_upload.uploaded_on) if trace_upload and (trace_upload.source or "") == SOURCE_AUDIO_MAKEUP else None,
+            "remark": remark,
+            "deleted_upload_id": int(deleted_upload.id) if deleted_upload else None,
+            "deleted_at": _iso(deleted_upload.deleted_at) if deleted_upload else None,
+            "delete_reason": delete_reason,
+            "delete_action": delete_action,
             "status": status_code,
             "status_text": status_text,
         }
@@ -629,6 +742,34 @@ def _serialize_audio_record(
         "source_label": source_label,
         "is_makeup": source == SOURCE_AUDIO_MAKEUP,
         "auto_checkin_by_whitelist": bool(item.auto_checkin_by_whitelist),
+    }
+
+
+def _serialize_audio_upload_log(item: MagicAudioUploadLog) -> dict[str, Any]:
+    return {
+        "id": int(item.id),
+        "audio_upload_id": int(item.audio_upload_id) if item.audio_upload_id else None,
+        "user_id": int(item.user_id) if item.user_id else None,
+        "reading_content_id": int(item.reading_content_id) if item.reading_content_id else None,
+        "action": item.action or "",
+        "source": item.source or "",
+        "operator_user_id": int(item.operator_user_id) if item.operator_user_id else None,
+        "operator_role": item.operator_role or "",
+        "reason": item.reason or "",
+        "has_audio": bool(item.has_audio),
+        "has_image": bool(item.has_image),
+        "file_name": item.file_name or "",
+        "file_size": int(item.file_size or 0),
+        "mime_type": item.mime_type or "",
+        "audio_object_key": item.audio_object_key or "",
+        "image_object_key": item.image_object_key or "",
+        "image_file_name": item.image_file_name or "",
+        "image_size": int(item.image_size or 0),
+        "uploaded_date": _iso(item.uploaded_date),
+        "uploaded_on": _iso(item.uploaded_on),
+        "deleted_at": _iso(item.deleted_at),
+        "created_at": _iso(item.created_at),
+        "snapshot": _json_loads(item.snapshot_json, {}) if item.snapshot_json else {},
     }
 
 
@@ -710,6 +851,14 @@ def _reading_audio_export_columns() -> dict[str, dict[str, Any]]:
             "title": "上传时间",
             "getter": lambda ctx: _format_export_time(ctx["detail_row"]["uploaded_at"]),
         },
+        "deleted_at": {
+            "title": "删除时间",
+            "getter": lambda ctx: _format_export_time(ctx["detail_row"].get("deleted_at")),
+        },
+        "delete_reason": {
+            "title": "删除原因",
+            "getter": lambda ctx: _format_export_text(ctx["detail_row"].get("delete_reason")),
+        },
         "is_makeup": {
             "title": "是否补卡",
             "getter": lambda ctx: _format_export_bool(ctx["detail_row"]["is_makeup"]),
@@ -763,6 +912,16 @@ async def _collect_admin_reading_audio_export_rows(
         content_ids=content_ids,
         user_ids=[int(item.id) for item in users],
     )
+    deleted_uploads_map = await _build_deleted_uploads_map_for_contents(
+        db,
+        content_ids=content_ids,
+        user_ids=[int(item.id) for item in users],
+    )
+    delete_logs_map = await _build_latest_audio_logs_map(
+        db,
+        [int(item.id) for item in deleted_uploads_map.values()],
+    )
+    reveal_internal = _should_reveal_internal_audio(admin)
     series_map = await _build_reading_series_map(db, contents=contents)
     creator_map = await _build_user_map(db, user_ids=[int(item.created_by) for item in contents if item.created_by])
     now = _now()
@@ -773,14 +932,28 @@ async def _collect_admin_reading_audio_export_rows(
         targets = targets_map.get(content_id, [])
         expected_users = expected_map.get(content_id, [])
         completed_count = 0
+        deleted_count = 0
         status_codes: set[str] = set()
         detail_rows: list[dict[str, Any]] = []
         for target in expected_users:
             upload = uploads_map.get((content_id, int(target.id)))
             if upload is not None:
                 completed_count += 1
-            status_code, status_text = _status_code_for_user_content(content, upload, now=now)
+            deleted_upload = deleted_uploads_map.get((content_id, int(target.id)))
+            if upload is None and deleted_upload is not None:
+                deleted_count += 1
+            delete_log = delete_logs_map.get(int(deleted_upload.id)) if deleted_upload else None
+            status_code, status_text = _status_code_for_user_content(
+                content,
+                upload,
+                deleted_upload=deleted_upload,
+                now=now,
+            )
             status_codes.add(status_code)
+            trace_upload = upload or deleted_upload
+            delete_reason = (delete_log.reason or "") if delete_log else ""
+            if _is_internal_audio_log(delete_log) and not reveal_internal:
+                delete_reason = ""
             detail_rows.append({
                 "reading_content_id": content_id,
                 "user_id": int(target.id),
@@ -790,8 +963,10 @@ async def _collect_admin_reading_audio_export_rows(
                 "should_complete": True,
                 "completed": upload is not None,
                 "upload_id": int(upload.id) if upload else None,
-                "uploaded_at": _iso(upload.uploaded_on) if upload else None,
-                "is_makeup": bool(upload and (upload.source or "") == SOURCE_AUDIO_MAKEUP),
+                "uploaded_at": _iso(trace_upload.uploaded_on) if trace_upload else None,
+                "is_makeup": bool(trace_upload and (trace_upload.source or "") == SOURCE_AUDIO_MAKEUP),
+                "deleted_at": _iso(deleted_upload.deleted_at) if deleted_upload else None,
+                "delete_reason": delete_reason,
                 "status": status_code,
                 "status_text": status_text,
             })
@@ -807,11 +982,13 @@ async def _collect_admin_reading_audio_export_rows(
             "target_summary": _reading_target_summary(targets),
             "expected_count": expected_count,
             "completed_count": completed_count,
+            "deleted_count": deleted_count,
             "pending_count": max(expected_count - completed_count, 0),
             "completion_rate": round((completed_count / expected_count) * 100, 2) if expected_count else 0,
             "makeup_deadline_at": _iso(content.makeup_deadline_at),
             "is_deadline_passed": bool(content.makeup_deadline_at and now > content.makeup_deadline_at),
             "has_checkins": completed_count > 0,
+            "has_deleted_checkins": deleted_count > 0,
         }
         series = series_map.get(int(content.series_id)) if content.series_id else None
         creator = creator_map.get(int(content.created_by)) if content.created_by else None
@@ -1291,6 +1468,14 @@ async def complete_my_audio_upload(
         await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
     except Exception:  # noqa: BLE001
         pass
+    await log_audio_upload_event(
+        db,
+        row,
+        action=AUDIO_LOG_UPLOAD_COMPLETED,
+        operator=user,
+        reason="multipart_upload_complete",
+        extra={"upload_id": upload_id_value},
+    )
     image_signed_url = (
         await asyncio.to_thread(_build_signed_stream_url, row.image_object_key)
         if (row.image_object_key or "").strip()
@@ -1321,7 +1506,6 @@ async def fail_my_audio_upload(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """录音直传失败/中断：清理 OSS 未合并分片。无库记录。"""
-    del db, user
     object_key = (payload.oss_object_key or "").strip()
     upload_id_value = (payload.upload_id or "").strip()
     if object_key and upload_id_value:
@@ -1329,6 +1513,13 @@ async def fail_my_audio_upload(
             await asyncio.to_thread(_abort_multipart_upload, object_key, upload_id_value)
         except Exception:  # noqa: BLE001
             logger.exception("Failed to abort audio multipart upload object_key=%s", object_key)
+    await log_audio_upload_failure(
+        db,
+        user=user,
+        oss_object_key=object_key,
+        upload_id=upload_id_value,
+        reason="multipart_upload_failed",
+    )
     return {"success": True}
 
 
@@ -1403,6 +1594,13 @@ async def upload_my_audio(
         await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
     except Exception:  # noqa: BLE001
         pass
+    await log_audio_upload_event(
+        db,
+        row,
+        action=AUDIO_LOG_UPLOAD_COMPLETED,
+        operator=user,
+        reason="form_upload_complete",
+    )
     image_signed_url = (
         await asyncio.to_thread(_build_signed_stream_url, row.image_object_key)
         if (row.image_object_key or "").strip()
@@ -1511,6 +1709,13 @@ async def submit_my_audio_makeup(
         await record_reading_streak(db, user_id=user.id, checkin_date=checkin_date)
     except Exception:  # noqa: BLE001
         pass
+    await log_audio_upload_event(
+        db,
+        row,
+        action=AUDIO_LOG_UPLOAD_COMPLETED,
+        operator=user,
+        reason="makeup_upload_complete",
+    )
     return _serialize_audio_record(row)
 
 
@@ -1521,12 +1726,61 @@ async def delete_my_audio(
     user: User = Depends(get_current_user),
 ) -> dict[str, bool]:
     row = await db.get(MagicAudioUpload, audio_id)
-    if not row or row.user_id != user.id:
+    if not row or row.user_id != user.id or row.is_deleted:
         raise HTTPException(status_code=404, detail="录音不存在。")
     row.is_deleted = True
     row.deleted_at = _now()
     await db.flush()
+    await log_audio_upload_event(
+        db,
+        row,
+        action=AUDIO_LOG_MANUAL_DELETE,
+        operator=user,
+        reason="user_manual_delete",
+    )
     return {"success": True}
+
+
+@router.get("/admin/audio-upload-logs")
+async def list_admin_audio_upload_logs(
+    reading_content_id: int | None = None,
+    user_id: int | None = None,
+    audio_upload_id: int | None = None,
+    action: str | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    max_limit = min(max(int(limit or 100), 1), 500)
+    stmt = select(MagicAudioUploadLog)
+    if reading_content_id:
+        content = await db.get(MagicReadingContent, int(reading_content_id))
+        if not content or content.is_deleted:
+            raise HTTPException(status_code=404, detail="Reading content not found.")
+        if not is_super_admin(admin) and int(content.created_by) != int(admin.id):
+            raise HTTPException(status_code=403, detail="No permission to view these upload logs.")
+        stmt = stmt.where(MagicAudioUploadLog.reading_content_id == int(reading_content_id))
+    elif not is_super_admin(admin):
+        owned_content_ids = select(MagicReadingContent.id).where(
+            MagicReadingContent.created_by == int(admin.id),
+            MagicReadingContent.is_deleted.is_(False),
+        )
+        stmt = stmt.where(MagicAudioUploadLog.reading_content_id.in_(owned_content_ids))
+    if not is_super_admin(admin):
+        stmt = stmt.where(
+            MagicAudioUploadLog.action != AUDIO_LOG_SYSTEM_DELETE,
+            MagicAudioUploadLog.source != SOURCE_WHITELIST_AUTO,
+        )
+    if user_id:
+        stmt = stmt.where(MagicAudioUploadLog.user_id == int(user_id))
+    if audio_upload_id:
+        stmt = stmt.where(MagicAudioUploadLog.audio_upload_id == int(audio_upload_id))
+    normalized_action = (action or "").strip()
+    if normalized_action:
+        stmt = stmt.where(MagicAudioUploadLog.action == normalized_action)
+    stmt = stmt.order_by(desc(MagicAudioUploadLog.created_at), desc(MagicAudioUploadLog.id)).limit(max_limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"items": [_serialize_audio_upload_log(item) for item in rows], "limit": max_limit}
 
 
 @router.get("/admin/audios/{audio_id}/image", response_model=None)
@@ -1887,6 +2141,11 @@ async def get_admin_reading_content_statistics(
         content_ids=[int(item.id) for item in contents],
         user_ids=[int(item.id) for item in users],
     )
+    deleted_uploads_map = await _build_deleted_uploads_map_for_contents(
+        db,
+        content_ids=[int(item.id) for item in contents],
+        user_ids=[int(item.id) for item in users],
+    )
     targets_map = await _build_admin_reading_targets_map(db, [int(item.id) for item in contents])
     now = _now()
     rows: list[dict[str, Any]] = []
@@ -1895,12 +2154,21 @@ async def get_admin_reading_content_statistics(
         expected_users = expected_map.get(int(content.id), [])
         expected_count = len(expected_users)
         completed_count = 0
+        deleted_count = 0
         status_codes: set[str] = set()
         for target in expected_users:
             upload = uploads_map.get((int(content.id), int(target.id)))
             if upload is not None:
                 completed_count += 1
-            status_code, _status_text = _status_code_for_user_content(content, upload, now=now)
+            deleted_upload = deleted_uploads_map.get((int(content.id), int(target.id)))
+            if upload is None and deleted_upload is not None:
+                deleted_count += 1
+            status_code, _status_text = _status_code_for_user_content(
+                content,
+                upload,
+                deleted_upload=deleted_upload,
+                now=now,
+            )
             status_codes.add(status_code)
         if status and status != "all":
             if status not in status_codes:
@@ -1915,11 +2183,13 @@ async def get_admin_reading_content_statistics(
             "target_summary": _reading_target_summary(targets),
             "expected_count": expected_count,
             "completed_count": completed_count,
+            "deleted_count": deleted_count,
             "pending_count": pending_count,
             "completion_rate": round((completed_count / expected_count) * 100, 2) if expected_count else 0,
             "makeup_deadline_at": _iso(content.makeup_deadline_at),
             "is_deadline_passed": bool(content.makeup_deadline_at and now > content.makeup_deadline_at),
             "has_checkins": completed_count > 0,
+            "has_deleted_checkins": deleted_count > 0,
         })
     legacy_count_result = await db.execute(
         select(func.count(MagicAudioUpload.id)).where(

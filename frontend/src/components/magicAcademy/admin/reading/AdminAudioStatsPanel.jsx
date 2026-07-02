@@ -111,6 +111,7 @@ export default function AdminAudioStatsPanel({
             options={[
               { value: "all", label: "全部状态" },
               { value: "completed", label: "已完成" },
+              { value: "deleted", label: "已删除记录" },
               { value: "pending", label: "未完成" },
               { value: "expired", label: "已过补卡截止时间" },
               { value: "future", label: "未到推送时间" },
@@ -136,6 +137,7 @@ export default function AdminAudioStatsPanel({
               { title: "推送对象", dataIndex: "target_summary", width: 180, render: (value) => value || "—" },
               { title: "应完成人数", dataIndex: "expected_count", width: 100 },
               { title: "已完成", dataIndex: "completed_count", width: 90 },
+              { title: "已删除记录", dataIndex: "deleted_count", width: 110 },
               { title: "未完成", dataIndex: "pending_count", width: 90 },
               { title: "完成率", dataIndex: "completion_rate", width: 100, render: (value) => `${value || 0}%` },
               { title: "补卡截止时间", dataIndex: "makeup_deadline_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },

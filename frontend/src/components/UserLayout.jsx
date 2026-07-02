@@ -9,7 +9,7 @@ import {
   ScheduleOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
-import { Avatar, Button, Drawer, Space, Tag } from "antd";
+import { Avatar, Button, Drawer, Tag } from "antd";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { logoutApi } from "../lib/api.auth";
@@ -151,11 +151,11 @@ export default function UserLayout() {
               </Avatar>
               <div className="user-layout__user-copy">
                 <strong>{user?.display_name || user?.username || "学员"}</strong>
-                <Space size={6} wrap>
+                <div className="user-layout__user-meta">
                   {user?.department ? <Tag bordered={false}>{user.department}</Tag> : null}
                   <Tag bordered={false} color={user?.job_level === "P线" ? "geekblue" : "cyan"}>{user?.job_level || "M线"}</Tag>
                   <span>{user?.position || "学习中"}</span>
-                </Space>
+                </div>
               </div>
             </div>
 

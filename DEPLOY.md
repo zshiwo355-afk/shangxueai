@@ -162,7 +162,7 @@ server {
     listen 80;
     server_name your.domain.com;
 
-    client_max_body_size 200m;   # 视频/录音上传
+    client_max_body_size 50g;    # 课程视频/素材库视频上传上限
 
     location / {
         proxy_pass         http://127.0.0.1:8000;
@@ -184,7 +184,7 @@ server {
 后端没起来，或前端 dist 是老版本（缓存）。两端都已写了 `Cache-Control: no-store`，硬刷新（Ctrl+Shift+R）一次即可。新版浏览器进入后不会再发生。
 
 **2. 上传视频/录音 413 / 体积超限**
-Nginx 的 `client_max_body_size`（默认 1M）。改大并 `nginx -s reload`。
+Nginx 的 `client_max_body_size`（默认 1M）。课程视频/素材库视频当前按 50G 配置，改大并 `nginx -s reload`。
 
 **3. 重启 systemd 后 magic-academy 视频流 404**
 检查 `backend/uploads/magic_academy/videos/` 目录权限，确保 uvicorn 进程 user 可读写。`run_prod.sh` 启动时会自动 mkdir，但权限取决于运行身份。

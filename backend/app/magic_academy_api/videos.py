@@ -18,6 +18,7 @@ from sqlalchemy import delete as sql_delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import require_admin
+from ..config import DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB
 from ..db import get_db
 from ..magic_auto_actions import enqueue_video_actions_for_video
 from ..magic_academy_schemas import (
@@ -858,7 +859,7 @@ async def upload_video(
     safe_name = _safe_filename(file.filename or f"video{suffix}")
     stored_name = f"{uuid.uuid4().hex}{suffix}"
     stored_path = VIDEO_DIR / stored_name
-    max_size = int(settings.magic_video_max_size_mb or 10240) * 1024 * 1024
+    max_size = int(settings.magic_video_max_size_mb or DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB) * 1024 * 1024
     file_size = await _write_upload_to_disk(file, stored_path, max_size)
     if file_size <= 0:
         stored_path.unlink(missing_ok=True)

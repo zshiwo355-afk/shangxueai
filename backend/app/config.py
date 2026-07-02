@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 BACKEND_ENV_FILE = BACKEND_DIR / ".env"
+DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB = 50 * 1024
 
 
 class Settings(BaseSettings):
@@ -141,7 +142,7 @@ class Settings(BaseSettings):
     oss_cname_domain: str = Field("", alias="OSS_CNAME_DOMAIN")
     oss_upload_prefix: str = Field("", alias="OSS_UPLOAD_PREFIX")
     oss_signed_url_expire_seconds: int = Field(21600, alias="OSS_SIGNED_URL_EXPIRE_SECONDS")
-    magic_video_max_size_mb: int = Field(10240, alias="MAGIC_VIDEO_MAX_SIZE_MB")
+    magic_video_max_size_mb: int = Field(DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, alias="MAGIC_VIDEO_MAX_SIZE_MB")
     live_comment_block_words: str = Field(
         "赌博,诈骗,色情,暴力,辱骂",
         alias="LIVE_COMMENT_BLOCK_WORDS",

@@ -8,6 +8,11 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db import session_scope
+from .magic_audio_audit import (
+    AUDIO_LOG_SYSTEM_DELETE,
+    AUDIO_LOG_UPLOAD_COMPLETED,
+    log_audio_upload_event,
+)
 from .models import (
     MagicAudioMakeupSetting,
     MagicAudioUpload,
@@ -304,6 +309,15 @@ async def _execute_audio_action(db: AsyncSession, action: MagicAutoAction) -> No
         for duplicate in existing_rows[1:]:
             duplicate.is_deleted = True
             duplicate.deleted_at = _now()
+            await log_audio_upload_event(
+                db,
+                duplicate,
+                action=AUDIO_LOG_SYSTEM_DELETE,
+                operator_user_id=action.created_by,
+                operator_role="system",
+                reason="auto_action_duplicate_cleanup",
+                extra={"auto_action_id": int(action.id), "primary_upload_id": int(primary.id)},
+            )
         if (primary.source or "") == SOURCE_WHITELIST_AUTO:
             primary.auto_checkin_by_whitelist = True
         action.status = AUTO_ACTION_DONE
@@ -325,6 +339,15 @@ async def _execute_audio_action(db: AsyncSession, action: MagicAutoAction) -> No
     )
     db.add(row)
     await db.flush()
+    await log_audio_upload_event(
+        db,
+        row,
+        action=AUDIO_LOG_UPLOAD_COMPLETED,
+        operator_user_id=action.created_by,
+        operator_role="system",
+        reason="whitelist_auto_checkin",
+        extra={"auto_action_id": int(action.id)},
+    )
     action.status = AUTO_ACTION_DONE
     action.executed_at = _now()
 

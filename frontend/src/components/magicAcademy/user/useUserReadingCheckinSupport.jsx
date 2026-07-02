@@ -11,7 +11,8 @@ import {
 } from "../../../lib/api.magic";
 import {
   buildAudioCalendarMap,
-  getAudioDayStatus,
+  buildAudioMakeupDateMap,
+  getAudioCalendarCellState,
   getAudioSourceMeta,
   getCurrentMonthText,
   getTodayText,
@@ -43,6 +44,7 @@ export default function useUserReadingCheckinSupport({
   const [myAudioMakeupDays, setMyAudioMakeupDays] = useState([]);
   const [myAudioMonth, setMyAudioMonth] = useState(initialDate.slice(0, 7) || getCurrentMonthText());
   const [myAudioCalendarDays, setMyAudioCalendarDays] = useState([]);
+  const [myAudioCalendarLoadedMonth, setMyAudioCalendarLoadedMonth] = useState("");
   const [myAudioSelectedDate, setMyAudioSelectedDate] = useState(initialDate);
   const [myAudios, setMyAudios] = useState([]);
 
@@ -59,6 +61,7 @@ export default function useUserReadingCheckinSupport({
     () => Object.fromEntries((Array.isArray(myAudioMakeupDays) ? myAudioMakeupDays : []).map((item) => [item.reading_content_id, item])),
     [myAudioMakeupDays],
   );
+  const myAudioMakeupDateMap = useMemo(() => buildAudioMakeupDateMap(myAudioMakeupDays), [myAudioMakeupDays]);
   const selectedMyAudioDay = myAudioCalendarMap[myAudioSelectedDate] || null;
   const selectedReadingContents = useMemo(
     () => Array.isArray(myReadingContents) ? myReadingContents : [],
@@ -74,16 +77,19 @@ export default function useUserReadingCheckinSupport({
   );
 
   const reloadMyAudioCalendar = useCallback(async (monthText = myAudioMonth) => {
+    const requestedMonth = String(monthText || myAudioMonth || getCurrentMonthText()).slice(0, 7);
     const [result, makeup] = await Promise.all([
-      fetchMyAudioCalendar(monthText),
-      fetchMyAudioMakeupOptions(monthText),
+      fetchMyAudioCalendar(requestedMonth),
+      fetchMyAudioMakeupOptions(requestedMonth),
     ]);
     const days = Array.isArray(result?.days) ? result.days : [];
+    const loadedMonth = String(result?.month || requestedMonth).slice(0, 7);
     setMyAudioCalendarDays(days);
+    setMyAudioCalendarLoadedMonth(loadedMonth);
     setMyAudioMakeupDays(Array.isArray(makeup?.days) ? makeup.days : []);
     audioStatsSupport.setAudioMakeupSetting(makeup?.setting || { enabled: false, make_up_days: 0, description: "" });
     if (!days.some((item) => item.date === myAudioSelectedDate)) {
-      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${monthText}-01`).format("YYYY-MM-DD");
+      const fallback = days.find((item) => item.is_today)?.date || days[0]?.date || dayjs(`${loadedMonth}-01`).format("YYYY-MM-DD");
       setMyAudioSelectedDate(fallback);
     }
   }, [audioStatsSupport, dayjs, myAudioMonth, myAudioSelectedDate]);
@@ -155,19 +161,29 @@ export default function useUserReadingCheckinSupport({
     await reloadMyAudioCalendar();
   }, [reloadMyAudioCalendar, reloadMyData]);
 
-  const renderEmployeeAudioCell = useCallback((value) => {
+  const renderEmployeeAudioCell = useCallback((value, info = {}) => {
+    if (info?.type && info.type !== "date") return null;
     const dateText = value.format("YYYY-MM-DD");
     const dayData = myAudioCalendarMap[dateText];
-    const makeupData = myAudioMakeupMap[dateText];
-    let status = getAudioDayStatus(dateText, dayData);
-    if (!dayData?.uploaded && makeupData?.can_makeup) status = "makeup_available";
-    else if (!dayData?.uploaded && makeupData?.is_expired) status = "makeup_expired";
+    const makeupData = myAudioMakeupDateMap[dateText];
+    const cellState = getAudioCalendarCellState({
+      dateText,
+      monthText: myAudioMonth,
+      dayData,
+      makeupData,
+      isMonthLoaded: myAudioCalendarLoadedMonth === myAudioMonth,
+    });
+    const className = [
+      "magic-audio-calendar-cell",
+      cellState.status === "future" ? "is-future" : "",
+      !cellState.shouldRenderStatus ? "is-empty" : "",
+    ].filter(Boolean).join(" ");
     return (
-      <div className={`magic-audio-calendar-cell ${status === "future" ? "is-future" : ""}`}>
-        {renderAudioStatusTag(status, dayData?.count || 0, 0)}
+      <div className={className}>
+        {cellState.shouldRenderStatus ? renderAudioStatusTag(cellState.status, cellState.count, 0) : null}
       </div>
     );
-  }, [myAudioCalendarMap, myAudioMakeupMap]);
+  }, [myAudioCalendarLoadedMonth, myAudioCalendarMap, myAudioMakeupDateMap, myAudioMonth]);
 
   const renderAudioRecordList = useCallback((records, showUser = false) => (
     <List

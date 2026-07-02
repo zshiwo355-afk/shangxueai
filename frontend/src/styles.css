@@ -1026,12 +1026,15 @@ body {
   display: flex;
   align-items: center;
   gap: 18px;
+  min-width: 0;
 }
 
 .user-layout__brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
+  min-width: 0;
   border: none;
   background: transparent;
   padding: 0;
@@ -1066,22 +1069,28 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+  min-width: 0;
 }
 
 .user-layout__brand-copy strong {
   font-size: 15px;
+  white-space: nowrap;
 }
 
 .user-layout__brand-copy span {
   font-size: 12px;
   color: var(--text-mute);
+  white-space: nowrap;
 }
 
 .user-layout__nav {
   display: flex;
   align-items: center;
-  gap: 18px;
-  margin-left: 18px;
+  gap: clamp(10px, 1.25vw, 18px);
+  flex: 0 0 auto;
+  min-width: max-content;
+  margin-left: clamp(8px, 1.25vw, 18px);
+  white-space: nowrap;
 }
 
 .user-layout__nav-item {
@@ -1095,7 +1104,16 @@ body {
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 14px;
+  flex: 0 0 auto;
+  min-width: max-content;
   position: relative;
+  white-space: nowrap;
+}
+
+.user-layout__nav-item .anticon,
+.user-layout__nav-item span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .user-layout__nav-item:hover {
@@ -1121,13 +1139,23 @@ body {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-end;
+  gap: clamp(8px, 1vw, 12px);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.user-layout__actions > .ant-btn {
+  flex: 0 0 auto;
 }
 
 .user-layout__user-card {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: clamp(180px, 24vw, 340px);
   padding: 0 0 0 8px;
   border-radius: 0;
   background: transparent;
@@ -1136,21 +1164,58 @@ body {
 
 .user-layout__avatar {
   background: var(--accent);
+  flex: 0 0 auto;
 }
 
 .user-layout__user-copy {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .user-layout__user-copy strong {
   font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-layout__user-copy span {
   font-size: 12px;
   color: var(--text-mute);
+}
+
+.user-layout__user-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.user-layout__user-meta .ant-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-inline-end: 0;
+}
+
+.user-layout__user-meta > span:not(.ant-tag) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-layout__content {
@@ -5464,6 +5529,37 @@ body {
 .user-layout__refresh-trigger:focus-visible {
   background: rgba(0, 0, 0, 0.04);
   outline: none;
+}
+
+@media (max-width: 1180px) {
+  .user-layout__header-inner {
+    padding: 12px 16px;
+    gap: 12px;
+    flex-wrap: nowrap;
+  }
+
+  .user-layout__brand {
+    flex: 1 1 auto;
+  }
+
+  .user-layout__brand-copy strong,
+  .user-layout__brand-copy span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .user-layout__nav,
+  .user-layout__actions {
+    display: none !important;
+  }
+
+  .user-layout__menu-trigger,
+  .user-layout__refresh-trigger {
+    display: inline-flex;
+    margin-left: 0;
+    flex: 0 0 40px;
+  }
 }
 
 /* 抽屉内导航 */
