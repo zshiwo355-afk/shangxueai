@@ -55,6 +55,18 @@ function renderSelectTagWithTooltip({ label, closable, onClose }) {
   );
 }
 
+const TRANSCODE_STATUS_META = {
+  completed: { color: "success", text: "播放优化完成", actionText: "重新生成播放文件", force: true },
+  failed: { color: "error", text: "转码失败", actionText: "重新生成播放文件", force: true },
+  pending: { color: "processing", text: "等待转码", actionText: "重新排队转码", force: true },
+  processing: { color: "processing", text: "正在转码", actionText: "重新排队转码", force: true },
+  none: { color: "default", text: "未转码", actionText: "生成播放文件", force: false },
+};
+
+function getTranscodeStatusMeta(status) {
+  return TRANSCODE_STATUS_META[String(status || "none").toLowerCase()] || TRANSCODE_STATUS_META.none;
+}
+
 export function buildAdminCoursesTabItems({
   courseAdminState,
   courseAdminActions,
@@ -90,6 +102,7 @@ export function buildAdminCoursesTabItems({
     whitelist,
     whitelistColumns,
     users,
+    transcodingVideoId,
   } = courseAdminState;
 
   const {
@@ -104,6 +117,7 @@ export function buildAdminCoursesTabItems({
     setSeriesItemVideoId,
     handlePublishVideo,
     handleDisableVideo,
+    handleTranscodeVideoHls,
     handleBatchPublishVideos,
     handleBatchDisableVideos,
     handleBatchDeleteVideos,
@@ -138,6 +152,7 @@ export function buildAdminCoursesTabItems({
     formatTime,
   } = courseAdminDeps;
   const selectedAdminVideoStatus = selectedAdminVideo ? getVideoStatusMeta(selectedAdminVideo) : null;
+  const selectedAdminVideoTranscodeMeta = getTranscodeStatusMeta(selectedAdminVideo?.transcode_status);
 
   return [
     {
@@ -166,7 +181,31 @@ export function buildAdminCoursesTabItems({
                     </Space>
                   </Space>
                   <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>{selectedAdminVideo.description || "暂无简介"}</Typography.Paragraph>
-                  <courseAdminDeps.ResponsiveVideoPlayer src={courseAdminDeps.buildMagicVideoStreamUrl(selectedAdminVideo.id)} poster={selectedAdminVideo.cover_url || ""} />
+                  <courseAdminDeps.ResponsiveVideoPlayer
+                    src={courseAdminDeps.buildMagicVideoStreamUrl(selectedAdminVideo.id)}
+                    fallbackSrc={courseAdminDeps.buildMagicVideoStreamUrl(selectedAdminVideo.id, { format: "mp4" })}
+                    preferHls={selectedAdminVideo.transcode_status === "completed" && Boolean(selectedAdminVideo.hls_url)}
+                    poster={selectedAdminVideo.cover_url || ""}
+                  />
+                  <Space wrap>
+                    <Tag
+                      bordered={false}
+                      color={selectedAdminVideoTranscodeMeta.color}
+                    >
+                      {selectedAdminVideoTranscodeMeta.text}
+                    </Tag>
+                    {selectedAdminVideo.transcode_error ? (
+                      <Text type="danger" ellipsis style={{ maxWidth: 520 }}>{selectedAdminVideo.transcode_error}</Text>
+                    ) : null}
+                    <Button
+                      size="small"
+                      loading={transcodingVideoId === selectedAdminVideo.id}
+                      disabled={selectedAdminVideo.upload_status !== "completed"}
+                      onClick={() => handleTranscodeVideoHls(selectedAdminVideo.id, selectedAdminVideoTranscodeMeta.force)}
+                    >
+                      {selectedAdminVideoTranscodeMeta.actionText}
+                    </Button>
+                  </Space>
                   {selectedAdminVideo.cover_url ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <Text type="secondary">视频封面</Text>

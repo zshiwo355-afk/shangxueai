@@ -27,6 +27,7 @@ from ..magic_academy_schemas import (
     MagicVideoReplaceCompletePayload,
     MagicVideoReplaceFailPayload,
     MagicVideoReplaceInitPayload,
+    MagicVideoTranscodePayload,
     MagicVideoUploadStatusPayload,
     MagicVideoUploadCompletePayload,
     MagicVideoUploadFailPayload,
@@ -55,11 +56,13 @@ from . import magic_video_router, router
 from ._oss import (
     MULTIPART_URL_EXPIRE_SECONDS,
     _abort_multipart_upload,
+    _build_delivery_object_url,
     _build_object_key_and_name,
     _build_oss_object_url,
     _build_public_base_url,
     _complete_multipart_upload,
     _delete_oss_object,
+    _delete_oss_prefix,
     _ensure_oss_settings,
     _list_uploaded_parts,
     _start_multipart_upload,
@@ -69,6 +72,7 @@ from ._oss import (
     logger,
     settings,
 )
+from ._hls import enqueue_video_hls_transcode
 from ._resource_cleanup import schedule_oss_object_cleanup
 from ._utils import UPLOAD_ROOT, VIDEO_DIR, _now, _safe_filename
 from ._video_helpers import (
@@ -534,16 +538,25 @@ async def complete_magic_video_upload(
         if object_size != int(payload.file_size or 0):
             raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
         public_base_url = _build_public_base_url(video.oss_bucket or settings.oss_bucket, video.oss_endpoint or settings.oss_endpoint, settings.oss_public_base_url)
-        object_url = _build_oss_object_url(public_base_url, payload.oss_object_key.strip())
+        object_key = payload.oss_object_key.strip()
+        object_url = _build_oss_object_url(public_base_url, object_key)
+        delivery_url = _build_delivery_object_url(object_key)
         video.file_path = payload.oss_object_key.strip()
         video.oss_url = object_url
-        video.cdn_url = object_url
-        video.play_url = object_url
+        video.cdn_url = delivery_url
+        video.play_url = delivery_url
         video.file_size = object_size
         video.upload_status = "completed"
         video.upload_id = ""
         video.upload_error = ""
-        return await _commit_refresh_and_serialize_video(db, video)
+        response = await _commit_refresh_and_serialize_video(db, video)
+        if settings.magic_video_transcode_auto:
+            try:
+                queued = await enqueue_video_hls_transcode(int(video.id))
+                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue HLS transcode video_id=%s", video.id)
+        return response
 
 
 @magic_video_router.post("/videos/upload/fail")
@@ -671,6 +684,7 @@ async def complete_magic_video_replace_upload(
             raise HTTPException(status_code=400, detail="OSS 文件大小校验失败。")
 
         old_object_key = (video.oss_object_key or "").strip()
+        old_hls_object_prefix = (video.hls_object_prefix or "").strip()
         should_delete_old_object = await _should_delete_video_object(db, video)
         old_cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         old_cover_url = (video.cover_url or "").strip()
@@ -679,7 +693,9 @@ async def complete_magic_video_replace_upload(
             video.oss_endpoint or settings.oss_endpoint,
             settings.oss_public_base_url,
         )
-        object_url = _build_oss_object_url(public_base_url, payload.oss_object_key.strip())
+        object_key = payload.oss_object_key.strip()
+        object_url = _build_oss_object_url(public_base_url, object_key)
+        delivery_url = _build_delivery_object_url(object_key)
         _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
             db,
             admin,
@@ -708,11 +724,16 @@ async def complete_magic_video_replace_upload(
         video.cover_url = resolved_cover_url or None
         video.cover_asset_id = _cover_asset_id
         video.oss_url = object_url
-        video.cdn_url = object_url
-        video.play_url = object_url
+        video.cdn_url = delivery_url
+        video.play_url = delivery_url
+        video.hls_url = None
+        video.hls_object_prefix = ""
         video.oss_object_key = payload.oss_object_key.strip()
         video.upload_status = "completed"
         video.upload_error = ""
+        video.transcode_status = "none"
+        video.transcode_error = ""
+        video.transcoded_at = None
         video.replacement_upload_id = ""
         video.replacement_object_key = ""
         video.replacement_original_filename = ""
@@ -756,7 +777,19 @@ async def complete_magic_video_replace_upload(
             ],
             logger=logger,
         )
-        return await _refresh_and_serialize_video(db, video)
+        if old_hls_object_prefix:
+            try:
+                await asyncio.to_thread(_delete_oss_prefix, old_hls_object_prefix)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
+        response = await _refresh_and_serialize_video(db, video)
+        if settings.magic_video_transcode_auto:
+            try:
+                queued = await enqueue_video_hls_transcode(int(video.id), force=True)
+                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue replacement HLS transcode video_id=%s", video.id)
+        return response
 
 
 @magic_video_router.post("/videos/{video_id}/replace/fail")
@@ -949,6 +982,7 @@ async def create_video(
             settings.oss_public_base_url,
         )
         object_url = _build_oss_object_url(public_base_url, material_asset.object_key)
+        delivery_url = _build_delivery_object_url(material_asset.object_key)
         storage_type = "oss"
         file_name = material_asset.file_name
         file_path = material_asset.object_key
@@ -961,8 +995,8 @@ async def create_video(
         oss_endpoint = oss_settings["endpoint"]
         oss_object_key = material_asset.object_key
         oss_url = object_url
-        cdn_url = object_url
-        play_url = object_url
+        cdn_url = delivery_url
+        play_url = delivery_url
         material_asset_id = int(material_asset.id)
     _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
         db,
@@ -1020,6 +1054,12 @@ async def create_video(
     await db.flush()
     await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
     response = await _commit_refresh_and_serialize_video(db, video)
+    if settings.magic_video_transcode_auto and storage_type == "oss" and oss_object_key:
+        try:
+            queued = await enqueue_video_hls_transcode(int(video.id))
+            response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to enqueue HLS transcode for created video_id=%s", video.id)
     if should_trigger_course_initial_push(old_status="draft", new_status=video.status):
         schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
     return response
@@ -1042,6 +1082,16 @@ async def get_video(
         series_meta=series_context_map.get(video.id),
         watch_confirm_setting=watch_confirm_settings.get(video.id),
     )
+
+
+@router.post("/videos/{video_id}/transcode-hls")
+async def transcode_video_hls(
+    video_id: int,
+    payload: MagicVideoTranscodePayload | None = None,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    return await enqueue_video_hls_transcode(video_id, force=bool(payload and payload.force))
 
 
 @router.get("/videos/{video_id}/push-summary")
@@ -1089,6 +1139,8 @@ async def update_video(
     async with _video_operation_scope(video_id):
         video = await _get_video_or_404(db, video_id)
         old_status = (video.status or "draft").strip().lower()
+        old_object_key = (video.oss_object_key or "").strip()
+        old_hls_object_prefix = (video.hls_object_prefix or "").strip()
         old_cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         old_cover_url = (video.cover_url or "").strip()
         next_file_name = payload.file_name.strip() or video.file_name
@@ -1124,6 +1176,7 @@ async def update_video(
                 settings.oss_public_base_url,
             )
             object_url = _build_oss_object_url(public_base_url, material_asset.object_key)
+            delivery_url = _build_delivery_object_url(material_asset.object_key)
             next_file_name = material_asset.file_name
             next_file_path = material_asset.object_key
             next_original_filename = material_asset.file_name
@@ -1137,8 +1190,8 @@ async def update_video(
             next_oss_endpoint = oss_settings["endpoint"]
             next_oss_object_key = material_asset.object_key
             next_oss_url = object_url
-            next_cdn_url = object_url
-            next_play_url = object_url
+            next_cdn_url = delivery_url
+            next_play_url = delivery_url
             next_material_asset_id = int(material_asset.id)
         _cover_asset_id, resolved_cover_url = await _resolve_cover_url(
             db,
@@ -1167,6 +1220,12 @@ async def update_video(
         video.oss_url = next_oss_url
         video.cdn_url = next_cdn_url
         video.play_url = next_play_url
+        if (next_oss_object_key or "").strip() != old_object_key:
+            video.hls_url = None
+            video.hls_object_prefix = ""
+            video.transcode_status = "none"
+            video.transcode_error = ""
+            video.transcoded_at = None
         video.cover_url = resolved_cover_url or None
         video.cover_asset_id = _cover_asset_id
         video.material_asset_id = next_material_asset_id
@@ -1193,7 +1252,22 @@ async def update_video(
             [old_cover_cleanup_key if old_cover_url != (video.cover_url or "").strip() else ""],
             logger=logger,
         )
+        if old_hls_object_prefix and (next_oss_object_key or "").strip() != old_object_key:
+            try:
+                await asyncio.to_thread(_delete_oss_prefix, old_hls_object_prefix)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
         response = await _refresh_and_serialize_video(db, video)
+        if (
+            settings.magic_video_transcode_auto
+            and (next_oss_object_key or "").strip()
+            and (next_oss_object_key or "").strip() != old_object_key
+        ):
+            try:
+                queued = await enqueue_video_hls_transcode(int(video.id), force=True)
+                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to enqueue HLS transcode for updated video_id=%s", video.id)
         if should_trigger_course_initial_push(old_status=old_status, new_status=video.status):
             schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
         return response
@@ -1211,6 +1285,7 @@ async def delete_video(
         current_upload_status = (video.upload_status or "").strip().lower()
         should_delete_video_object = await _should_delete_video_object(db, video)
         cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
+        hls_cleanup_prefix = (video.hls_object_prefix or "").strip()
         if (video.storage_type or "local").strip().lower() == "oss":
             if current_upload_status in {"pending", "uploading"} and video.upload_id and video.oss_object_key:
                 try:
@@ -1249,6 +1324,11 @@ async def delete_video(
             ],
             logger=logger,
         )
+        if hls_cleanup_prefix:
+            try:
+                await asyncio.to_thread(_delete_oss_prefix, hls_cleanup_prefix)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to cleanup HLS prefix while deleting video %s", video.id)
         return {"success": True}
 
 

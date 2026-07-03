@@ -48,6 +48,11 @@ def _build_public_base_url(bucket: str, endpoint: str, public_base_url: str) -> 
     return f"https://{bucket}.{host}"
 
 
+def _build_delivery_base_url(public_base_url: str) -> str:
+    cdn_base = (settings.oss_cdn_base_url or "").strip().rstrip("/")
+    return cdn_base or (public_base_url or "").strip().rstrip("/")
+
+
 def _cname_endpoint() -> str:
     """已绑定的自有域名（带协议），未配置则返回空串。"""
     domain = (settings.oss_cname_domain or "").strip().rstrip("/")
@@ -159,6 +164,12 @@ def _build_oss_object_url(public_base_url: str, object_key: str) -> str:
     return f"{public_base_url.rstrip('/')}/{quote(object_key, safe='/')}"
 
 
+def _build_delivery_object_url(object_key: str) -> str:
+    oss_settings = _ensure_oss_settings()
+    base_url = _build_delivery_base_url(oss_settings["public_base_url"])
+    return _build_oss_object_url(base_url, object_key)
+
+
 def _start_multipart_upload(object_key: str, mime_type: str, file_size: int) -> dict[str, Any]:
     bucket = _build_oss_bucket()
     init_result = bucket.init_multipart_upload(object_key, headers={"Content-Type": mime_type})
@@ -215,10 +226,13 @@ def _complete_multipart_upload(object_key: str, upload_id: str, parts: list[dict
     return int(head.content_length or 0)
 
 
-def _build_signed_stream_url(object_key: str) -> str:
+def _build_signed_stream_url(object_key: str, expire_seconds: int | None = None) -> str:
     bucket = _build_oss_bucket()
-    expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 21600), 21600)
-    return bucket.sign_url("GET", object_key, expire_seconds, slash_safe=True)
+    configured_expire = int(
+        expire_seconds if expire_seconds is not None else settings.oss_signed_url_expire_seconds or 21600
+    )
+    min_expire = 60 if expire_seconds is not None else 21600
+    return bucket.sign_url("GET", object_key, max(configured_expire, min_expire), slash_safe=True)
 
 
 def ensure_mp4_faststart(object_key: str, mime_type: str | None = None) -> bool:
@@ -428,6 +442,11 @@ def _upload_binary_to_oss(object_key: str, content: bytes, mime_type: str) -> No
     bucket.put_object(object_key, content, headers={"Content-Type": mime_type})
 
 
+def _upload_file_to_oss(object_key: str, file_path: str | Path, mime_type: str) -> None:
+    bucket = _build_oss_bucket()
+    bucket.put_object_from_file(object_key, str(file_path), headers={"Content-Type": mime_type})
+
+
 def _download_oss_object(object_key: str) -> bytes:
     bucket = _build_oss_bucket()
     return bucket.get_object(object_key).read()
@@ -443,6 +462,24 @@ def _delete_oss_object(object_key: str) -> None:
     bucket.delete_object(object_key)
 
 
+def _delete_oss_prefix(prefix: str) -> None:
+    clean_prefix = _strip_slashes(prefix)
+    if not clean_prefix:
+        return
+    bucket = _build_oss_bucket()
+    batch: list[str] = []
+    for item in oss2.ObjectIterator(bucket, prefix=f"{clean_prefix}/"):
+        key = str(getattr(item, "key", "") or "").strip()
+        if not key:
+            continue
+        batch.append(key)
+        if len(batch) >= 1000:
+            bucket.batch_delete_objects(batch)
+            batch = []
+    if batch:
+        bucket.batch_delete_objects(batch)
+
+
 __all__ = [
     "logger",
     "settings",
@@ -455,6 +492,7 @@ __all__ = [
     "MAX_MULTIPART_PARTS",
     "_normalize_oss_endpoint",
     "_build_public_base_url",
+    "_build_delivery_base_url",
     "_ensure_oss_settings",
     "_build_oss_bucket",
     "_guess_video_extension",
@@ -464,6 +502,7 @@ __all__ = [
     "_build_object_key_and_name",
     "_choose_multipart_part_size",
     "_build_oss_object_url",
+    "_build_delivery_object_url",
     "_start_multipart_upload",
     "_list_uploaded_parts",
     "_complete_multipart_upload",
@@ -471,7 +510,9 @@ __all__ = [
     "ensure_mp4_faststart",
     "_build_signed_inline_url",
     "_upload_binary_to_oss",
+    "_upload_file_to_oss",
     "_download_oss_object",
     "_abort_multipart_upload",
     "_delete_oss_object",
+    "_delete_oss_prefix",
 ]

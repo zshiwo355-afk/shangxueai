@@ -142,6 +142,18 @@ class Settings(BaseSettings):
     oss_cname_domain: str = Field("", alias="OSS_CNAME_DOMAIN")
     oss_upload_prefix: str = Field("", alias="OSS_UPLOAD_PREFIX")
     oss_signed_url_expire_seconds: int = Field(21600, alias="OSS_SIGNED_URL_EXPIRE_SECONDS")
+    oss_cdn_base_url: str = Field("", alias="OSS_CDN_BASE_URL")
+    magic_video_hls_prefix: str = Field("", alias="MAGIC_VIDEO_HLS_PREFIX")
+    magic_video_transcode_auto: bool = Field(False, alias="MAGIC_VIDEO_TRANSCODE_AUTO")
+    magic_video_ffmpeg_path: str = Field("ffmpeg", alias="MAGIC_VIDEO_FFMPEG_PATH")
+    magic_video_hls_segment_seconds: int = Field(6, alias="MAGIC_VIDEO_HLS_SEGMENT_SECONDS")
+    magic_video_hls_height: int = Field(720, alias="MAGIC_VIDEO_HLS_HEIGHT")
+    magic_video_hls_crf: int = Field(23, alias="MAGIC_VIDEO_HLS_CRF")
+    magic_video_hls_preset: str = Field("veryfast", alias="MAGIC_VIDEO_HLS_PRESET")
+    magic_video_hls_audio_bitrate: str = Field("128k", alias="MAGIC_VIDEO_HLS_AUDIO_BITRATE")
+    magic_video_transcode_timeout_seconds: int = Field(0, alias="MAGIC_VIDEO_TRANSCODE_TIMEOUT_SECONDS")
+    magic_video_transcode_source_expire_seconds: int = Field(172800, alias="MAGIC_VIDEO_TRANSCODE_SOURCE_EXPIRE_SECONDS")
+    magic_video_transcode_concurrency: int = Field(1, alias="MAGIC_VIDEO_TRANSCODE_CONCURRENCY")
     magic_video_max_size_mb: int = Field(DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, alias="MAGIC_VIDEO_MAX_SIZE_MB")
     live_comment_block_words: str = Field(
         "赌博,诈骗,色情,暴力,辱骂",

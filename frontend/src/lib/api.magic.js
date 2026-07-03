@@ -25,10 +25,11 @@ function parseDownloadFilename(disposition) {
   return asciiMatch?.[1] || "export.xlsx";
 }
 
-export function buildMagicVideoStreamUrl(videoId) {
+export function buildMagicVideoStreamUrl(videoId, options = {}) {
   const url = new URL(buildApiUrl(`/api/magic-academy/videos/${videoId}/stream`), window.location.origin);
   const token = getToken();
   if (token) url.searchParams.set("access_token", token);
+  if (options.format) url.searchParams.set("format", options.format);
   return url.toString();
 }
 
@@ -148,6 +149,9 @@ export async function publishMagicVideo(id) {
 }
 export async function disableMagicVideo(id) {
   return postJson(`/api/magic-academy/videos/${id}/disable`, {}, "停用视频失败。");
+}
+export async function transcodeMagicVideoHls(id, payload = {}) {
+  return postJson(`/api/magic-academy/videos/${id}/transcode-hls`, payload, "启动视频播放文件生成失败。");
 }
 export async function batchPublishMagicVideos(ids) {
   return postJson("/api/magic-academy/videos/batch-publish", { ids }, "批量发布视频失败。");

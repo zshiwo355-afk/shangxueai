@@ -973,6 +973,8 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
               <ResponsiveVideoPlayer
                 videoRef={videoRef}
                 src={buildMagicVideoStreamUrl(videoDetail.id)}
+                fallbackSrc={buildMagicVideoStreamUrl(videoDetail.id, { format: "mp4" })}
+                preferHls={videoDetail.transcode_status === "completed" && Boolean(videoDetail.hls_url)}
                 poster={videoDetail.cover_url || ""}
                 onLoadedMetadata={handleVideoLoaded}
                 onTimeUpdate={handleTimeUpdate}

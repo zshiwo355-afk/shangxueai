@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote, urlencode
 
-from fastapi import Depends, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,7 @@ from ..models import (
 )
 from ..points_service import grant_points
 from . import router
-from ._oss import _build_signed_stream_url
+from ._oss import _build_signed_stream_url, _download_oss_object, settings
 from ._utils import (
     SOURCE_MANUAL,
     SOURCE_WHITELIST_AUTO_CORRECT,
@@ -62,6 +63,33 @@ from ._video_helpers import (
 
 MAX_PROGRESS_SPEED_MULTIPLIER = 2.0
 MAX_PROGRESS_SKEW_SECONDS = 10.0
+HLS_INDEX_FILENAME = "index.m3u8"
+
+
+def _backend_hls_asset_url(video_id: int, asset_name: str, access_token: str = "") -> str:
+    query = f"?{urlencode({'access_token': access_token})}" if access_token else ""
+    return f"/api/magic-academy/videos/{int(video_id)}/hls/{quote(asset_name, safe='')}{query}"
+
+
+def _rewrite_hls_playlist(playlist: str, video_id: int, access_token: str = "") -> str:
+    lines: list[str] = []
+    for raw_line in playlist.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "://" in line or line.startswith("/"):
+            lines.append(raw_line)
+            continue
+        asset_name = line.rsplit("/", 1)[-1]
+        lines.append(_backend_hls_asset_url(video_id, asset_name, access_token))
+    return "\n".join(lines) + ("\n" if playlist.endswith("\n") else "")
+
+
+def _validate_hls_asset_name(asset_name: str) -> str:
+    clean = (asset_name or "").strip()
+    if clean == HLS_INDEX_FILENAME:
+        return clean
+    if clean.startswith("segment_") and clean.endswith(".ts") and "/" not in clean and "\\" not in clean:
+        return clean
+    raise HTTPException(status_code=404, detail="HLS asset not found.")
 
 
 def _clamp_trusted_progress(
@@ -198,11 +226,27 @@ async def get_my_video_detail(
 @router.get("/videos/{video_id}/stream", response_model=None)
 async def stream_video(
     video_id: int,
+    request: Request,
+    format_: str = Query("auto", alias="format"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> FileResponse | RedirectResponse:
     video = await _get_video_or_404(db, video_id)
     await _ensure_video_access(db, video, user)
+    stream_format = (format_ or "auto").strip().lower()
+    if stream_format not in {"auto", "hls", "mp4"}:
+        raise HTTPException(status_code=400, detail="Unsupported video stream format.")
+    if stream_format != "mp4" and (video.transcode_status or "").strip().lower() == "completed":
+        hls_url = (video.hls_url or "").strip()
+        if hls_url:
+            hls_prefix = (video.hls_object_prefix or "").strip()
+            if hls_prefix and not (settings.oss_cdn_base_url or "").strip():
+                access_token = request.query_params.get("access_token") or ""
+                return RedirectResponse(
+                    _backend_hls_asset_url(video.id, HLS_INDEX_FILENAME, access_token),
+                    status_code=307,
+                )
+            return RedirectResponse(hls_url, status_code=307)
     if (video.storage_type or "local") == "oss" and video.oss_object_key:
         signed_url = await asyncio.to_thread(_build_signed_stream_url, video.oss_object_key)
         return RedirectResponse(signed_url, status_code=307)
@@ -210,6 +254,41 @@ async def stream_video(
     if not path.exists():
         raise HTTPException(status_code=404, detail="视频文件不存在。")
     return FileResponse(path, media_type=video.mime_type or "video/mp4", filename=video.file_name)
+
+
+@router.get("/videos/{video_id}/hls/{asset_name}", response_model=None)
+async def stream_hls_asset(
+    video_id: int,
+    asset_name: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response | RedirectResponse:
+    video = await _get_video_or_404(db, video_id)
+    await _ensure_video_access(db, video, user)
+    if (video.transcode_status or "").strip().lower() != "completed":
+        raise HTTPException(status_code=404, detail="HLS is not ready.")
+    hls_prefix = (video.hls_object_prefix or "").strip()
+    if not hls_prefix:
+        raise HTTPException(status_code=404, detail="HLS asset not found.")
+
+    clean_asset_name = _validate_hls_asset_name(asset_name)
+    object_key = f"{hls_prefix}/{clean_asset_name}"
+    if clean_asset_name == HLS_INDEX_FILENAME:
+        playlist_bytes = await asyncio.to_thread(_download_oss_object, object_key)
+        try:
+            playlist = playlist_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=500, detail="Invalid HLS playlist.") from exc
+        access_token = request.query_params.get("access_token") or ""
+        return Response(
+            _rewrite_hls_playlist(playlist, video.id, access_token),
+            media_type="application/vnd.apple.mpegurl",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    signed_url = await asyncio.to_thread(_build_signed_stream_url, object_key)
+    return RedirectResponse(signed_url, status_code=307)
 
 
 @router.post("/my/videos/{video_id}/progress")

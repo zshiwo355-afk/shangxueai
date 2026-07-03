@@ -16,6 +16,7 @@ import {
   listMagicWhitelist,
   publishMagicVideo,
   retryCoursePush,
+  transcodeMagicVideoHls,
 } from "../../../../lib/api.magic";
 import {
   buildAdminVideoColumns,
@@ -77,6 +78,7 @@ export default function useCourseAdminSupport({
   const [adminVideoTotal, setAdminVideoTotal] = useState(0);
   const [publishingVideoId, setPublishingVideoId] = useState(null);
   const [disablingVideoId, setDisablingVideoId] = useState(null);
+  const [transcodingVideoId, setTranscodingVideoId] = useState(null);
   const [videoPushSummaryMap, setVideoPushSummaryMap] = useState({});
   const [coursePushDetailOpen, setCoursePushDetailOpen] = useState(false);
   const [coursePushDetailLoading, setCoursePushDetailLoading] = useState(false);
@@ -255,6 +257,25 @@ export default function useCourseAdminSupport({
     }
   }, [message, reloadAdminData]);
 
+  const handleTranscodeVideoHls = useCallback(async (videoId, force = false) => {
+    try {
+      setTranscodingVideoId(videoId);
+      const result = await transcodeMagicVideoHls(videoId, { force });
+      if (result?.queued) {
+        message.success("视频播放文件已加入生成队列");
+      } else if (result?.transcode_status === "completed") {
+        message.info("该视频播放文件已生成完成");
+      } else {
+        message.info("视频播放文件生成任务已存在");
+      }
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "启动视频播放文件生成失败。");
+    } finally {
+      setTranscodingVideoId(null);
+    }
+  }, [message, reloadAdminData]);
+
   const handleBatchPublishVideos = useCallback(async () => {
     if (!selectedAdminVideoRowKeys.length) {
       message.warning("请先选择要发布的视频。");
@@ -324,10 +345,12 @@ export default function useCourseAdminSupport({
       setVideoModal,
       handlePublishVideo,
       handleDisableVideo,
+      handleTranscodeVideoHls,
       deleteMagicVideo,
       reloadAdminData,
       publishingVideoId,
       disablingVideoId,
+      transcodingVideoId,
       videoPushSummaryMap,
       handleOpenVideoPushDetail,
       handleRetryVideoPush,
@@ -339,11 +362,13 @@ export default function useCourseAdminSupport({
       handleOpenVideoPushDetail,
       handlePublishVideo,
       handleRetryVideoPush,
+      handleTranscodeVideoHls,
       openAdminVideoDetail,
       publishingVideoId,
       reloadAdminData,
       retryingVideoId,
       setVideoModal,
+      transcodingVideoId,
       videoPushSummaryMap,
     ],
   );
@@ -486,6 +511,7 @@ export default function useCourseAdminSupport({
       users,
       publishingVideoId,
       disablingVideoId,
+      transcodingVideoId,
     },
     adminVideoActions: {
       setVideoModal,
@@ -498,6 +524,7 @@ export default function useCourseAdminSupport({
       setStatsUserId,
       handlePublishVideo,
       handleDisableVideo,
+      handleTranscodeVideoHls,
       handleBatchPublishVideos,
       handleBatchDisableVideos,
       handleBatchDeleteVideos,
@@ -524,6 +551,7 @@ export default function useCourseAdminSupport({
     backToAdminVideoList,
     handlePublishVideo,
     handleDisableVideo,
+    handleTranscodeVideoHls,
     handleBatchPublishVideos,
     handleBatchDisableVideos,
     handleBatchDeleteVideos,

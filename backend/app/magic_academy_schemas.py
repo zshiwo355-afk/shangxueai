@@ -192,6 +192,10 @@ class MagicVideoUploadStatusPayload(BaseModel):
     upload_id: str = Field(..., min_length=1, max_length=255)
 
 
+class MagicVideoTranscodePayload(BaseModel):
+    force: bool = False
+
+
 class MagicVideoCoverGeneratePayload(BaseModel):
     title: str = Field(default="", max_length=255)
     description: str = Field(default="", max_length=5000)

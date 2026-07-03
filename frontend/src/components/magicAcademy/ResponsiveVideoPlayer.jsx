@@ -1,9 +1,12 @@
 import { PlayCircleFilled } from "@ant-design/icons";
+import Hls from "hls.js";
 import { useEffect, useRef, useState } from "react";
 
 export default function ResponsiveVideoPlayer({
   videoRef,
   src,
+  fallbackSrc,
+  preferHls = false,
   poster,
   onLoadedMetadata,
   onTimeUpdate,
@@ -19,6 +22,49 @@ export default function ResponsiveVideoPlayer({
   useEffect(() => {
     setShowPosterOverlay(Boolean(poster));
   }, [poster, src]);
+
+  useEffect(() => {
+    const video = resolvedVideoRef?.current;
+    if (!video || !src) return undefined;
+    let hls = null;
+    let fallbackLoaded = false;
+    const shouldUseHls = Boolean(preferHls) || /\.m3u8($|\?)/i.test(src);
+    const loadPlainSource = (nextSrc) => {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+      video.src = nextSrc;
+      video.load();
+    };
+    const loadFallback = () => {
+      if (!fallbackSrc || fallbackSrc === src || fallbackLoaded) return false;
+      fallbackLoaded = true;
+      loadPlainSource(fallbackSrc);
+      return true;
+    };
+    const handleNativeError = () => {
+      if (shouldUseHls) loadFallback();
+    };
+    video.addEventListener("error", handleNativeError);
+    if (shouldUseHls && Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true });
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (!data?.fatal) return;
+        loadFallback();
+      });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+    } else {
+      loadPlainSource(src);
+    }
+    return () => {
+      video.removeEventListener("error", handleNativeError);
+      if (hls) hls.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [fallbackSrc, preferHls, resolvedVideoRef, src]);
 
   const handlePlay = (event) => {
     setShowPosterOverlay(false);
@@ -51,7 +97,6 @@ export default function ResponsiveVideoPlayer({
       ) : null}
       <video
         ref={resolvedVideoRef}
-        src={src}
         poster={poster || undefined}
         controls
         className="magic-video-player"
