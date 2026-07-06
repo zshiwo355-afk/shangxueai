@@ -56,11 +56,11 @@ function renderSelectTagWithTooltip({ label, closable, onClose }) {
 }
 
 const TRANSCODE_STATUS_META = {
-  completed: { color: "success", text: "播放优化完成", actionText: "重新生成播放文件", force: true },
-  failed: { color: "error", text: "转码失败", actionText: "重新生成播放文件", force: true },
-  pending: { color: "processing", text: "等待转码", actionText: "重新排队转码", force: true },
-  processing: { color: "processing", text: "正在转码", actionText: "重新排队转码", force: true },
-  none: { color: "default", text: "未转码", actionText: "生成播放文件", force: false },
+  completed: { color: "success", text: "低流量播放已生成", actionText: "重新压缩", force: true },
+  failed: { color: "error", text: "压缩失败", actionText: "重新压缩", force: true },
+  pending: { color: "processing", text: "等待压缩", actionText: "已加入压缩队列", force: false, busy: true },
+  processing: { color: "processing", text: "正在压缩", actionText: "压缩中", force: false, busy: true },
+  none: { color: "default", text: "未压缩", actionText: "生成低流量文件", force: false },
 };
 
 function getTranscodeStatusMeta(status) {
@@ -184,7 +184,7 @@ export function buildAdminCoursesTabItems({
                   <courseAdminDeps.ResponsiveVideoPlayer
                     src={courseAdminDeps.buildMagicVideoStreamUrl(selectedAdminVideo.id)}
                     fallbackSrc={courseAdminDeps.buildMagicVideoStreamUrl(selectedAdminVideo.id, { format: "mp4" })}
-                    preferHls={selectedAdminVideo.transcode_status === "completed" && Boolean(selectedAdminVideo.hls_url)}
+                    preferHls={Boolean(selectedAdminVideo.hls_url)}
                     poster={selectedAdminVideo.cover_url || ""}
                   />
                   <Space wrap>
@@ -200,11 +200,16 @@ export function buildAdminCoursesTabItems({
                     <Button
                       size="small"
                       loading={transcodingVideoId === selectedAdminVideo.id}
-                      disabled={selectedAdminVideo.upload_status !== "completed"}
+                      disabled={selectedAdminVideo.upload_status !== "completed" || selectedAdminVideoTranscodeMeta.busy}
                       onClick={() => handleTranscodeVideoHls(selectedAdminVideo.id, selectedAdminVideoTranscodeMeta.force)}
                     >
                       {selectedAdminVideoTranscodeMeta.actionText}
                     </Button>
+                    {selectedAdminVideo.hls_url ? (
+                      <Text type="secondary">当前播放优先使用低流量文件</Text>
+                    ) : (
+                      <Text type="warning">未生成前仍会播放原片，流量较高</Text>
+                    )}
                   </Space>
                   {selectedAdminVideo.cover_url ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

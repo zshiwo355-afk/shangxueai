@@ -3,6 +3,21 @@ import { Button, Image, Popconfirm, Space, Tag } from "antd";
 import { formatTime, getVideoStatusMeta } from "./magicAcademyShared";
 import PushStatusCell from "./shared/PushStatusCell";
 
+function getLowTrafficMeta(status) {
+  switch (String(status || "none").toLowerCase()) {
+    case "completed":
+      return { color: "success", text: "已生成" };
+    case "pending":
+      return { color: "processing", text: "排队中" };
+    case "processing":
+      return { color: "processing", text: "压缩中" };
+    case "failed":
+      return { color: "error", text: "失败" };
+    default:
+      return { color: "default", text: "未生成" };
+  }
+}
+
 export function buildStatsColumns(showWhitelist = false) {
   const columns = [
     { title: "姓名", dataIndex: "name" },
@@ -87,6 +102,14 @@ export function buildAdminVideoColumns({
       },
     },
     { title: "上传", dataIndex: "upload_status", render: (v) => <Tag color={v === "completed" ? "success" : v === "failed" ? "error" : "processing"}>{v || "completed"}</Tag> },
+    {
+      title: "低流量",
+      dataIndex: "transcode_status",
+      render: (value) => {
+        const meta = getLowTrafficMeta(value);
+        return <Tag color={meta.color}>{meta.text}</Tag>;
+      },
+    },
     { title: "必修", dataIndex: "is_required", render: (v) => v ? <Tag color="gold">必修</Tag> : "—" },
     {
       title: "推送",

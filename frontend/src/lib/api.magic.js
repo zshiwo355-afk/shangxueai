@@ -102,6 +102,9 @@ export async function listMagicVideos(params = {}) {
   if (!response.ok) await throwRequestError(response, "视频列表加载失败。");
   return parseJsonResponse(response, "视频列表加载失败。");
 }
+export async function getMagicVideo(id) {
+  return getJson(`/api/magic-academy/videos/${id}`, "视频详情加载失败。");
+}
 export async function createMagicVideo(payload) {
   return postJson("/api/magic-academy/videos", payload, "新建视频失败。");
 }

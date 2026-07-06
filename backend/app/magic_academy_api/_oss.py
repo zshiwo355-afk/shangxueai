@@ -452,6 +452,27 @@ def _download_oss_object(object_key: str) -> bytes:
     return bucket.get_object(object_key).read()
 
 
+def _download_oss_object_to_file(object_key: str, file_path: str | Path, *, chunk_size: int = 8 * 1024 * 1024) -> int:
+    bucket = _build_oss_bucket(connect_timeout=600)
+    target = Path(file_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    oss_object = bucket.get_object(object_key)
+    written = 0
+    try:
+        with target.open("wb") as output:
+            while True:
+                chunk = oss_object.read(chunk_size)
+                if not chunk:
+                    break
+                output.write(chunk)
+                written += len(chunk)
+    finally:
+        close = getattr(oss_object, "close", None)
+        if callable(close):
+            close()
+    return written
+
+
 def _abort_multipart_upload(object_key: str, upload_id: str) -> None:
     bucket = _build_oss_bucket()
     bucket.abort_multipart_upload(object_key, upload_id)
@@ -512,6 +533,7 @@ __all__ = [
     "_upload_binary_to_oss",
     "_upload_file_to_oss",
     "_download_oss_object",
+    "_download_oss_object_to_file",
     "_abort_multipart_upload",
     "_delete_oss_object",
     "_delete_oss_prefix",

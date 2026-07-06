@@ -236,17 +236,16 @@ async def stream_video(
     stream_format = (format_ or "auto").strip().lower()
     if stream_format not in {"auto", "hls", "mp4"}:
         raise HTTPException(status_code=400, detail="Unsupported video stream format.")
-    if stream_format != "mp4" and (video.transcode_status or "").strip().lower() == "completed":
-        hls_url = (video.hls_url or "").strip()
-        if hls_url:
-            hls_prefix = (video.hls_object_prefix or "").strip()
-            if hls_prefix and not (settings.oss_cdn_base_url or "").strip():
-                access_token = request.query_params.get("access_token") or ""
-                return RedirectResponse(
-                    _backend_hls_asset_url(video.id, HLS_INDEX_FILENAME, access_token),
-                    status_code=307,
-                )
-            return RedirectResponse(hls_url, status_code=307)
+    hls_url = (video.hls_url or "").strip()
+    if stream_format != "mp4" and hls_url:
+        hls_prefix = (video.hls_object_prefix or "").strip()
+        if hls_prefix and not (settings.oss_cdn_base_url or "").strip():
+            access_token = request.query_params.get("access_token") or ""
+            return RedirectResponse(
+                _backend_hls_asset_url(video.id, HLS_INDEX_FILENAME, access_token),
+                status_code=307,
+            )
+        return RedirectResponse(hls_url, status_code=307)
     if (video.storage_type or "local") == "oss" and video.oss_object_key:
         signed_url = await asyncio.to_thread(_build_signed_stream_url, video.oss_object_key)
         return RedirectResponse(signed_url, status_code=307)
@@ -266,10 +265,8 @@ async def stream_hls_asset(
 ) -> Response | RedirectResponse:
     video = await _get_video_or_404(db, video_id)
     await _ensure_video_access(db, video, user)
-    if (video.transcode_status or "").strip().lower() != "completed":
-        raise HTTPException(status_code=404, detail="HLS is not ready.")
     hls_prefix = (video.hls_object_prefix or "").strip()
-    if not hls_prefix:
+    if not hls_prefix or not (video.hls_url or "").strip():
         raise HTTPException(status_code=404, detail="HLS asset not found.")
 
     clean_asset_name = _validate_hls_asset_name(asset_name)

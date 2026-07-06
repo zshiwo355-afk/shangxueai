@@ -149,11 +149,17 @@ class Settings(BaseSettings):
     magic_video_hls_segment_seconds: int = Field(6, alias="MAGIC_VIDEO_HLS_SEGMENT_SECONDS")
     magic_video_hls_height: int = Field(720, alias="MAGIC_VIDEO_HLS_HEIGHT")
     magic_video_hls_crf: int = Field(23, alias="MAGIC_VIDEO_HLS_CRF")
+    magic_video_hls_video_bitrate: str = Field("1400k", alias="MAGIC_VIDEO_HLS_VIDEO_BITRATE")
+    magic_video_hls_maxrate: str = Field("1800k", alias="MAGIC_VIDEO_HLS_MAXRATE")
+    magic_video_hls_bufsize: str = Field("3600k", alias="MAGIC_VIDEO_HLS_BUFSIZE")
     magic_video_hls_preset: str = Field("veryfast", alias="MAGIC_VIDEO_HLS_PRESET")
     magic_video_hls_audio_bitrate: str = Field("128k", alias="MAGIC_VIDEO_HLS_AUDIO_BITRATE")
     magic_video_transcode_timeout_seconds: int = Field(0, alias="MAGIC_VIDEO_TRANSCODE_TIMEOUT_SECONDS")
     magic_video_transcode_source_expire_seconds: int = Field(172800, alias="MAGIC_VIDEO_TRANSCODE_SOURCE_EXPIRE_SECONDS")
     magic_video_transcode_concurrency: int = Field(1, alias="MAGIC_VIDEO_TRANSCODE_CONCURRENCY")
+    magic_video_transcode_poll_seconds: int = Field(15, alias="MAGIC_VIDEO_TRANSCODE_POLL_SECONDS")
+    magic_video_transcode_stale_seconds: int = Field(900, alias="MAGIC_VIDEO_TRANSCODE_STALE_SECONDS")
+    magic_video_transcode_tmp_dir: str = Field("", alias="MAGIC_VIDEO_TRANSCODE_TMP_DIR")
     magic_video_max_size_mb: int = Field(DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, alias="MAGIC_VIDEO_MAX_SIZE_MB")
     live_comment_block_words: str = Field(
         "赌博,诈骗,色情,暴力,辱骂",

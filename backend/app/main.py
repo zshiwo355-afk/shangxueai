@@ -28,6 +28,7 @@ from .exams_api import (
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
+from .magic_academy_api._hls import ensure_video_hls_transcode_worker, stop_video_hls_transcode_worker
 from .live_api import (
     admin_router as live_admin_router,
     get_public_live_meta,
@@ -162,6 +163,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 @app.on_event("startup")
 async def _preload_rules() -> None:
     global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
+    ensure_video_hls_transcode_worker()
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -229,6 +231,7 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("deadline reminder worker stopped with error")
         finally:
             _deadline_reminder_task = None
+    await stop_video_hls_transcode_worker()
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

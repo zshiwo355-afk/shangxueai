@@ -1,5 +1,5 @@
 import { Modal } from "antd";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { adminListUsers } from "../../../../lib/api.admin";
 import {
@@ -11,6 +11,7 @@ import {
   disableMagicVideo,
   getCoursePushEntries,
   getCoursePushSummary,
+  getMagicVideo,
   listMagicVideoSeries,
   listMagicVideos,
   listMagicWhitelist,
@@ -24,6 +25,8 @@ import {
   buildWhitelistColumns,
 } from "../../adminColumns";
 import { saveBlob } from "../../magicAcademyShared";
+
+const TRANSCODE_STATUS_POLL_INTERVAL_MS = 10000;
 
 export default function useCourseAdminSupport({
   adminMode,
@@ -92,6 +95,23 @@ export default function useCourseAdminSupport({
     [selectedAdminVideoId, videos],
   );
 
+  const refreshAdminVideoSnapshot = useCallback(async (videoId) => {
+    const video = await getMagicVideo(videoId);
+    setVideos((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      if (rows.some((item) => item.id === video.id)) {
+        return rows.map((item) => (item.id === video.id ? video : item));
+      }
+      return [video, ...rows];
+    });
+    setAdminVideoItems((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      if (!rows.some((item) => item.id === video.id)) return rows;
+      return rows.map((item) => (item.id === video.id ? video : item));
+    });
+    return video;
+  }, [setVideos]);
+
   const loadVideoPushSummaries = useCallback(async (items) => {
     const rows = Array.isArray(items) ? items : [];
     const summaries = await Promise.all(
@@ -146,6 +166,31 @@ export default function useCourseAdminSupport({
     statsVideoId,
     superAdminMode,
   ]);
+
+  useEffect(() => {
+    const status = String(selectedAdminVideo?.transcode_status || "none").toLowerCase();
+    if (!selectedAdminVideo?.id || !["pending", "processing"].includes(status)) return undefined;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const video = await refreshAdminVideoSnapshot(selectedAdminVideo.id);
+        const nextStatus = String(video?.transcode_status || "none").toLowerCase();
+        if (!cancelled && !["pending", "processing"].includes(nextStatus)) {
+          await reloadAdminData();
+        }
+      } catch {
+        // Keep the current visible state; the next poll or manual refresh can recover.
+      }
+    };
+
+    poll();
+    const timer = window.setInterval(poll, TRANSCODE_STATUS_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshAdminVideoSnapshot, reloadAdminData, selectedAdminVideo?.id, selectedAdminVideo?.transcode_status]);
 
   const refreshVideoPushSummary = useCallback(async (videoId) => {
     try {
@@ -262,15 +307,15 @@ export default function useCourseAdminSupport({
       setTranscodingVideoId(videoId);
       const result = await transcodeMagicVideoHls(videoId, { force });
       if (result?.queued) {
-        message.success("视频播放文件已加入生成队列");
+        message.success("低流量播放文件已加入压缩队列");
       } else if (result?.transcode_status === "completed") {
-        message.info("该视频播放文件已生成完成");
+        message.info("该视频已有低流量播放文件");
       } else {
-        message.info("视频播放文件生成任务已存在");
+        message.info("低流量播放文件压缩任务已存在");
       }
       await reloadAdminData();
     } catch (error) {
-      message.error(error?.message || "启动视频播放文件生成失败。");
+      message.error(error?.message || "启动低流量播放文件压缩失败。");
     } finally {
       setTranscodingVideoId(null);
     }
