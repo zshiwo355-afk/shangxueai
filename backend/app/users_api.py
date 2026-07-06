@@ -293,20 +293,21 @@ async def _attach_sync_issue_info(db: AsyncSession, users: list[UserDTO]) -> lis
     if not users:
         return users
     user_ids = [int(user.id) for user in users]
+    latest_entry_ids = (
+        select(func.max(WecomSyncEntry.id).label("id"))
+        .where(WecomSyncEntry.user_id.in_(user_ids))
+        .group_by(WecomSyncEntry.user_id)
+        .subquery()
+    )
     entries = (
         await db.execute(
             select(WecomSyncEntry)
-            .where(WecomSyncEntry.user_id.in_(user_ids))
-            .order_by(WecomSyncEntry.user_id.asc(), WecomSyncEntry.id.desc())
+            .join(latest_entry_ids, WecomSyncEntry.id == latest_entry_ids.c.id)
         )
     ).scalars().all()
-    latest_by_user_id: dict[int, WecomSyncEntry] = {}
-    for entry in entries:
-        if entry.user_id is None:
-            continue
-        key = int(entry.user_id)
-        if key not in latest_by_user_id:
-            latest_by_user_id[key] = entry
+    latest_by_user_id: dict[int, WecomSyncEntry] = {
+        int(entry.user_id): entry for entry in entries if entry.user_id is not None
+    }
     for user in users:
         latest = latest_by_user_id.get(int(user.id))
         if latest is None:
@@ -340,6 +341,7 @@ def _assert_manageable(actor: User, target: User) -> None:
 
 @router.get("", response_model=list[UserDTO])
 async def list_users(
+    include_sync_issues: bool = Query(False, description="是否附带最近一次企微同步异常信息。下拉选人场景应保持 false。"),
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[UserDTO]:
@@ -352,7 +354,10 @@ async def list_users(
     if not is_super_admin(admin):
         stmt = stmt.where(User.role != "super_admin")
     result = await db.execute(stmt)
-    return await _attach_sync_issue_info(db, [_to_dto(u) for u in result.scalars().all()])
+    items = [_to_dto(u) for u in result.scalars().all()]
+    if include_sync_issues:
+        return await _attach_sync_issue_info(db, items)
+    return items
 
 
 @router.get("/search", response_model=UserPageResponse)

@@ -307,7 +307,7 @@ export function buildAdminCoursesTabItems({
         <>
           <div style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Space wrap>
-              <span style={{ color: "var(--text-mute)" }}>共 {videos.length} 个视频</span>
+              <span style={{ color: "var(--text-mute)" }}>共 {adminVideoTotal || adminVideoItems.length || videos.length} 个视频</span>
               <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchPublishVideos}>批量发布</Button>
               <Button disabled={!selectedAdminVideoRowKeys.length} onClick={handleBatchDisableVideos}>批量下架</Button>
               <Popconfirm

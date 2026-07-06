@@ -32,8 +32,8 @@ function toQs(params) {
 }
 
 // ---- 用户 ----
-export async function adminListUsers() {
-  return getJson("/api/admin/users", "用户列表加载失败。");
+export async function adminListUsers(params = {}) {
+  return getJson(`/api/admin/users${toQs(params)}`, "用户列表加载失败。");
 }
 export async function adminSearchUsers(params = {}) {
   return getJson(`/api/admin/users/search${toQs(params)}`, "用户列表加载失败。");

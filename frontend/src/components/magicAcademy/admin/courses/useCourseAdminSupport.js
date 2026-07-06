@@ -1,5 +1,5 @@
 import { Modal } from "antd";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { adminListUsers } from "../../../../lib/api.admin";
 import {
@@ -11,7 +11,6 @@ import {
   disableMagicVideo,
   getCoursePushEntries,
   getCoursePushSummary,
-  getMagicVideo,
   listMagicVideoSeries,
   listMagicVideos,
   listMagicWhitelist,
@@ -26,7 +25,19 @@ import {
 } from "../../adminColumns";
 import { saveBlob } from "../../magicAcademyShared";
 
-const TRANSCODE_STATUS_POLL_INTERVAL_MS = 10000;
+function getListItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  return [];
+}
+
+function getListTotal(payload, fallback = 0) {
+  const value = payload?.total ?? payload?.data?.total;
+  const total = Number(value);
+  return Number.isFinite(total) ? total : fallback;
+}
 
 export default function useCourseAdminSupport({
   adminMode,
@@ -95,64 +106,48 @@ export default function useCourseAdminSupport({
     [selectedAdminVideoId, videos],
   );
 
-  const refreshAdminVideoSnapshot = useCallback(async (videoId) => {
-    const video = await getMagicVideo(videoId);
-    setVideos((prev) => {
-      const rows = Array.isArray(prev) ? prev : [];
-      if (rows.some((item) => item.id === video.id)) {
-        return rows.map((item) => (item.id === video.id ? video : item));
-      }
-      return [video, ...rows];
-    });
-    setAdminVideoItems((prev) => {
-      const rows = Array.isArray(prev) ? prev : [];
-      if (!rows.some((item) => item.id === video.id)) return rows;
-      return rows.map((item) => (item.id === video.id ? video : item));
-    });
-    return video;
-  }, [setVideos]);
-
-  const loadVideoPushSummaries = useCallback(async (items) => {
-    const rows = Array.isArray(items) ? items : [];
-    const summaries = await Promise.all(
-      rows.map(async (item) => {
-        try {
-          const result = await getCoursePushSummary(item.id);
-          return [item.id, result?.item || null];
-        } catch {
-          return [item.id, null];
-        }
-      }),
-    );
-    setVideoPushSummaryMap(Object.fromEntries(summaries));
-  }, []);
-
   const reloadAdminData = useCallback(async () => {
     if (!adminMode) return;
-    const [userData, videoData, pagedVideoData, whitelistData, seriesData] = await Promise.all([
-      adminListUsers(),
-      listMagicVideos(),
-      listMagicVideos({ page: adminVideoPage, page_size: adminVideoPageSize }),
-      superAdminMode ? listMagicWhitelist() : Promise.resolve([]),
-      listMagicVideoSeries(),
-    ]);
-    setUsers(Array.isArray(userData) ? userData : []);
-    setVideos(Array.isArray(videoData) ? videoData : []);
-    const adminVideoList = Array.isArray(pagedVideoData?.items) ? pagedVideoData.items : (Array.isArray(pagedVideoData) ? pagedVideoData : []);
+    const pagedVideoData = await listMagicVideos({ page: adminVideoPage, page_size: adminVideoPageSize });
+    const adminVideoList = getListItems(pagedVideoData);
     setAdminVideoItems(adminVideoList);
-    setAdminVideoTotal(Number(pagedVideoData?.total ?? (Array.isArray(pagedVideoData) ? pagedVideoData.length : 0)));
+    setAdminVideoTotal(getListTotal(pagedVideoData, adminVideoList.length));
     setSelectedAdminVideoRowKeys([]);
-    setWhitelist(Array.isArray(whitelistData) ? whitelistData : []);
-    setVideoSeries(Array.isArray(seriesData) ? seriesData : []);
-    await loadVideoPushSummaries(adminVideoList);
-    if (!statsVideoId && videoData?.[0]?.id) setStatsVideoId(videoData[0].id);
-    if (!quizVideoId && videoData?.[0]?.id) setQuizVideoId(videoData[0].id);
-    if (!selectedSeriesId && seriesData?.[0]?.id) setSelectedSeriesId(seriesData[0].id);
+    setVideoPushSummaryMap({});
+
+    void (async () => {
+      const [userResult, videoResult, whitelistResult, seriesResult] = await Promise.allSettled([
+        adminListUsers(),
+        listMagicVideos(),
+        superAdminMode ? listMagicWhitelist() : Promise.resolve([]),
+        listMagicVideoSeries(),
+      ]);
+
+      if (userResult.status === "fulfilled") {
+        setUsers(Array.isArray(userResult.value) ? userResult.value : []);
+      }
+
+      if (videoResult.status === "fulfilled") {
+        const videoList = getListItems(videoResult.value);
+        setVideos(videoList);
+        if (!statsVideoId && videoList?.[0]?.id) setStatsVideoId(videoList[0].id);
+        if (!quizVideoId && videoList?.[0]?.id) setQuizVideoId(videoList[0].id);
+      }
+
+      if (whitelistResult.status === "fulfilled") {
+        setWhitelist(Array.isArray(whitelistResult.value) ? whitelistResult.value : []);
+      }
+
+      if (seriesResult.status === "fulfilled") {
+        const seriesList = Array.isArray(seriesResult.value) ? seriesResult.value : [];
+        setVideoSeries(seriesList);
+        if (!selectedSeriesId && seriesList?.[0]?.id) setSelectedSeriesId(seriesList[0].id);
+      }
+    })();
   }, [
     adminMode,
     adminVideoPage,
     adminVideoPageSize,
-    loadVideoPushSummaries,
     quizVideoId,
     selectedSeriesId,
     setQuizVideoId,
@@ -166,31 +161,6 @@ export default function useCourseAdminSupport({
     statsVideoId,
     superAdminMode,
   ]);
-
-  useEffect(() => {
-    const status = String(selectedAdminVideo?.transcode_status || "none").toLowerCase();
-    if (!selectedAdminVideo?.id || !["pending", "processing"].includes(status)) return undefined;
-
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const video = await refreshAdminVideoSnapshot(selectedAdminVideo.id);
-        const nextStatus = String(video?.transcode_status || "none").toLowerCase();
-        if (!cancelled && !["pending", "processing"].includes(nextStatus)) {
-          await reloadAdminData();
-        }
-      } catch {
-        // Keep the current visible state; the next poll or manual refresh can recover.
-      }
-    };
-
-    poll();
-    const timer = window.setInterval(poll, TRANSCODE_STATUS_POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshAdminVideoSnapshot, reloadAdminData, selectedAdminVideo?.id, selectedAdminVideo?.transcode_status]);
 
   const refreshVideoPushSummary = useCallback(async (videoId) => {
     try {
@@ -306,8 +276,14 @@ export default function useCourseAdminSupport({
     try {
       setTranscodingVideoId(videoId);
       const result = await transcodeMagicVideoHls(videoId, { force });
-      if (result?.queued) {
-        message.success("低流量播放文件已加入压缩队列");
+      if (result?.transcode_enabled === false) {
+        message.warning("当前已关闭视频压缩，避免影响系统查询速度。");
+      } else if (result?.queued) {
+        if (result?.worker_enabled === false) {
+          message.warning("已加入压缩队列；当前 API 服务未运行压缩 worker，需要单独启动压缩服务处理。");
+        } else {
+          message.success("低流量播放文件已加入压缩队列");
+        }
       } else if (result?.transcode_status === "completed") {
         message.info("该视频已有低流量播放文件");
       } else {

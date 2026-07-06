@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, or_, select, text
 
+from ..config import BACKEND_DIR
 from ..db import session_scope
 from ..models import MagicVideo
 from ._oss import (
@@ -54,6 +55,14 @@ def _hls_root_prefix() -> str:
 
 def _transcode_concurrency() -> int:
     return max(int(settings.magic_video_transcode_concurrency or 1), 1)
+
+
+def _transcode_enabled() -> bool:
+    return bool(getattr(settings, "magic_video_transcode_enabled", False))
+
+
+def _transcode_worker_enabled() -> bool:
+    return _transcode_enabled() and bool(getattr(settings, "magic_video_transcode_worker_enabled", False))
 
 
 def _transcode_poll_seconds() -> int:
@@ -263,7 +272,9 @@ def _transcode_temp_parent() -> str | None:
     configured = str(getattr(settings, "magic_video_transcode_tmp_dir", "") or "").strip()
     if not configured:
         return None
-    path = Path(configured)
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        path = (BACKEND_DIR.parent / path).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return str(path)
 
@@ -506,11 +517,31 @@ async def _claim_next_transcode_job() -> dict[str, Any] | None:
 async def enqueue_video_hls_transcode(video_id: int, *, force: bool = False) -> dict[str, Any]:
     video_id = int(video_id)
     snapshot = await _load_video_for_transcode(video_id)
+    if not _transcode_enabled():
+        return {
+            "queued": False,
+            "video_id": video_id,
+            "transcode_status": snapshot["transcode_status"],
+            "transcode_enabled": False,
+            "worker_enabled": False,
+        }
     if snapshot["transcode_status"] in {"pending", "processing"}:
         ensure_video_hls_transcode_worker()
-        return {"queued": False, "video_id": video_id, "transcode_status": snapshot["transcode_status"]}
+        return {
+            "queued": False,
+            "video_id": video_id,
+            "transcode_status": snapshot["transcode_status"],
+            "transcode_enabled": True,
+            "worker_enabled": _transcode_worker_enabled(),
+        }
     if snapshot["transcode_status"] == "completed" and not force:
-        return {"queued": False, "video_id": video_id, "transcode_status": "completed"}
+        return {
+            "queued": False,
+            "video_id": video_id,
+            "transcode_status": "completed",
+            "transcode_enabled": True,
+            "worker_enabled": _transcode_worker_enabled(),
+        }
 
     async with session_scope() as db:
         video = await db.get(MagicVideo, video_id)
@@ -519,14 +550,32 @@ async def enqueue_video_hls_transcode(video_id: int, *, force: bool = False) -> 
         current_status = (video.transcode_status or "none").strip().lower()
         if current_status in {"pending", "processing"}:
             ensure_video_hls_transcode_worker()
-            return {"queued": False, "video_id": video_id, "transcode_status": current_status}
+            return {
+                "queued": False,
+                "video_id": video_id,
+                "transcode_status": current_status,
+                "transcode_enabled": True,
+                "worker_enabled": _transcode_worker_enabled(),
+            }
         if current_status == "completed" and not force:
-            return {"queued": False, "video_id": video_id, "transcode_status": "completed"}
+            return {
+                "queued": False,
+                "video_id": video_id,
+                "transcode_status": "completed",
+                "transcode_enabled": True,
+                "worker_enabled": _transcode_worker_enabled(),
+            }
         video.transcode_status = "pending"
         video.transcode_error = ""
         video.updated_at = datetime.now()
     ensure_video_hls_transcode_worker()
-    return {"queued": True, "video_id": video_id, "transcode_status": "pending"}
+    return {
+        "queued": True,
+        "video_id": video_id,
+        "transcode_status": "pending",
+        "transcode_enabled": True,
+        "worker_enabled": _transcode_worker_enabled(),
+    }
 
 
 async def video_hls_transcode_worker(stop_event: asyncio.Event) -> None:
@@ -546,8 +595,11 @@ async def video_hls_transcode_worker(stop_event: asyncio.Event) -> None:
         await _run_transcode_job(job)
 
 
-def ensure_video_hls_transcode_worker() -> asyncio.Task:
+def ensure_video_hls_transcode_worker() -> asyncio.Task | None:
     global _worker_stop_event, _worker_task
+    if not _transcode_worker_enabled():
+        logger.info("HLS transcode worker is disabled by MAGIC_VIDEO_TRANSCODE_WORKER_ENABLED.")
+        return None
     if _worker_stop_event is None:
         _worker_stop_event = asyncio.Event()
     if _worker_task is None or _worker_task.done():

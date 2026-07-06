@@ -163,7 +163,10 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 @app.on_event("startup")
 async def _preload_rules() -> None:
     global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
-    ensure_video_hls_transcode_worker()
+    if settings.magic_video_transcode_enabled and settings.magic_video_transcode_worker_enabled:
+        ensure_video_hls_transcode_worker()
+    else:
+        logger.info("HLS transcode worker disabled in API process.")
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
