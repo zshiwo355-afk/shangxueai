@@ -60,6 +60,7 @@ const TRANSCODE_STATUS_META = {
   failed: { color: "error", text: "压缩失败", actionText: "重新压缩", force: true },
   pending: { color: "processing", text: "等待压缩", actionText: "已加入压缩队列", force: false, busy: true },
   processing: { color: "processing", text: "正在压缩", actionText: "压缩中", force: false, busy: true },
+  cancelled: { color: "warning", text: "已取消压缩", actionText: "重新压缩", force: true },
   none: { color: "default", text: "未压缩", actionText: "生成低流量文件", force: false },
 };
 
@@ -103,6 +104,8 @@ export function buildAdminCoursesTabItems({
     whitelistColumns,
     users,
     transcodingVideoId,
+    syncingTranscodeVideoId,
+    cancelingTranscodeVideoId,
   } = courseAdminState;
 
   const {
@@ -118,6 +121,8 @@ export function buildAdminCoursesTabItems({
     handlePublishVideo,
     handleDisableVideo,
     handleTranscodeVideoHls,
+    handleSyncTranscodeVideo,
+    handleCancelTranscodeVideo,
     handleBatchPublishVideos,
     handleBatchDisableVideos,
     handleBatchDeleteVideos,
@@ -194,17 +199,48 @@ export function buildAdminCoursesTabItems({
                     >
                       {selectedAdminVideoTranscodeMeta.text}
                     </Tag>
+                    {selectedAdminVideo.transcode_provider === "ims" ? (
+                      <Tag bordered={false} color="blue">阿里云</Tag>
+                    ) : null}
+                    {Number(selectedAdminVideo.transcode_progress || 0) > 0 && selectedAdminVideoTranscodeMeta.busy ? (
+                      <Tag bordered={false}>{Math.round(Number(selectedAdminVideo.transcode_progress || 0))}%</Tag>
+                    ) : null}
                     {selectedAdminVideo.transcode_error ? (
                       <Text type="danger" ellipsis style={{ maxWidth: 520 }}>{selectedAdminVideo.transcode_error}</Text>
                     ) : null}
-                    <Button
-                      size="small"
-                      loading={transcodingVideoId === selectedAdminVideo.id}
-                      disabled={selectedAdminVideo.upload_status !== "completed" || selectedAdminVideoTranscodeMeta.busy}
-                      onClick={() => handleTranscodeVideoHls(selectedAdminVideo.id, selectedAdminVideoTranscodeMeta.force)}
-                    >
-                      {selectedAdminVideoTranscodeMeta.actionText}
-                    </Button>
+                    {selectedAdminVideoTranscodeMeta.busy && selectedAdminVideo.transcode_provider === "ims" ? (
+                      <>
+                        <Button
+                          size="small"
+                          loading={syncingTranscodeVideoId === selectedAdminVideo.id}
+                          onClick={() => handleSyncTranscodeVideo(selectedAdminVideo.id)}
+                        >
+                          刷新状态
+                        </Button>
+                        <Button
+                          size="small"
+                          danger
+                          loading={cancelingTranscodeVideoId === selectedAdminVideo.id}
+                          onClick={() => handleCancelTranscodeVideo(selectedAdminVideo.id)}
+                        >
+                          取消压缩
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="small"
+                        loading={transcodingVideoId === selectedAdminVideo.id}
+                        disabled={selectedAdminVideo.upload_status !== "completed"}
+                        onClick={() => handleTranscodeVideoHls(
+                          selectedAdminVideo.id,
+                          selectedAdminVideoTranscodeMeta.force || selectedAdminVideoTranscodeMeta.busy,
+                        )}
+                      >
+                        {selectedAdminVideoTranscodeMeta.busy && selectedAdminVideo.transcode_provider !== "ims"
+                          ? "重新生成低流量文件"
+                          : selectedAdminVideoTranscodeMeta.actionText}
+                      </Button>
+                    )}
                     {selectedAdminVideo.hls_url ? (
                       <Text type="secondary">当前播放优先使用低流量文件</Text>
                     ) : (

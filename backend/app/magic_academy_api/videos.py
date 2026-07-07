@@ -73,6 +73,13 @@ from ._oss import (
     settings,
 )
 from ._hls import enqueue_video_hls_transcode
+from ._ims import (
+    cancel_video_ims_transcode,
+    is_ims_transcode_configured,
+    is_ims_transcode_provider,
+    submit_video_ims_transcode,
+    sync_video_ims_transcode,
+)
 from ._resource_cleanup import schedule_oss_object_cleanup
 from ._utils import UPLOAD_ROOT, VIDEO_DIR, _now, _safe_filename
 from ._video_helpers import (
@@ -88,6 +95,26 @@ from ._video_helpers import (
 
 def _page_payload(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
     return {"items": items, "total": int(total), "page": int(page), "page_size": int(page_size)}
+
+
+def _video_transcode_status_payload(video: MagicVideo, **extra: Any) -> dict[str, Any]:
+    provider = (video.transcode_provider or "").strip() or (
+        "ims" if is_ims_transcode_provider() else "ffmpeg"
+    )
+    payload = {
+        "video_id": int(video.id),
+        "transcode_enabled": bool(settings.magic_video_transcode_enabled or is_ims_transcode_configured()),
+        "provider": provider,
+        "transcode_provider": provider,
+        "transcode_status": (video.transcode_status or "none").strip().lower(),
+        "transcode_error": video.transcode_error or "",
+        "transcode_progress": int(video.transcode_progress or 0),
+        "transcode_job_id": video.transcode_job_id or "",
+        "hls_url": video.hls_url or "",
+        "hls_object_prefix": video.hls_object_prefix or "",
+    }
+    payload.update(extra)
+    return payload
 
 
 UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -127,6 +154,12 @@ async def _refresh_and_serialize_video(
     await db.refresh(video)
     targets_map = await _get_video_targets(db, [video.id])
     return _video_to_dict(video, targets_map.get(video.id, []))
+
+
+async def _submit_video_transcode(video_id: int, *, force: bool = False) -> dict[str, Any]:
+    if force or is_ims_transcode_provider() or is_ims_transcode_configured():
+        return await submit_video_ims_transcode(video_id, force=force)
+    return await enqueue_video_hls_transcode(video_id, force=force)
 
 
 async def _resolve_cover_url(
@@ -552,7 +585,7 @@ async def complete_magic_video_upload(
         response = await _commit_refresh_and_serialize_video(db, video)
         if settings.magic_video_transcode_auto:
             try:
-                queued = await enqueue_video_hls_transcode(int(video.id))
+                queued = await _submit_video_transcode(int(video.id))
                 response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue HLS transcode video_id=%s", video.id)
@@ -685,6 +718,7 @@ async def complete_magic_video_replace_upload(
 
         old_object_key = (video.oss_object_key or "").strip()
         old_hls_object_prefix = (video.hls_object_prefix or "").strip()
+        old_transcode_output_prefix = (video.transcode_output_prefix or "").strip()
         should_delete_old_object = await _should_delete_video_object(db, video)
         old_cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         old_cover_url = (video.cover_url or "").strip()
@@ -734,6 +768,12 @@ async def complete_magic_video_replace_upload(
         video.transcode_status = "none"
         video.transcode_error = ""
         video.transcoded_at = None
+        video.transcode_provider = ""
+        video.transcode_job_id = ""
+        video.transcode_output_prefix = ""
+        video.transcode_output_key = ""
+        video.transcode_progress = 0
+        video.transcode_started_at = None
         video.replacement_upload_id = ""
         video.replacement_object_key = ""
         video.replacement_original_filename = ""
@@ -777,15 +817,17 @@ async def complete_magic_video_replace_upload(
             ],
             logger=logger,
         )
-        if old_hls_object_prefix:
+        for cleanup_prefix in {old_hls_object_prefix, old_transcode_output_prefix}:
+            if not cleanup_prefix:
+                continue
             try:
-                await asyncio.to_thread(_delete_oss_prefix, old_hls_object_prefix)
+                await asyncio.to_thread(_delete_oss_prefix, cleanup_prefix)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
         response = await _refresh_and_serialize_video(db, video)
         if settings.magic_video_transcode_auto:
             try:
-                queued = await enqueue_video_hls_transcode(int(video.id), force=True)
+                queued = await _submit_video_transcode(int(video.id), force=True)
                 response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue replacement HLS transcode video_id=%s", video.id)
@@ -1056,7 +1098,7 @@ async def create_video(
     response = await _commit_refresh_and_serialize_video(db, video)
     if settings.magic_video_transcode_auto and storage_type == "oss" and oss_object_key:
         try:
-            queued = await enqueue_video_hls_transcode(int(video.id))
+            queued = await _submit_video_transcode(int(video.id))
             response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
         except Exception:  # noqa: BLE001
             logger.exception("Failed to enqueue HLS transcode for created video_id=%s", video.id)
@@ -1091,7 +1133,31 @@ async def transcode_video_hls(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     del admin
-    return await enqueue_video_hls_transcode(video_id, force=bool(payload and payload.force))
+    return await _submit_video_transcode(video_id, force=bool(payload and payload.force))
+
+
+@router.post("/videos/{video_id}/transcode-hls/status")
+async def sync_video_hls_transcode_status(
+    video_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    if is_ims_transcode_provider() or is_ims_transcode_configured():
+        return await sync_video_ims_transcode(video_id)
+    video = await _get_video_or_404(db, video_id)
+    return _video_transcode_status_payload(video, synced=False, cloud_sync_supported=False)
+
+
+@router.post("/videos/{video_id}/transcode-hls/cancel")
+async def cancel_video_hls_transcode(
+    video_id: int,
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    if is_ims_transcode_provider() or is_ims_transcode_configured():
+        return await cancel_video_ims_transcode(video_id)
+    raise HTTPException(status_code=400, detail="当前转码方式不支持取消任务。")
 
 
 @router.get("/videos/{video_id}/push-summary")
@@ -1141,6 +1207,7 @@ async def update_video(
         old_status = (video.status or "draft").strip().lower()
         old_object_key = (video.oss_object_key or "").strip()
         old_hls_object_prefix = (video.hls_object_prefix or "").strip()
+        old_transcode_output_prefix = (video.transcode_output_prefix or "").strip()
         old_cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         old_cover_url = (video.cover_url or "").strip()
         next_file_name = payload.file_name.strip() or video.file_name
@@ -1226,6 +1293,12 @@ async def update_video(
             video.transcode_status = "none"
             video.transcode_error = ""
             video.transcoded_at = None
+            video.transcode_provider = ""
+            video.transcode_job_id = ""
+            video.transcode_output_prefix = ""
+            video.transcode_output_key = ""
+            video.transcode_progress = 0
+            video.transcode_started_at = None
         video.cover_url = resolved_cover_url or None
         video.cover_asset_id = _cover_asset_id
         video.material_asset_id = next_material_asset_id
@@ -1252,11 +1325,14 @@ async def update_video(
             [old_cover_cleanup_key if old_cover_url != (video.cover_url or "").strip() else ""],
             logger=logger,
         )
-        if old_hls_object_prefix and (next_oss_object_key or "").strip() != old_object_key:
-            try:
-                await asyncio.to_thread(_delete_oss_prefix, old_hls_object_prefix)
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
+        if (next_oss_object_key or "").strip() != old_object_key:
+            for cleanup_prefix in {old_hls_object_prefix, old_transcode_output_prefix}:
+                if not cleanup_prefix:
+                    continue
+                try:
+                    await asyncio.to_thread(_delete_oss_prefix, cleanup_prefix)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
         response = await _refresh_and_serialize_video(db, video)
         if (
             settings.magic_video_transcode_auto
@@ -1264,7 +1340,7 @@ async def update_video(
             and (next_oss_object_key or "").strip() != old_object_key
         ):
             try:
-                queued = await enqueue_video_hls_transcode(int(video.id), force=True)
+                queued = await _submit_video_transcode(int(video.id), force=True)
                 response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to enqueue HLS transcode for updated video_id=%s", video.id)
@@ -1286,6 +1362,7 @@ async def delete_video(
         should_delete_video_object = await _should_delete_video_object(db, video)
         cover_cleanup_key = await _resolve_video_cover_cleanup_key(db, video)
         hls_cleanup_prefix = (video.hls_object_prefix or "").strip()
+        transcode_cleanup_prefix = (video.transcode_output_prefix or "").strip()
         if (video.storage_type or "local").strip().lower() == "oss":
             if current_upload_status in {"pending", "uploading"} and video.upload_id and video.oss_object_key:
                 try:
@@ -1324,9 +1401,11 @@ async def delete_video(
             ],
             logger=logger,
         )
-        if hls_cleanup_prefix:
+        for cleanup_prefix in {hls_cleanup_prefix, transcode_cleanup_prefix}:
+            if not cleanup_prefix:
+                continue
             try:
-                await asyncio.to_thread(_delete_oss_prefix, hls_cleanup_prefix)
+                await asyncio.to_thread(_delete_oss_prefix, cleanup_prefix)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to cleanup HLS prefix while deleting video %s", video.id)
         return {"success": True}

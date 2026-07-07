@@ -13,6 +13,8 @@ function getLowTrafficMeta(status) {
       return { color: "processing", text: "压缩中" };
     case "failed":
       return { color: "error", text: "失败" };
+    case "cancelled":
+      return { color: "warning", text: "已取消" };
     default:
       return { color: "default", text: "未生成" };
   }

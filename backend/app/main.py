@@ -28,7 +28,7 @@ from .exams_api import (
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
-from .magic_academy_api._hls import ensure_video_hls_transcode_worker, stop_video_hls_transcode_worker
+from .magic_academy_api._hls import stop_video_hls_transcode_worker
 from .live_api import (
     admin_router as live_admin_router,
     get_public_live_meta,
@@ -163,10 +163,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 @app.on_event("startup")
 async def _preload_rules() -> None:
     global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
-    if settings.magic_video_transcode_enabled and settings.magic_video_transcode_worker_enabled:
-        ensure_video_hls_transcode_worker()
-    else:
-        logger.info("HLS transcode worker disabled in API process.")
+    logger.info("Local HLS transcode worker is not started in the API process.")
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)

@@ -87,7 +87,14 @@ def _validate_hls_asset_name(asset_name: str) -> str:
     clean = (asset_name or "").strip()
     if clean == HLS_INDEX_FILENAME:
         return clean
-    if clean.startswith("segment_") and clean.endswith(".ts") and "/" not in clean and "\\" not in clean:
+    if (
+        clean
+        and not clean.startswith(".")
+        and clean.endswith(".ts")
+        and "/" not in clean
+        and "\\" not in clean
+        and ".." not in clean
+    ):
         return clean
     raise HTTPException(status_code=404, detail="HLS asset not found.")
 

@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     oss_cdn_base_url: str = Field("", alias="OSS_CDN_BASE_URL")
     magic_video_hls_prefix: str = Field("", alias="MAGIC_VIDEO_HLS_PREFIX")
     magic_video_transcode_enabled: bool = Field(False, alias="MAGIC_VIDEO_TRANSCODE_ENABLED")
+    magic_video_transcode_provider: str = Field("ffmpeg", alias="MAGIC_VIDEO_TRANSCODE_PROVIDER")
     magic_video_transcode_auto: bool = Field(False, alias="MAGIC_VIDEO_TRANSCODE_AUTO")
     magic_video_transcode_worker_enabled: bool = Field(False, alias="MAGIC_VIDEO_TRANSCODE_WORKER_ENABLED")
     magic_video_ffmpeg_path: str = Field("ffmpeg", alias="MAGIC_VIDEO_FFMPEG_PATH")
@@ -162,6 +163,14 @@ class Settings(BaseSettings):
     magic_video_transcode_poll_seconds: int = Field(15, alias="MAGIC_VIDEO_TRANSCODE_POLL_SECONDS")
     magic_video_transcode_stale_seconds: int = Field(900, alias="MAGIC_VIDEO_TRANSCODE_STALE_SECONDS")
     magic_video_transcode_tmp_dir: str = Field("", alias="MAGIC_VIDEO_TRANSCODE_TMP_DIR")
+    aliyun_ims_access_key_id: str = Field("", alias="ALIYUN_IMS_ACCESS_KEY_ID")
+    aliyun_ims_access_key_secret: str = Field("", alias="ALIYUN_IMS_ACCESS_KEY_SECRET")
+    aliyun_ims_region: str = Field("", alias="ALIYUN_IMS_REGION")
+    aliyun_ims_template_id: str = Field("", alias="ALIYUN_IMS_TEMPLATE_ID")
+    aliyun_ims_pipeline_id: str = Field("", alias="ALIYUN_IMS_PIPELINE_ID")
+    aliyun_ims_output_prefix: str = Field("", alias="ALIYUN_IMS_OUTPUT_PREFIX")
+    aliyun_ims_output_extension: str = Field("m3u8", alias="ALIYUN_IMS_OUTPUT_EXTENSION")
+    aliyun_ims_priority: int = Field(5, alias="ALIYUN_IMS_PRIORITY")
     magic_video_max_size_mb: int = Field(DEFAULT_MAGIC_VIDEO_MAX_SIZE_MB, alias="MAGIC_VIDEO_MAX_SIZE_MB")
     live_comment_block_words: str = Field(
         "赌博,诈骗,色情,暴力,辱骂",

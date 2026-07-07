@@ -1,5 +1,5 @@
 import { Modal } from "antd";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { adminListUsers } from "../../../../lib/api.admin";
 import {
@@ -16,6 +16,8 @@ import {
   listMagicWhitelist,
   publishMagicVideo,
   retryCoursePush,
+  cancelMagicVideoHls,
+  syncMagicVideoHls,
   transcodeMagicVideoHls,
 } from "../../../../lib/api.magic";
 import {
@@ -93,6 +95,8 @@ export default function useCourseAdminSupport({
   const [publishingVideoId, setPublishingVideoId] = useState(null);
   const [disablingVideoId, setDisablingVideoId] = useState(null);
   const [transcodingVideoId, setTranscodingVideoId] = useState(null);
+  const [syncingTranscodeVideoId, setSyncingTranscodeVideoId] = useState(null);
+  const [cancelingTranscodeVideoId, setCancelingTranscodeVideoId] = useState(null);
   const [videoPushSummaryMap, setVideoPushSummaryMap] = useState({});
   const [coursePushDetailOpen, setCoursePushDetailOpen] = useState(false);
   const [coursePushDetailLoading, setCoursePushDetailLoading] = useState(false);
@@ -105,6 +109,23 @@ export default function useCourseAdminSupport({
     () => videos.find((item) => item.id === selectedAdminVideoId) || null,
     [selectedAdminVideoId, videos],
   );
+
+  const mergeTranscodeResult = useCallback((result) => {
+    const videoId = Number(result?.video_id || 0);
+    if (!videoId) return;
+    const patch = {
+      transcode_provider: result.transcode_provider || result.provider || "",
+      transcode_status: result.transcode_status || "none",
+      transcode_error: result.transcode_error || "",
+      transcode_progress: Number(result.transcode_progress || 0),
+      transcode_job_id: result.transcode_job_id || "",
+      hls_url: result.hls_url || "",
+      hls_object_prefix: result.hls_object_prefix || "",
+    };
+    const applyPatch = (items) => items.map((item) => (Number(item.id) === videoId ? { ...item, ...patch } : item));
+    setVideos(applyPatch);
+    setAdminVideoItems(applyPatch);
+  }, [setVideos]);
 
   const reloadAdminData = useCallback(async () => {
     if (!adminMode) return;
@@ -277,17 +298,13 @@ export default function useCourseAdminSupport({
       setTranscodingVideoId(videoId);
       const result = await transcodeMagicVideoHls(videoId, { force });
       if (result?.transcode_enabled === false) {
-        message.warning("当前已关闭视频压缩，避免影响系统查询速度。");
+        message.error("后端仍返回视频压缩已关闭，请重启后端并确认阿里云 IMS 配置已生效。");
       } else if (result?.queued) {
-        if (result?.worker_enabled === false) {
-          message.warning("已加入压缩队列；当前 API 服务未运行压缩 worker，需要单独启动压缩服务处理。");
-        } else {
-          message.success("低流量播放文件已加入压缩队列");
-        }
+        message.success(result?.provider === "ims" ? "已提交阿里云转码任务。" : "低流量播放文件已加入压缩队列。");
       } else if (result?.transcode_status === "completed") {
-        message.info("该视频已有低流量播放文件");
+        message.info("该视频已有低流量播放文件。");
       } else {
-        message.info("低流量播放文件压缩任务已存在");
+        message.info("低流量播放文件压缩任务已存在。");
       }
       await reloadAdminData();
     } catch (error) {
@@ -296,6 +313,89 @@ export default function useCourseAdminSupport({
       setTranscodingVideoId(null);
     }
   }, [message, reloadAdminData]);
+
+  const handleSyncTranscodeVideo = useCallback(async (videoId) => {
+    const targetVideo = videos.find((item) => Number(item.id) === Number(videoId));
+    if (String(targetVideo?.transcode_provider || "").toLowerCase() !== "ims") {
+      await reloadAdminData();
+      return;
+    }
+    try {
+      setSyncingTranscodeVideoId(videoId);
+      const result = await syncMagicVideoHls(videoId);
+      mergeTranscodeResult(result);
+      if (result?.transcode_status === "completed") {
+        message.success("低流量播放文件已生成。");
+      } else if (result?.transcode_status === "failed") {
+        message.error(result?.transcode_error || "视频压缩失败。");
+      } else if (result?.transcode_status === "cancelled") {
+        message.warning("视频压缩任务已取消。");
+      } else {
+        message.info("已刷新视频压缩状态。");
+      }
+      await reloadAdminData();
+    } catch (error) {
+      message.error(error?.message || "同步视频压缩状态失败。");
+    } finally {
+      setSyncingTranscodeVideoId(null);
+    }
+  }, [mergeTranscodeResult, message, reloadAdminData, videos]);
+
+  const handleCancelTranscodeVideo = useCallback((videoId) => {
+    Modal.confirm({
+      title: "取消压缩任务？",
+      content: "取消后本系统会停止跟踪该任务；如果阿里云已经开始处理，云端可能仍会完成并产生费用。",
+      okText: "取消任务",
+      cancelText: "返回",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          setCancelingTranscodeVideoId(videoId);
+          await cancelMagicVideoHls(videoId);
+          message.success("已取消视频压缩任务。");
+          await reloadAdminData();
+        } catch (error) {
+          message.error(error?.message || "取消视频压缩任务失败。");
+        } finally {
+          setCancelingTranscodeVideoId(null);
+        }
+      },
+    });
+  }, [message, reloadAdminData]);
+
+  useEffect(() => {
+    const videoId = Number(selectedAdminVideo?.id || 0);
+    const status = String(selectedAdminVideo?.transcode_status || "none").toLowerCase();
+    const provider = String(selectedAdminVideo?.transcode_provider || "").toLowerCase();
+    if (!videoId || provider !== "ims" || !["pending", "processing"].includes(status)) return undefined;
+
+    let stopped = false;
+    const syncCurrentVideo = async () => {
+      try {
+        const result = await syncMagicVideoHls(videoId);
+        if (stopped) return;
+        mergeTranscodeResult(result);
+        const nextStatus = String(result?.transcode_status || "").toLowerCase();
+        if (["completed", "failed", "cancelled"].includes(nextStatus)) {
+          await reloadAdminData();
+        }
+      } catch {
+        // Manual refresh remains available if a transient status sync request fails.
+      }
+    };
+    void syncCurrentVideo();
+    const timer = window.setInterval(syncCurrentVideo, 10000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    mergeTranscodeResult,
+    reloadAdminData,
+    selectedAdminVideo?.id,
+    selectedAdminVideo?.transcode_provider,
+    selectedAdminVideo?.transcode_status,
+  ]);
 
   const handleBatchPublishVideos = useCallback(async () => {
     if (!selectedAdminVideoRowKeys.length) {
@@ -372,6 +472,8 @@ export default function useCourseAdminSupport({
       publishingVideoId,
       disablingVideoId,
       transcodingVideoId,
+      syncingTranscodeVideoId,
+      cancelingTranscodeVideoId,
       videoPushSummaryMap,
       handleOpenVideoPushDetail,
       handleRetryVideoPush,
@@ -390,6 +492,8 @@ export default function useCourseAdminSupport({
       retryingVideoId,
       setVideoModal,
       transcodingVideoId,
+      syncingTranscodeVideoId,
+      cancelingTranscodeVideoId,
       videoPushSummaryMap,
     ],
   );
@@ -533,6 +637,8 @@ export default function useCourseAdminSupport({
       publishingVideoId,
       disablingVideoId,
       transcodingVideoId,
+      syncingTranscodeVideoId,
+      cancelingTranscodeVideoId,
     },
     adminVideoActions: {
       setVideoModal,
@@ -546,6 +652,8 @@ export default function useCourseAdminSupport({
       handlePublishVideo,
       handleDisableVideo,
       handleTranscodeVideoHls,
+      handleSyncTranscodeVideo,
+      handleCancelTranscodeVideo,
       handleBatchPublishVideos,
       handleBatchDisableVideos,
       handleBatchDeleteVideos,
@@ -573,6 +681,8 @@ export default function useCourseAdminSupport({
     handlePublishVideo,
     handleDisableVideo,
     handleTranscodeVideoHls,
+    handleSyncTranscodeVideo,
+    handleCancelTranscodeVideo,
     handleBatchPublishVideos,
     handleBatchDisableVideos,
     handleBatchDeleteVideos,
