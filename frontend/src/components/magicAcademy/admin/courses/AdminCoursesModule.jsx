@@ -56,12 +56,12 @@ function renderSelectTagWithTooltip({ label, closable, onClose }) {
 }
 
 const TRANSCODE_STATUS_META = {
-  completed: { color: "success", text: "低流量播放已生成", actionText: "重新压缩", force: true },
-  failed: { color: "error", text: "压缩失败", actionText: "重新压缩", force: true },
-  pending: { color: "processing", text: "等待压缩", actionText: "已加入压缩队列", force: false, busy: true },
-  processing: { color: "processing", text: "正在压缩", actionText: "压缩中", force: false, busy: true },
-  cancelled: { color: "warning", text: "已取消压缩", actionText: "重新压缩", force: true },
-  none: { color: "default", text: "未压缩", actionText: "生成低流量文件", force: false },
+  completed: { color: "success", text: "低流量播放已生成", actionText: "重新生成", force: true },
+  failed: { color: "error", text: "转码失败", actionText: "重新生成", force: true },
+  pending: { color: "processing", text: "等待转码", actionText: "转码任务已提交", force: false, busy: true },
+  processing: { color: "processing", text: "正在转码", actionText: "转码中", force: false, busy: true },
+  cancelled: { color: "warning", text: "已取消转码", actionText: "重新生成", force: true },
+  none: { color: "default", text: "未生成", actionText: "生成低流量文件", force: false },
 };
 
 function getTranscodeStatusMeta(status) {
@@ -206,7 +206,7 @@ export function buildAdminCoursesTabItems({
                       <Tag bordered={false}>{Math.round(Number(selectedAdminVideo.transcode_progress || 0))}%</Tag>
                     ) : null}
                     {selectedAdminVideo.transcode_error ? (
-                      <Text type="danger" ellipsis style={{ maxWidth: 520 }}>{selectedAdminVideo.transcode_error}</Text>
+                          <Text type="danger" ellipsis style={{ maxWidth: 520 }}>{selectedAdminVideo.transcode_error}</Text>
                     ) : null}
                     {selectedAdminVideoTranscodeMeta.busy && selectedAdminVideo.transcode_provider === "ims" ? (
                       <>
@@ -223,7 +223,7 @@ export function buildAdminCoursesTabItems({
                           loading={cancelingTranscodeVideoId === selectedAdminVideo.id}
                           onClick={() => handleCancelTranscodeVideo(selectedAdminVideo.id)}
                         >
-                          取消压缩
+                          取消转码
                         </Button>
                       </>
                     ) : (

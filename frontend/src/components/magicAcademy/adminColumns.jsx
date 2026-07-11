@@ -10,7 +10,7 @@ function getLowTrafficMeta(status) {
     case "pending":
       return { color: "processing", text: "排队中" };
     case "processing":
-      return { color: "processing", text: "压缩中" };
+      return { color: "processing", text: "转码中" };
     case "failed":
       return { color: "error", text: "失败" };
     case "cancelled":

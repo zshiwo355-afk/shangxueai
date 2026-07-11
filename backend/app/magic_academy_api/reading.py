@@ -241,6 +241,121 @@ async def _replace_reading_series_targets(
         db.add_all(rows)
 
 
+def _series_targets_as_content_payload(targets: list[Any]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for target in targets or []:
+        if isinstance(target, dict):
+            target_type = str(target.get("target_type") or "").strip().lower()
+            target_id = str(target.get("target_id") or "").strip()
+        else:
+            target_type = (getattr(target, "target_type", "") or "").strip().lower()
+            target_id = str(getattr(target, "target_id", "") or "").strip()
+        if target_type == "all":
+            target_id = "0"
+        if target_type not in {"all", "department", "position", "job_level", "employment_status", "user"}:
+            continue
+        if target_type != "all" and not target_id:
+            continue
+        key = (target_type, target_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({"target_type": target_type, "target_id": target_id})
+    return result
+
+
+def _reading_target_pairs(targets: list[MagicReadingContentTarget] | list[dict[str, str]]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for target in targets or []:
+        if isinstance(target, dict):
+            target_type = str(target.get("target_type") or "").strip().lower()
+            target_id = str(target.get("target_id") or "").strip()
+        else:
+            target_type = (target.target_type or "").strip().lower()
+            target_id = (target.target_id or "").strip()
+        if target_type == "all":
+            target_id = "0"
+        pairs.append((target_type, target_id))
+    return sorted(pairs)
+
+
+def _reading_content_targets_from_payload(
+    content_id: int,
+    targets: list[dict[str, str]],
+) -> list[MagicReadingContentTarget]:
+    return [
+        MagicReadingContentTarget(content_id=content_id, target_type=item["target_type"], target_id=item["target_id"])
+        for item in targets
+    ]
+
+
+def _reading_user_target_ids(targets: list[MagicReadingContentTarget]) -> set[int] | None:
+    user_ids: set[int] = set()
+    for target in targets or []:
+        target_type = (target.target_type or "").strip().lower()
+        target_id = (target.target_id or "").strip()
+        if target_type != "user" or not target_id.isdigit():
+            return None
+        user_ids.add(int(target_id))
+    return user_ids
+
+
+async def _replace_reading_content_targets_with_payload(
+    db: AsyncSession,
+    content_id: int,
+    targets: list[dict[str, str]],
+) -> list[MagicReadingContentTarget]:
+    await db.execute(sql_delete(MagicReadingContentTarget).where(MagicReadingContentTarget.content_id == content_id))
+    rows = _reading_content_targets_from_payload(content_id, targets)
+    if rows:
+        db.add_all(rows)
+    await db.flush()
+    return rows
+
+
+async def _sync_reading_series_targets_to_contents(
+    db: AsyncSession,
+    series_id: int,
+    *,
+    old_series_targets: list[MagicReadingSeriesTarget],
+    new_series_targets: list[MagicReadingSeriesTarget],
+) -> tuple[int, int]:
+    old_payload = _series_targets_as_content_payload(old_series_targets)
+    old_pairs = _reading_target_pairs(old_payload)
+    new_payload = _series_targets_as_content_payload(new_series_targets)
+    if _reading_target_pairs(new_payload) == old_pairs:
+        return 0, 0
+    old_payload_targets = _reading_content_targets_from_payload(0, old_payload)
+    old_dynamic_user_ids: set[int] | None = None
+    if any((item.target_type or "").strip().lower() != "user" for item in old_payload_targets):
+        old_dynamic_user_ids = set(await _collect_target_user_ids(db, old_payload_targets))
+    content_rows = (
+        await db.execute(
+            select(MagicReadingContent)
+            .where(MagicReadingContent.series_id == series_id, MagicReadingContent.is_deleted.is_(False))
+            .order_by(MagicReadingContent.id.asc())
+        )
+    ).scalars().all()
+    if not content_rows:
+        return 0, 0
+    targets_map = await _get_reading_content_targets_map(db, [int(item.id) for item in content_rows])
+    synced_count = 0
+    skipped_count = 0
+    for content in content_rows:
+        current_targets = targets_map.get(int(content.id), [])
+        should_sync = _reading_target_pairs(current_targets) == old_pairs
+        if not should_sync and old_dynamic_user_ids:
+            user_snapshot_ids = _reading_user_target_ids(current_targets)
+            should_sync = bool(user_snapshot_ids) and user_snapshot_ids.issubset(old_dynamic_user_ids)
+        if not should_sync:
+            skipped_count += 1
+            continue
+        await _replace_reading_content_targets_with_payload(db, int(content.id), new_payload)
+        synced_count += 1
+    return synced_count, skipped_count
+
+
 async def _validate_reading_series_id(
     db: AsyncSession,
     admin: User,
@@ -2067,6 +2182,8 @@ async def update_admin_reading_series(
         raise HTTPException(status_code=403, detail="无权编辑该读书系列。")
     if payload.start_date and payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(status_code=400, detail="结束日期不能早于开始日期。")
+    old_targets_map = await _get_reading_series_targets_map(db, [int(row.id)])
+    old_targets = old_targets_map.get(int(row.id), [])
     row.title = payload.title.strip()
     row.description = payload.description.strip()
     row.start_date = payload.start_date
@@ -2077,7 +2194,16 @@ async def update_admin_reading_series(
     await db.refresh(row)
     targets_map = await _get_reading_series_targets_map(db, [int(row.id)])
     targets = targets_map.get(int(row.id), [])
-    return _reading_series_to_dict(row, targets=targets, target_summary=_reading_series_targets_summary(targets))
+    synced_count, skipped_count = await _sync_reading_series_targets_to_contents(
+        db,
+        int(row.id),
+        old_series_targets=old_targets,
+        new_series_targets=targets,
+    )
+    data = _reading_series_to_dict(row, targets=targets, target_summary=_reading_series_targets_summary(targets))
+    data["content_targets_synced_count"] = synced_count
+    data["content_targets_sync_skipped_count"] = skipped_count
+    return data
 
 
 @router.post("/admin/reading-series/{series_id}/archive")

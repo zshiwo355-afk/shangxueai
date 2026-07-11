@@ -157,10 +157,10 @@ export async function transcodeMagicVideoHls(id, payload = {}) {
   return postJson(`/api/magic-academy/videos/${id}/transcode-hls`, payload, "启动视频播放文件生成失败。");
 }
 export async function syncMagicVideoHls(id) {
-  return postJson(`/api/magic-academy/videos/${id}/transcode-hls/status`, {}, "同步视频压缩状态失败。");
+  return postJson(`/api/magic-academy/videos/${id}/transcode-hls/status`, {}, "同步视频转码状态失败。");
 }
 export async function cancelMagicVideoHls(id) {
-  return postJson(`/api/magic-academy/videos/${id}/transcode-hls/cancel`, {}, "取消视频压缩任务失败。");
+  return postJson(`/api/magic-academy/videos/${id}/transcode-hls/cancel`, {}, "取消视频转码任务失败。");
 }
 export async function batchPublishMagicVideos(ids) {
   return postJson("/api/magic-academy/videos/batch-publish", { ids }, "批量发布视频失败。");

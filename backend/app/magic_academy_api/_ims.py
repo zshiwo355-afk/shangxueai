@@ -24,19 +24,6 @@ def _now() -> datetime:
     return datetime.now()
 
 
-def _provider_name() -> str:
-    return (settings.magic_video_transcode_provider or "ffmpeg").strip().lower()
-
-
-def is_ims_transcode_provider() -> bool:
-    return _provider_name() == IMS_PROVIDER
-
-
-def is_ims_transcode_configured() -> bool:
-    access_key_id, access_key_secret = _ims_credentials()
-    return bool(access_key_id and access_key_secret and _ims_region() and (settings.aliyun_ims_template_id or "").strip())
-
-
 def _extract_region_from_oss_endpoint(endpoint: str) -> str:
     host = (endpoint or "").strip().replace("https://", "").replace("http://", "").split("/", 1)[0]
     marker = "oss-"
@@ -61,21 +48,6 @@ def _ims_credentials() -> tuple[str, str]:
 
 
 def _require_ims_base_settings() -> dict[str, str]:
-    access_key_id, access_key_secret = _ims_credentials()
-    region = _ims_region()
-    if not access_key_id or not access_key_secret:
-        raise HTTPException(status_code=500, detail="阿里云 IMS AccessKey 未配置。")
-    if not region:
-        raise HTTPException(status_code=500, detail="ALIYUN_IMS_REGION 未配置，且无法从 OSS_ENDPOINT 推断。")
-    return {
-        "access_key_id": access_key_id,
-        "access_key_secret": access_key_secret,
-        "region": region,
-    }
-    if not settings.magic_video_transcode_enabled:
-        raise HTTPException(status_code=400, detail="当前已关闭视频低流量文件生成。")
-    if not is_ims_transcode_provider():
-        raise HTTPException(status_code=400, detail="当前低流量文件生成方式不是阿里云 IMS。")
     access_key_id, access_key_secret = _ims_credentials()
     region = _ims_region()
     if not access_key_id or not access_key_secret:

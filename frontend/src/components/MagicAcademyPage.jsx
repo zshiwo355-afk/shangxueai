@@ -1215,7 +1215,10 @@ export default function MagicAcademyPage({ embedded = false, adminSection = "cou
   };
 
   const handleReadingSeriesChanged = async () => {
-    await reloadReadingContentSeriesFilterOptions();
+    await Promise.all([
+      reloadReadingContentSeriesFilterOptions(),
+      reloadReadingContents(),
+    ]);
   };
 
   const adminCoursesTabSupport = useAdminCoursesTabSupport({

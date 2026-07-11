@@ -61,7 +61,8 @@ export default function ReadingSeriesModal({
                   <Form.Item name="target_department_ids" label="部门" style={{ marginBottom: 0 }}>
                     <DepartmentUserTreeSelect
                       users={employeeUsers}
-                      placeholder="选择部门会自动包含下级员工，可展开后取消个人"
+                      preserveTargetSelection
+                      placeholder="选择部门会按部门条件保存；单独选择员工则固定指定员工"
                     />
                   </Form.Item>
                   <Form.Item name="target_position_ids" label="岗位" style={{ marginBottom: 0 }}>

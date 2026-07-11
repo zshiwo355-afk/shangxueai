@@ -105,8 +105,9 @@ export default function useReadingSeriesAdmin({
         }
       }
       if (readingSeriesModal?.id) {
-        await updateAdminReadingSeries(readingSeriesModal.id, payload);
-        message.success("读书系列已更新。");
+        const updatedSeries = await updateAdminReadingSeries(readingSeriesModal.id, payload);
+        const syncedCount = Number(updatedSeries?.content_targets_synced_count || 0);
+        message.success(syncedCount > 0 ? `读书系列已更新，已同步 ${syncedCount} 条读书内容。` : "读书系列已更新。");
       } else {
         const createdSeries = await createAdminReadingSeries(payload);
         setReadingContentPreferredSeriesId?.(createdSeries?.id || null);
@@ -117,6 +118,7 @@ export default function useReadingSeriesAdmin({
         reloadReadingSeriesSelectOptions(),
         reloadReadingContentSeriesFilterOptions?.(),
       ]);
+      await onSeriesChanged?.();
       setReadingSeriesRefreshKey((prev) => prev + 1);
     } catch (error) {
       if (error?.errorFields) return;

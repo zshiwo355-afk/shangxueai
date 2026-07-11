@@ -297,18 +297,16 @@ export default function useCourseAdminSupport({
     try {
       setTranscodingVideoId(videoId);
       const result = await transcodeMagicVideoHls(videoId, { force });
-      if (result?.transcode_enabled === false) {
-        message.error("后端仍返回视频压缩已关闭，请重启后端并确认阿里云 IMS 配置已生效。");
-      } else if (result?.queued) {
-        message.success(result?.provider === "ims" ? "已提交阿里云转码任务。" : "低流量播放文件已加入压缩队列。");
+      if (result?.queued) {
+        message.success("已提交阿里云转码任务。");
       } else if (result?.transcode_status === "completed") {
         message.info("该视频已有低流量播放文件。");
       } else {
-        message.info("低流量播放文件压缩任务已存在。");
+        message.info("阿里云转码任务已存在。");
       }
       await reloadAdminData();
     } catch (error) {
-      message.error(error?.message || "启动低流量播放文件压缩失败。");
+      message.error(error?.message || "提交阿里云转码任务失败。");
     } finally {
       setTranscodingVideoId(null);
     }
@@ -327,15 +325,15 @@ export default function useCourseAdminSupport({
       if (result?.transcode_status === "completed") {
         message.success("低流量播放文件已生成。");
       } else if (result?.transcode_status === "failed") {
-        message.error(result?.transcode_error || "视频压缩失败。");
+        message.error(result?.transcode_error || "视频转码失败。");
       } else if (result?.transcode_status === "cancelled") {
-        message.warning("视频压缩任务已取消。");
+        message.warning("视频转码任务已取消。");
       } else {
-        message.info("已刷新视频压缩状态。");
+        message.info("已刷新视频转码状态。");
       }
       await reloadAdminData();
     } catch (error) {
-      message.error(error?.message || "同步视频压缩状态失败。");
+      message.error(error?.message || "同步视频转码状态失败。");
     } finally {
       setSyncingTranscodeVideoId(null);
     }
@@ -343,19 +341,19 @@ export default function useCourseAdminSupport({
 
   const handleCancelTranscodeVideo = useCallback((videoId) => {
     Modal.confirm({
-      title: "取消压缩任务？",
+      title: "取消转码任务？",
       content: "取消后本系统会停止跟踪该任务；如果阿里云已经开始处理，云端可能仍会完成并产生费用。",
-      okText: "取消任务",
+      okText: "取消转码",
       cancelText: "返回",
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           setCancelingTranscodeVideoId(videoId);
           await cancelMagicVideoHls(videoId);
-          message.success("已取消视频压缩任务。");
+          message.success("已取消视频转码任务。");
           await reloadAdminData();
         } catch (error) {
-          message.error(error?.message || "取消视频压缩任务失败。");
+          message.error(error?.message || "取消视频转码任务失败。");
         } finally {
           setCancelingTranscodeVideoId(null);
         }

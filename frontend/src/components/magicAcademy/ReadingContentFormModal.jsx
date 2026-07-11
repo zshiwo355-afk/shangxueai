@@ -22,7 +22,7 @@ import "dayjs/locale/zh-cn";
 import { useEffect, useMemo, useState } from "react";
 import { buildMaterialAssetPreviewUrl, listAllMaterialAssets } from "../../lib/api.materials";
 import { getHolidayInfo, isAdjustedWorkday, isBusinessDay, isRestDay } from "../../lib/chinaHolidays";
-import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../common/DepartmentUserTreeSelect";
+import DepartmentUserTreeSelect, { resolveDepartmentSelectionTargets } from "../common/DepartmentUserTreeSelect";
 
 dayjs.locale("zh-cn");
 
@@ -436,17 +436,22 @@ export default function ReadingContentFormModal({
         throw new Error(`请为 ${item.reading_date} 选择素材库图片。`);
       }
       if (item.target_type === "department") {
-        const selectedUserIds = resolveDepartmentSelectionUserIds(item.target_department_ids, employeeUsers);
-        if (!selectedUserIds.length) {
+        const selectedTargets = resolveDepartmentSelectionTargets(item.target_department_ids, employeeUsers);
+        if (!selectedTargets.length) {
           throw new Error(`请为 ${item.reading_date} 选择至少一个部门或员工。`);
         }
         return {
           ...item,
-          target_type: "user",
-          target_user_ids: selectedUserIds,
-          target_department_ids: [],
+          target_user_ids: selectedTargets
+            .filter((target) => target.target_type === "user")
+            .map((target) => Number(target.target_id)),
+          target_department_ids: selectedTargets
+            .filter((target) => target.target_type === "department")
+            .map((target) => target.target_id),
+          target_position_ids: [],
           target_job_level_ids: [],
-          targets: selectedUserIds.map((id) => ({ target_type: "user", target_id: id })),
+          target_employment_status_ids: [],
+          targets: selectedTargets,
         };
       }
       if (Array.isArray(item.targets) && item.targets.length) {
@@ -909,8 +914,9 @@ export default function ReadingContentFormModal({
                       users={employeeUsers}
                       value={item.target_department_ids}
                       disabled={lockedEditing}
+                      preserveTargetSelection
                       onChange={(value) => updateItem(item.reading_date, { target_department_ids: value, targets: [] })}
-                      placeholder="选择部门会自动包含下级员工，可展开后取消个人"
+                      placeholder="选择部门会按部门条件保存；单独选择员工则固定指定员工"
                     />
                   </div>
                     ) : null}

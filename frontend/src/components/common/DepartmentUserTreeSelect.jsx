@@ -36,6 +36,7 @@ function createDepartmentNode(title, path) {
 function buildDepartmentTree(users = []) {
   const root = new Map();
   const departmentUserIds = new Map();
+  const departmentTargetPaths = new Map();
 
   const addDepartmentUser = (path, userId) => {
     const current = departmentUserIds.get(path) || [];
@@ -43,8 +44,16 @@ function buildDepartmentTree(users = []) {
     departmentUserIds.set(path, current);
   };
 
+  const addDepartmentTargetPath = (path, targetPath) => {
+    if (!targetPath) return;
+    const current = departmentTargetPaths.get(path) || [];
+    current.push(targetPath);
+    departmentTargetPaths.set(path, current);
+  };
+
   users.forEach((user) => {
     if (!user?.id) return;
+    const targetDepartmentPath = normalizeDepartmentPath(user.department);
     const parts = getDepartmentParts(user.department);
     let childrenMap = root;
     let currentPath = "";
@@ -64,6 +73,7 @@ function buildDepartmentTree(users = []) {
     });
 
     visitedPaths.forEach((path) => addDepartmentUser(path, user.id));
+    visitedPaths.forEach((path) => addDepartmentTargetPath(path, targetDepartmentPath));
 
     const userNode = {
       title: `${getUserDisplayName(user)} (${user.username || user.id})`,
@@ -91,7 +101,7 @@ function buildDepartmentTree(users = []) {
       };
     });
 
-  return { treeData: toTreeData(root), departmentUserIds };
+  return { treeData: toTreeData(root), departmentUserIds, departmentTargetPaths };
 }
 
 function toArray(value) {
@@ -132,6 +142,60 @@ export function resolveDepartmentSelectionUserIds(value, users = []) {
     .filter((id) => selected.has(id));
 }
 
+export function resolveDepartmentSelectionTargets(value, users = []) {
+  const { departmentUserIds, departmentTargetPaths } = buildDepartmentTree(users);
+  const directUserIds = new Set(users.map((user) => Number(user.id)));
+  const selectedDepartmentTargets = new Set();
+  const selectedUserIds = new Set();
+  const usersCoveredByDepartments = new Set();
+
+  const addDepartmentTargets = (pathValue) => {
+    const path = normalizeDepartmentPath(pathValue);
+    const targetPaths = departmentTargetPaths.get(path) || [];
+    if (!targetPaths.length) {
+      (departmentUserIds.get(path) || []).forEach((id) => selectedUserIds.add(Number(id)));
+      return;
+    }
+    targetPaths.forEach((targetPath) => selectedDepartmentTargets.add(targetPath));
+    (departmentUserIds.get(path) || []).forEach((id) => usersCoveredByDepartments.add(Number(id)));
+  };
+
+  toArray(value).forEach((item) => {
+    const raw = String(item || "").trim();
+    if (!raw) return;
+    if (raw.startsWith(USER_PREFIX)) {
+      const id = Number(raw.slice(USER_PREFIX.length));
+      if (directUserIds.has(id)) selectedUserIds.add(id);
+      return;
+    }
+    if (raw.startsWith(DEPT_PREFIX)) {
+      addDepartmentTargets(raw.slice(DEPT_PREFIX.length));
+      return;
+    }
+    const numericId = Number(raw);
+    if (Number.isFinite(numericId) && directUserIds.has(numericId)) {
+      selectedUserIds.add(numericId);
+      return;
+    }
+    addDepartmentTargets(raw);
+  });
+
+  const departmentTargets = Array.from(selectedDepartmentTargets)
+    .sort((left, right) => String(left).localeCompare(String(right), "zh-Hans-CN"))
+    .map((targetId) => ({ target_type: "department", target_id: targetId }));
+  const userTargets = users
+    .map((user) => Number(user.id))
+    .filter((id) => selectedUserIds.has(id) && !usersCoveredByDepartments.has(id))
+    .map((id) => ({ target_type: "user", target_id: id }));
+  return [...departmentTargets, ...userTargets];
+}
+
+export function resolveDepartmentSelectionTargetValues(value, users = []) {
+  return resolveDepartmentSelectionTargets(value, users).map((target) => (
+    target.target_type === "user" ? Number(target.target_id) : target.target_id
+  ));
+}
+
 function toTreeValue(value, users = []) {
   const userIds = new Set(users.map((user) => Number(user.id)));
   return toArray(value)
@@ -153,6 +217,7 @@ export default function DepartmentUserTreeSelect({
   onChange,
   placeholder = "选择部门或员工",
   disabled = false,
+  preserveTargetSelection = false,
 }) {
   const { treeData } = useMemo(() => buildDepartmentTree(users), [users]);
   const treeValue = useMemo(() => toTreeValue(value, users), [value, users]);
@@ -168,10 +233,14 @@ export default function DepartmentUserTreeSelect({
       disabled={disabled || !treeData.length}
       placeholder={treeData.length ? placeholder : "暂无可选部门或员工"}
       maxTagCount="responsive"
-      showCheckedStrategy={TreeSelect.SHOW_CHILD}
+      showCheckedStrategy={preserveTargetSelection ? TreeSelect.SHOW_ALL : TreeSelect.SHOW_CHILD}
       style={{ width: "100%" }}
       onChange={(nextValue) => {
-        onChange?.(resolveDepartmentSelectionUserIds(nextValue, users));
+        onChange?.(
+          preserveTargetSelection
+            ? resolveDepartmentSelectionTargetValues(nextValue, users)
+            : resolveDepartmentSelectionUserIds(nextValue, users),
+        );
       }}
     />
   );

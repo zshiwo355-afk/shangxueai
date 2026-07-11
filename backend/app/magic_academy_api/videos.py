@@ -72,11 +72,8 @@ from ._oss import (
     logger,
     settings,
 )
-from ._hls import enqueue_video_hls_transcode
 from ._ims import (
     cancel_video_ims_transcode,
-    is_ims_transcode_configured,
-    is_ims_transcode_provider,
     submit_video_ims_transcode,
     sync_video_ims_transcode,
 )
@@ -95,26 +92,6 @@ from ._video_helpers import (
 
 def _page_payload(items: list[dict[str, Any]], total: int, page: int, page_size: int) -> dict[str, Any]:
     return {"items": items, "total": int(total), "page": int(page), "page_size": int(page_size)}
-
-
-def _video_transcode_status_payload(video: MagicVideo, **extra: Any) -> dict[str, Any]:
-    provider = (video.transcode_provider or "").strip() or (
-        "ims" if is_ims_transcode_provider() else "ffmpeg"
-    )
-    payload = {
-        "video_id": int(video.id),
-        "transcode_enabled": bool(settings.magic_video_transcode_enabled or is_ims_transcode_configured()),
-        "provider": provider,
-        "transcode_provider": provider,
-        "transcode_status": (video.transcode_status or "none").strip().lower(),
-        "transcode_error": video.transcode_error or "",
-        "transcode_progress": int(video.transcode_progress or 0),
-        "transcode_job_id": video.transcode_job_id or "",
-        "hls_url": video.hls_url or "",
-        "hls_object_prefix": video.hls_object_prefix or "",
-    }
-    payload.update(extra)
-    return payload
 
 
 UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
@@ -157,9 +134,7 @@ async def _refresh_and_serialize_video(
 
 
 async def _submit_video_transcode(video_id: int, *, force: bool = False) -> dict[str, Any]:
-    if force or is_ims_transcode_provider() or is_ims_transcode_configured():
-        return await submit_video_ims_transcode(video_id, force=force)
-    return await enqueue_video_hls_transcode(video_id, force=force)
+    return await submit_video_ims_transcode(video_id, force=force)
 
 
 async def _resolve_cover_url(
@@ -583,12 +558,6 @@ async def complete_magic_video_upload(
         video.upload_id = ""
         video.upload_error = ""
         response = await _commit_refresh_and_serialize_video(db, video)
-        if settings.magic_video_transcode_auto:
-            try:
-                queued = await _submit_video_transcode(int(video.id))
-                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to enqueue HLS transcode video_id=%s", video.id)
         return response
 
 
@@ -825,12 +794,6 @@ async def complete_magic_video_replace_upload(
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
         response = await _refresh_and_serialize_video(db, video)
-        if settings.magic_video_transcode_auto:
-            try:
-                queued = await _submit_video_transcode(int(video.id), force=True)
-                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to enqueue replacement HLS transcode video_id=%s", video.id)
         return response
 
 
@@ -1096,12 +1059,6 @@ async def create_video(
     await db.flush()
     await _enqueue_video_auto_actions_if_published(db, video, created_by=admin.id)
     response = await _commit_refresh_and_serialize_video(db, video)
-    if settings.magic_video_transcode_auto and storage_type == "oss" and oss_object_key:
-        try:
-            queued = await _submit_video_transcode(int(video.id))
-            response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to enqueue HLS transcode for created video_id=%s", video.id)
     if should_trigger_course_initial_push(old_status="draft", new_status=video.status):
         schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
     return response
@@ -1139,14 +1096,10 @@ async def transcode_video_hls(
 @router.post("/videos/{video_id}/transcode-hls/status")
 async def sync_video_hls_transcode_status(
     video_id: int,
-    db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     del admin
-    if is_ims_transcode_provider() or is_ims_transcode_configured():
-        return await sync_video_ims_transcode(video_id)
-    video = await _get_video_or_404(db, video_id)
-    return _video_transcode_status_payload(video, synced=False, cloud_sync_supported=False)
+    return await sync_video_ims_transcode(video_id)
 
 
 @router.post("/videos/{video_id}/transcode-hls/cancel")
@@ -1155,9 +1108,7 @@ async def cancel_video_hls_transcode(
     admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     del admin
-    if is_ims_transcode_provider() or is_ims_transcode_configured():
-        return await cancel_video_ims_transcode(video_id)
-    raise HTTPException(status_code=400, detail="当前转码方式不支持取消任务。")
+    return await cancel_video_ims_transcode(video_id)
 
 
 @router.get("/videos/{video_id}/push-summary")
@@ -1334,16 +1285,6 @@ async def update_video(
                 except Exception:  # noqa: BLE001
                     logger.exception("Failed to cleanup old HLS prefix video_id=%s", video.id)
         response = await _refresh_and_serialize_video(db, video)
-        if (
-            settings.magic_video_transcode_auto
-            and (next_oss_object_key or "").strip()
-            and (next_oss_object_key or "").strip() != old_object_key
-        ):
-            try:
-                queued = await _submit_video_transcode(int(video.id), force=True)
-                response["transcode_status"] = queued.get("transcode_status", response.get("transcode_status"))
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to enqueue HLS transcode for updated video_id=%s", video.id)
         if should_trigger_course_initial_push(old_status=old_status, new_status=video.status):
             schedule_course_initial_push(video_id=int(video.id), created_by=int(admin.id))
         return response
