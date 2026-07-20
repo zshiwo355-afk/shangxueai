@@ -2,7 +2,6 @@ import {
   ArrowRightOutlined,
   CalendarOutlined,
   ClockCircleOutlined,
-  CompassOutlined,
   FormOutlined,
   HistoryOutlined,
   PlayCircleFilled,
@@ -22,6 +21,7 @@ import { fetchMyPaperAssignments } from "../lib/api.userPapers";
 import { loadActiveSession } from "../lib/storage";
 import { getCurrentUser } from "../lib/auth";
 import MentorPreviewSection from "./magicAcademy/user/mentor/MentorPreviewSection";
+import NewcomerLearningMap from "./NewcomerLearningMap";
 
 const { Title } = Typography;
 
@@ -177,11 +177,12 @@ export default function HomePage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const isNewcomer = !!getCurrentUser()?.is_newcomer;
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [challenges, setChallenges] = useState([]); // 老的"通关"
   const [papers, setPapers] = useState([]);         // 新的"考试"
   const [records, setRecords] = useState([]);
   const [videos, setVideos] = useState([]);
+  const [videoLoadError, setVideoLoadError] = useState("");
   const [audios, setAudios] = useState([]);
   const [banners, setBanners] = useState([]);
   const activeSession = useMemo(() => loadActiveSession(), []);
@@ -191,11 +192,13 @@ export default function HomePage() {
 
     (async () => {
       try {
-        const [challengeData, paperData, recordData, videoData, audioData, bannerData] = await Promise.all([
+        const [challengeData, paperData, recordData, videoResult, audioData, bannerData] = await Promise.all([
           fetchMyExams().catch(() => []),
           fetchMyPaperAssignments().catch(() => []),
           fetchMyTrainingRecords().catch(() => []),
-          fetchMyMagicVideos().catch(() => []),
+          fetchMyMagicVideos()
+            .then((data) => ({ data, error: null }))
+            .catch((error) => ({ data: [], error })),
           fetchMyAudios().catch(() => []),
           fetchActiveBanners().catch(() => []),
         ]);
@@ -203,7 +206,8 @@ export default function HomePage() {
         setChallenges(Array.isArray(challengeData) ? challengeData : []);
         setPapers(Array.isArray(paperData) ? paperData : []);
         setRecords(Array.isArray(recordData) ? recordData : []);
-        setVideos(Array.isArray(videoData) ? videoData : []);
+        setVideos(Array.isArray(videoResult.data) ? videoResult.data : []);
+        setVideoLoadError(videoResult.error?.message || "");
         setAudios(Array.isArray(audioData) ? audioData : []);
         setBanners(Array.isArray(bannerData) ? bannerData.filter((item) => item?.image_url) : []);
       } catch (error) {
@@ -356,26 +360,15 @@ export default function HomePage() {
   return (
     <div className="portal-home portal-home--editorial portal-home--minimal">
       {isNewcomer ? (
-        <button
-          type="button"
-          className="newbie-map-banner fade-in-up"
-          onClick={() => navigate("/magic-academy?tab=courses")}
-          aria-label="进入新人地图"
-        >
-          <span className="newbie-map-banner__icon" aria-hidden="true">
-            <CompassOutlined />
-          </span>
-          <span className="newbie-map-banner__text">
-            <span className="newbie-map-banner__eyebrow">NEWBIE MAP</span>
-            <strong className="newbie-map-banner__title">新人地图</strong>
-            <span className="newbie-map-banner__desc">专为新人规划的学习路径，跟着地图完成课程与打卡。</span>
-          </span>
-          <span className="newbie-map-banner__cta">
-            开启新人之旅
-            <ArrowRightOutlined />
-          </span>
-          <span className="newbie-map-banner__glow" aria-hidden="true" />
-        </button>
+        <NewcomerLearningMap
+          videos={videos}
+          loading={loading}
+          error={videoLoadError}
+          onOpenVideo={(video) => navigate(`/magic-academy?tab=courses&video=${encodeURIComponent(String(video.id))}&series=${encodeURIComponent(String(video.series_id))}`)}
+          onOpenSeries={(seriesId) => navigate(seriesId
+            ? `/magic-academy?tab=courses&series=${encodeURIComponent(String(seriesId))}`
+            : "/magic-academy?tab=courses")}
+        />
       ) : null}
 
       <section className="showcase-hero">

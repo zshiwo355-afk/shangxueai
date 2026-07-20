@@ -4,15 +4,18 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
+
 from .config import get_settings
-from .db import session_scope
+from .db import engine, session_scope
 from .employee_open_client import EmployeeOpenApiError
 from .employee_sync import execute_employee_sync
 
 logger = logging.getLogger("app.employee_sync_worker")
 
-SYNC_HOUR = 8
+SYNC_HOUR = 5
 SYNC_MINUTE = 0
+SYNC_LOCK_NAME = "shangxue:employee_sync:scheduled"
 
 
 def _seconds_until_next_run(now: datetime | None = None) -> float:
@@ -28,22 +31,38 @@ async def _run_employee_sync_once() -> None:
     if not settings.employee_sync_ready:
         logger.info("employee_sync_worker skipped: employee sync not configured.")
         return
-    async with session_scope() as session:
-        result = await execute_employee_sync(
-            session,
-            actor=None,
-            mode="scheduled",
-            initial_mode=False,
+    # Production may run multiple Uvicorn workers. MySQL named locks ensure that
+    # only one process performs the scheduled sync for this run.
+    async with engine.connect() as lock_connection:
+        acquired = await lock_connection.scalar(
+            text("SELECT GET_LOCK(:lock_name, 0)"),
+            {"lock_name": SYNC_LOCK_NAME},
         )
-        logger.info(
-            "scheduled employee sync finished batch_id=%s summary=%s",
-            result.get("batch_id"),
-            result.get("summary"),
-        )
+        if acquired != 1:
+            logger.info("employee_sync_worker skipped: another worker holds the schedule lock.")
+            return
+        try:
+            async with session_scope() as session:
+                result = await execute_employee_sync(
+                    session,
+                    actor=None,
+                    mode="scheduled",
+                    initial_mode=False,
+                )
+                logger.info(
+                    "scheduled employee sync finished batch_id=%s summary=%s",
+                    result.get("batch_id"),
+                    result.get("summary"),
+                )
+        finally:
+            await lock_connection.execute(
+                text("SELECT RELEASE_LOCK(:lock_name)"),
+                {"lock_name": SYNC_LOCK_NAME},
+            )
 
 
 async def employee_sync_worker(stop_event: asyncio.Event) -> None:
-    logger.info("employee_sync_worker started, scheduled daily at 08:00")
+    logger.info("employee_sync_worker started, scheduled daily at 05:00")
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=_seconds_until_next_run())
