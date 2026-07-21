@@ -40,6 +40,11 @@ from .notifications_api import router as notifications_router
 from .newbie_guide_api import router as newbie_guide_router
 from .options_api import admin_router as options_admin_router, user_router as options_user_router
 from .paper_ai_worker import paper_ai_worker
+from .personality_assessments_api import (
+    admin_router as personality_admin_router,
+    public_router as personality_public_router,
+)
+from .personality_retention_worker import personality_retention_worker
 from .points_admin_api import router as points_admin_router
 from .mentors_admin_api import router as mentors_admin_router
 from .mentors_public_api import router as mentors_public_router
@@ -77,6 +82,8 @@ _reading_push_stop_event = asyncio.Event()
 _reading_push_task: asyncio.Task | None = None
 _deadline_reminder_stop_event = asyncio.Event()
 _deadline_reminder_task: asyncio.Task | None = None
+_personality_retention_stop_event = asyncio.Event()
+_personality_retention_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -153,6 +160,9 @@ app.include_router(papers_router)
 app.include_router(paper_assignments_router)
 app.include_router(question_imports_router)
 app.include_router(paper_submit_router)
+# 人格与职场行为测评
+app.include_router(personality_admin_router)
+app.include_router(personality_public_router)
 # 推送监控
 app.include_router(notifications_router)
 # 规则重载
@@ -161,7 +171,7 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 
 @app.on_event("startup")
 async def _preload_rules() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _personality_retention_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -184,15 +194,21 @@ async def _preload_rules() -> None:
     if _deadline_reminder_task is None or _deadline_reminder_task.done():
         _deadline_reminder_stop_event.clear()
         _deadline_reminder_task = asyncio.create_task(deadline_reminder_worker(_deadline_reminder_stop_event))
+    if _personality_retention_task is None or _personality_retention_task.done():
+        _personality_retention_stop_event.clear()
+        _personality_retention_task = asyncio.create_task(
+            personality_retention_worker(_personality_retention_stop_event)
+        )
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
-    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task
+    global _auto_action_task, _paper_ai_task, _reading_push_task, _deadline_reminder_task, _personality_retention_task
     _auto_action_stop_event.set()
     _paper_ai_stop_event.set()
     _reading_push_stop_event.set()
     _deadline_reminder_stop_event.set()
+    _personality_retention_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -229,6 +245,15 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("deadline reminder worker stopped with error")
         finally:
             _deadline_reminder_task = None
+    if _personality_retention_task is None:
+        pass
+    else:
+        try:
+            await _personality_retention_task
+        except Exception:  # noqa: BLE001
+            logger.exception("personality retention worker stopped with error")
+        finally:
+            _personality_retention_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

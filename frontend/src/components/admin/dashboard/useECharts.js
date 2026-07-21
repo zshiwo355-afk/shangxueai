@@ -12,10 +12,12 @@ import {
   BarChart,
   LineChart,
   PieChart,
+  RadarChart,
 } from "echarts/charts";
 import {
   GridComponent,
   LegendComponent,
+  RadarComponent,
   TitleComponent,
   TooltipComponent,
 } from "echarts/components";
@@ -26,8 +28,10 @@ echarts.use([
   BarChart,
   LineChart,
   PieChart,
+  RadarChart,
   GridComponent,
   LegendComponent,
+  RadarComponent,
   TitleComponent,
   TooltipComponent,
   CanvasRenderer,
