@@ -167,6 +167,14 @@
 .assessment-question-options span { display: grid; grid-template-columns: 24px minmax(0, 1fr); color: #6f675f; font-size: 13px; line-height: 1.5; }
 .assessment-question-options b { color: var(--assessment-admin-accent); font-family: var(--assessment-number-font); }
 .assessment-answer-tag { max-width: 280px; height: auto; white-space: normal; line-height: 1.55; }
+.assessment-mobile-answer-list { display: grid; gap: 10px; }
+.assessment-mobile-answer-list article { display: grid; gap: 10px; padding: 13px; background: #fcfaf7; border: 1px solid #ebe3da; }
+.assessment-mobile-answer-list header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.assessment-mobile-answer-list header small { color: #8a8279; font-family: var(--assessment-number-font); font-variant-numeric: tabular-nums; }
+.assessment-mobile-answer-list p { margin: 0; color: #38332e; line-height: 1.65; overflow-wrap: anywhere; }
+.assessment-mobile-answer-list article > div { display: grid; gap: 6px; }
+.assessment-mobile-answer-list article > div > strong { color: #817970; font-size: 12px; }
+.assessment-mobile-answer-list .assessment-answer-tag { max-width: 100%; width: fit-content; margin: 0; }
 
 .assessment-share-panel { display: grid; gap: 16px; }
 .assessment-public-result {
@@ -191,4 +199,71 @@
   .assessment-option-legend > div:last-child { border-bottom: 0; }
   .assessment-question-section__head { align-items: flex-start; flex-direction: column; gap: 6px; }
   .assessment-question-list article { grid-template-columns: 42px 1fr; padding: 15px 14px; }
+}
+
+@media (max-width: 600px) {
+  .assessment-admin { gap: 12px; padding-bottom: 18px; }
+  .assessment-admin-hero { min-height: auto; gap: 18px; padding: 22px 18px; }
+  .assessment-admin-hero::after { right: -12px; bottom: -28px; font-size: 126px; }
+  .assessment-admin-hero h1 { font-size: 30px; }
+  .assessment-admin-hero p { font-size: 13px; line-height: 1.6; }
+  .assessment-admin-hero__actions { display: grid !important; grid-template-columns: 1fr; width: 100%; }
+  .assessment-admin-hero__actions .ant-space-item,
+  .assessment-admin-hero__actions .ant-btn { width: 100%; }
+  .assessment-admin-hero__actions .ant-btn { min-height: 44px; }
+
+  .assessment-admin-card .ant-card-head { padding-inline: 12px; }
+  .assessment-admin-card .ant-card-body { padding: 12px; }
+  .assessment-submission-card .ant-card-head-wrapper { align-items: stretch; flex-direction: column; gap: 10px; padding-block: 10px; }
+  .assessment-submission-card .ant-card-extra { width: 100%; margin-inline-start: 0; }
+  .assessment-submission-card .ant-card-extra > .ant-space { width: 100%; }
+  .assessment-submission-card .ant-card-extra .ant-input-search { width: 100% !important; }
+
+  .assessment-public-result {
+    padding:
+      max(10px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      calc(30px + env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
+    overflow-x: hidden;
+  }
+  .assessment-public-result__header { padding: 10px 4px 14px; }
+  .assessment-public-result__header h1 { font-size: 18px; line-height: 1.45; overflow-wrap: anywhere; }
+  .assessment-detail { gap: 12px; }
+  .assessment-detail .ant-card-head { min-height: 48px; padding-inline: 14px; }
+  .assessment-detail .ant-card-head-wrapper { flex-wrap: wrap; gap: 8px; }
+  .assessment-detail .ant-card-head-title { min-width: 0; padding-block: 12px; font-size: 15px; white-space: normal; }
+  .assessment-detail .ant-card-extra { margin-inline-start: 0; padding-bottom: 10px; }
+  .assessment-detail .ant-card-body { padding: 14px; }
+  .assessment-detail .ant-descriptions-view table { table-layout: fixed; }
+  .assessment-detail .ant-descriptions-item-label { width: 82px; }
+  .assessment-detail .ant-descriptions-item-content { overflow-wrap: anywhere; }
+  .assessment-stat-grid .ant-card-body { padding: 13px 11px; }
+  .assessment-stat-grid .ant-statistic-title { min-height: 40px; font-size: 12px; line-height: 1.45; }
+  .assessment-stat-grid .ant-statistic-content { font-size: 20px; overflow-wrap: anywhere; }
+  .assessment-radar-chart { height: 285px; }
+  .assessment-behavior-bars { gap: 14px; margin: 4px 0 10px; }
+  .assessment-ai-summary { padding: 13px 14px; font-size: 14px; line-height: 1.75; }
+  .assessment-ai-report ol { gap: 7px; padding-left: 20px; font-size: 13px; }
+  .assessment-risk-list > div { gap: 5px 8px; padding: 12px; }
+  .assessment-risk-list p { line-height: 1.6; overflow-wrap: anywhere; }
+  .assessment-answer-detail-card > .ant-card-body { padding: 10px; }
+
+  .assessment-detail-drawer .ant-drawer-header { flex-wrap: wrap; gap: 10px; padding: max(12px, env(safe-area-inset-top)) 12px 12px; }
+  .assessment-detail-drawer .ant-drawer-header-title { flex: 1 1 100%; min-width: 0; }
+  .assessment-detail-drawer .ant-drawer-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .assessment-detail-drawer .ant-drawer-extra { width: 100%; }
+  .assessment-detail-drawer .ant-drawer-body { padding: 12px 10px calc(22px + env(safe-area-inset-bottom)); }
+  .assessment-detail-actions { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px !important; width: 100%; }
+  .assessment-detail-actions .ant-space-item { min-width: 0; }
+  .assessment-detail-actions .ant-btn { width: 100%; min-height: 42px; padding-inline: 5px; }
+
+  .assessment-share-modal .ant-modal { top: max(10px, env(safe-area-inset-top)); max-width: calc(100vw - 16px); margin-inline: auto; padding-bottom: env(safe-area-inset-bottom); }
+  .assessment-share-modal .ant-modal-content { padding: 16px 14px; }
+  .assessment-share-panel .ant-input { min-height: 42px; font-size: 14px; }
+  .assessment-share-panel > .ant-btn { width: 100%; min-height: 44px; }
+  .assessment-share-actions { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px !important; width: 100%; }
+  .assessment-share-actions .ant-space-item { min-width: 0; }
+  .assessment-share-actions .ant-space-item:first-child { grid-column: 1 / -1; }
+  .assessment-share-actions .ant-btn { width: 100%; min-height: 44px; }
 }

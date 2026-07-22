@@ -6,6 +6,7 @@ import {
   Col,
   Descriptions,
   Empty,
+  Grid,
   Progress,
   Row,
   Statistic,
@@ -67,6 +68,9 @@ const answerColumns = [
 
 
 export default function AssessmentReport({ detail, aiLoading = false, onRunAI = null }) {
+  const screens = Grid.useBreakpoint();
+  const isMobile = screens.md === false;
+
   return (
     <div className="assessment-detail">
       <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
@@ -157,8 +161,28 @@ export default function AssessmentReport({ detail, aiLoading = false, onRunAI = 
         ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有需要单独标记的极端取舍" />}
       </Card>
 
-      <Card title="逐题作答明细">
-        <Table rowKey="question_id" size="small" pagination={false} columns={answerColumns} dataSource={detail.answer_details || []} scroll={{ x: 760 }} />
+      <Card title="逐题作答明细" className="assessment-answer-detail-card">
+        {isMobile ? (
+          <div className="assessment-mobile-answer-list">
+            {(detail.answer_details || []).map((answer) => (
+              <article key={answer.question_id}>
+                <header>
+                  <span className="assessment-table-question-id">{answer.question_id}</span>
+                  <small>原始值 {answer.raw_score ?? "—"}</small>
+                </header>
+                <p>{answer.prompt}</p>
+                <div>
+                  <strong>作答</strong>
+                  {answer.response_type === "text"
+                    ? <span>{answer.answer_label}</span>
+                    : <Tag className="assessment-answer-tag">{answer.answer_label}</Tag>}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Table rowKey="question_id" size="small" pagination={false} columns={answerColumns} dataSource={detail.answer_details || []} scroll={{ x: 760 }} />
+        )}
       </Card>
     </div>
   );

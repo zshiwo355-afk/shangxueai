@@ -677,10 +677,11 @@ export default function AssessmentAdminPage() {
       <Drawer
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
-        width="min(1020px, 96vw)"
+        width="min(1020px, 100vw)"
+        rootClassName="assessment-detail-drawer"
         title={detail ? `${detail.name || "已匿名"} · 答卷 #${detail.id}` : "答卷详情"}
         extra={detail ? (
-          <Space>
+          <Space wrap className="assessment-detail-actions">
             <Button icon={<ShareAltOutlined />} disabled={!!detail.anonymized_at} onClick={() => setShareOpen(true)}>分享报告</Button>
             <Button icon={<CheckCircleOutlined />} disabled={detail.is_official || !!detail.anonymized_at} onClick={async () => {
               try { await markAssessmentOfficial(detail.id); await refreshDetailAndList(); message.success("已设为该手机号的正式记录。 "); } catch (error) { message.error(error.message); }
@@ -702,6 +703,7 @@ export default function AssessmentAdminPage() {
         open={shareOpen}
         onCancel={() => setShareOpen(false)}
         title="分享报告"
+        rootClassName="assessment-share-modal"
         footer={null}
         destroyOnHidden
       >
@@ -714,7 +716,7 @@ export default function AssessmentAdminPage() {
               description={`有效期至 ${new Date(detail.share.expires_at).toLocaleString("zh-CN")}`}
             />
             <Input readOnly value={shareLink} />
-            <Space wrap>
+            <Space wrap className="assessment-share-actions">
               <Button type="primary" icon={<CopyOutlined />} onClick={copyShareLink}>复制链接</Button>
               <Popconfirm title="重新生成后，原链接将立即失效。" onConfirm={() => enableShare(true)}>
                 <Button loading={shareLoading}>重新生成</Button>
