@@ -97,7 +97,6 @@
   font-weight: 700;
   line-height: 1.4;
 }
-
 .assessment-ai-card { border-top: 3px solid var(--assessment-admin-accent); }
 .assessment-ai-summary { padding: 18px 20px; font-size: 15px; line-height: 1.8; background: #fbf5ef; border-left: 3px solid var(--assessment-admin-accent); }
 .assessment-ai-report h4 { margin: 5px 0 10px; color: #38332e; }

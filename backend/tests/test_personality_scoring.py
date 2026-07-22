@@ -1,5 +1,6 @@
 import unittest
 
+from app.personality_assessments_api import _with_fixed_behavior_reference
 from app.personality_scoring import get_public_questionnaire, get_rules, score_assessment
 
 
@@ -166,6 +167,28 @@ class PersonalityScoringV3Tests(unittest.TestCase):
         self.assertEqual(first["behavior_scores"], second["behavior_scores"])
         self.assertNotEqual(first["workplace_choices"], second["workplace_choices"])
         self.assertEqual(len(first["workplace_choices"]), 9)
+
+    def test_v3_uses_fixed_dimension_specific_workplace_reference(self) -> None:
+        result = score_assessment(v3_answers(), version="personality-v3")
+        reference = result["behavior_reference"]
+
+        self.assertEqual(reference["version"], "sapa-employed-proxy-v1-fixed-minus-15")
+        self.assertEqual(
+            reference["scores"],
+            {
+                "长期投入": 54.5,
+                "诚信履约": 65.7,
+                "节奏适应": 46.0,
+                "专业成长": 65.5,
+                "客户意识": 59.5,
+                "协作共益": 58.9,
+            },
+        )
+        self.assertEqual(sum(len(items) for items in reference["mapped_items"].values()), 24)
+        self.assertEqual(
+            _with_fixed_behavior_reference({"rules_version": "personality-v2"})["behavior_reference"]["scores"],
+            reference["scores"],
+        )
 
 
 if __name__ == "__main__":

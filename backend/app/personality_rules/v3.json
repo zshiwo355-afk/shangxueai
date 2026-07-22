@@ -23,6 +23,26 @@
   ],
   "personality_dimensions": ["开放性", "尽责性", "外向性", "宜人性", "情绪稳定性"],
   "behavior_dimensions": ["长期投入", "诚信履约", "节奏适应", "专业成长", "客户意识", "协作共益"],
+  "behavior_reference": {
+    "version": "sapa-employed-proxy-v1-fixed-minus-15",
+    "sample_label": "SAPA 公开在职样本固定代理参照",
+    "sample_pool_size": 9413,
+    "valid_responses_per_item": "928–2388",
+    "source_url": "https://doi.org/10.7910/DVN/SD7SVE",
+    "source_license": "CC0",
+    "method": "从 SAPA 公开六档自评数据的在职样本中，选取与六项工作倾向语义最接近的24道题，完成反向计分、题目等权平均和0–100换算；再按业务校准要求，各维度累计统一下调15分。",
+    "disclaimer": "这是固定的公开在职样本代理参照，不是中国职场正式常模，也不会随本系统答卷变化。",
+    "source_scores": {"长期投入":69.5,"诚信履约":80.7,"节奏适应":61.0,"专业成长":80.5,"客户意识":74.5,"协作共益":73.9},
+    "scores": {"长期投入":54.5,"诚信履约":65.7,"节奏适应":46.0,"专业成长":65.5,"客户意识":59.5,"协作共益":58.9},
+    "mapped_items": {
+      "长期投入": ["q_930", "q_1979", "q_665", "q_582"],
+      "诚信履约": ["q_1190", "q_404", "q_500", "q_1633"],
+      "节奏适应": ["q_38", "q_566", "q_689"],
+      "专业成长": ["q_3023", "q_1327", "q_2775"],
+      "客户意识": ["q_278", "q_253", "q_298", "q_1792", "q_1385"],
+      "协作共益": ["q_1910", "q_4264", "q_1169", "q_1307", "q_1896"]
+    }
+  },
   "questions": [
     {"id": "P01", "kind": "personality", "response_type": "likert6", "dimension": "宜人性", "direction": "positive", "norm_core": true, "prompt": "我觉得大部分人基本上是心怀善意的。"},
     {"id": "P02", "kind": "personality", "response_type": "likert6", "dimension": "外向性", "direction": "reverse", "norm_core": true, "prompt": "我对人多的聚会感到乏味。"},

@@ -1,4 +1,4 @@
-import { getJson, postJson, putJson } from "./http";
+import { deleteJson, getJson, postJson, putJson } from "./http";
 
 const publicBase = "/api/public/personality-forms";
 const adminBase = "/api/admin/personality-assessments";
@@ -36,6 +36,8 @@ export const createAssessmentForm = (payload) => postJson(`${adminBase}/forms`, 
 export const updateAssessmentForm = (id, payload) => putJson(`${adminBase}/forms/${id}`, payload, "更新表单失败");
 export const setAssessmentFormStatus = (id, status) =>
   postJson(`${adminBase}/forms/${id}/status`, { status }, "更新表单状态失败");
+export const deleteAssessmentForm = (id) =>
+  deleteJson(`${adminBase}/forms/${id}`, "删除表单失败");
 export const duplicateAssessmentForm = (id) =>
   postJson(`${adminBase}/forms/${id}/duplicate`, {}, "复制表单失败");
 
@@ -47,6 +49,12 @@ export const listAssessmentSubmissions = (formId, params = {}) => {
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return getJson(`${adminBase}/forms/${formId}/submissions${suffix}`, "加载答卷失败");
 };
+export const deleteAssessmentSubmissions = (formId, submissionIds) =>
+  postJson(
+    `${adminBase}/forms/${formId}/submissions/delete`,
+    { submission_ids: submissionIds },
+    "删除答卷失败",
+  );
 
 export const getAssessmentSubmission = (id) =>
   getJson(`${adminBase}/submissions/${id}`, "加载答卷详情失败");

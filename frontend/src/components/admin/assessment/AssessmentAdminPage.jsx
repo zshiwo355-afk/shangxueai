@@ -27,6 +27,7 @@ import {
   ApiOutlined,
   CheckCircleOutlined,
   CopyOutlined,
+  DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   LinkOutlined,
@@ -44,6 +45,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   anonymizeAssessmentSubmission,
   createAssessmentForm,
+  deleteAssessmentForm,
+  deleteAssessmentSubmissions,
   duplicateAssessmentForm,
   generateAssessmentAI,
   getAssessmentQuestionnaire,
@@ -203,6 +206,9 @@ export default function AssessmentAdminPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState([]);
+  const [deletingSubmissions, setDeletingSubmissions] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -224,7 +230,10 @@ export default function AssessmentAdminPage() {
     try {
       const rows = await listAssessmentForms();
       setForms(rows);
-      setSelectedId((current) => preferredId || current || rows[0]?.id || null);
+      setSelectedId((current) => {
+        const candidate = preferredId || current;
+        return rows.some((row) => row.id === candidate) ? candidate : rows[0]?.id || null;
+      });
     } catch (error) {
       message.error(error.message);
     } finally {
@@ -241,12 +250,14 @@ export default function AssessmentAdminPage() {
     }
     let active = true;
     setLoadingSubmissions(true);
-    listAssessmentSubmissions(selectedId, { search, page, page_size: 20 })
+    listAssessmentSubmissions(selectedId, { search, page, page_size: pageSize })
       .then((result) => { if (active) setSubmissions(result); })
       .catch((error) => { if (active) message.error(error.message); })
       .finally(() => { if (active) setLoadingSubmissions(false); });
     return () => { active = false; };
-  }, [message, page, search, selectedId]);
+  }, [message, page, pageSize, search, selectedId]);
+
+  useEffect(() => { setSelectedSubmissionIds([]); }, [page, pageSize, search, selectedId]);
 
   const openEditor = (form = null) => {
     setEditingForm(form);
@@ -319,6 +330,42 @@ export default function AssessmentAdminPage() {
     }
   };
 
+  const removeForm = async (form) => {
+    try {
+      const result = await deleteAssessmentForm(form.id);
+      setPage(1);
+      setSelectedSubmissionIds([]);
+      setDetailOpen(false);
+      setDetail(null);
+      await refreshForms();
+      message.success(`表单已删除，同时删除 ${result.deleted_submissions || 0} 份答卷和 ${result.deleted_drafts || 0} 份草稿。`);
+    } catch (error) {
+      message.error(error.message);
+    }
+  };
+
+  const removeSelectedSubmissions = async () => {
+    if (!selectedId || !selectedSubmissionIds.length) return;
+    setDeletingSubmissions(true);
+    try {
+      const result = await deleteAssessmentSubmissions(selectedId, selectedSubmissionIds);
+      const remaining = Math.max(0, submissions.total - result.deleted);
+      const nextPage = Math.min(page, Math.max(1, Math.ceil(remaining / pageSize)));
+      setSelectedSubmissionIds([]);
+      if (nextPage !== page) {
+        setPage(nextPage);
+      } else {
+        setSubmissions(await listAssessmentSubmissions(selectedId, { search, page, page_size: pageSize }));
+      }
+      await refreshForms(selectedId);
+      message.success(`已永久删除 ${result.deleted} 份答卷。`);
+    } catch (error) {
+      message.error(error.message);
+    } finally {
+      setDeletingSubmissions(false);
+    }
+  };
+
   const copyLink = async (form) => {
     const link = `${window.location.origin}${form.public_path}`;
     try {
@@ -344,7 +391,7 @@ export default function AssessmentAdminPage() {
 
   const refreshDetailAndList = async () => {
     if (detail?.id) setDetail(await getAssessmentSubmission(detail.id));
-    if (selectedId) setSubmissions(await listAssessmentSubmissions(selectedId, { search, page, page_size: 20 }));
+    if (selectedId) setSubmissions(await listAssessmentSubmissions(selectedId, { search, page, page_size: pageSize }));
     await refreshForms(selectedId);
   };
 
@@ -383,7 +430,7 @@ export default function AssessmentAdminPage() {
     },
     {
       title: "操作",
-      width: 330,
+      width: 410,
       render: (_, record) => (
         <Space wrap onClick={(event) => event.stopPropagation()}>
           <Button size="small" icon={<LinkOutlined />} onClick={() => copyLink(record)}>复制链接</Button>
@@ -392,6 +439,16 @@ export default function AssessmentAdminPage() {
           <Button size="small" danger={record.status === "active"} onClick={() => toggleStatus(record)}>
             {record.status === "active" ? "停用" : "启用"}
           </Button>
+          <Popconfirm
+            title={`永久删除“${record.title}”？`}
+            description={`将同时删除 ${record.submission_count || 0} 份已提交答卷和 ${record.draft_count || 0} 份草稿，且无法恢复。`}
+            okText="永久删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => removeForm(record)}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -474,7 +531,7 @@ export default function AssessmentAdminPage() {
         className="assessment-admin-card assessment-submission-card"
         title={selectedForm ? `答卷 · ${selectedForm.title}` : "答卷"}
         extra={selectedForm ? (
-          <Space>
+          <Space wrap>
             <Input.Search
               allowClear
               placeholder="姓名 / 手机 / 岗位"
@@ -483,6 +540,24 @@ export default function AssessmentAdminPage() {
               onSearch={(value) => { setSearch(value.trim()); setPage(1); }}
               style={{ width: 230 }}
             />
+            <Popconfirm
+              title={`永久删除选中的 ${selectedSubmissionIds.length} 份答卷？`}
+              description="答卷、计分结果和 AI 分析将一并删除，且无法恢复。"
+              okText="永久删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              disabled={!selectedSubmissionIds.length}
+              onConfirm={removeSelectedSubmissions}
+            >
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                disabled={!selectedSubmissionIds.length}
+                loading={deletingSubmissions}
+              >
+                删除选中{selectedSubmissionIds.length ? `（${selectedSubmissionIds.length}）` : ""}
+              </Button>
+            </Popconfirm>
             <Button icon={<LinkOutlined />} onClick={() => copyLink(selectedForm)}>公开链接</Button>
           </Space>
         ) : null}
@@ -492,13 +567,22 @@ export default function AssessmentAdminPage() {
           loading={loadingSubmissions}
           columns={submissionColumns}
           dataSource={submissions.items}
+          rowSelection={{
+            selectedRowKeys: selectedSubmissionIds,
+            onChange: setSelectedSubmissionIds,
+          }}
           scroll={{ x: 980 }}
           pagination={{
             current: page,
-            pageSize: 20,
+            pageSize,
             total: submissions.total,
-            showSizeChanger: false,
-            onChange: setPage,
+            showSizeChanger: true,
+            pageSizeOptions: ["10", "20", "50", "100"],
+            showTotal: (total) => `共 ${total} 份答卷`,
+            onChange: (nextPage, nextPageSize) => {
+              setPage(nextPageSize === pageSize ? nextPage : 1);
+              setPageSize(nextPageSize);
+            },
           }}
           locale={{ emptyText: <Empty description={selectedForm ? "还没有已提交答卷" : "请先选择一个表单"} /> }}
         />
@@ -620,6 +704,7 @@ export default function AssessmentAdminPage() {
             <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }}>
               <Descriptions.Item label="姓名">{detail.name || "已匿名"}</Descriptions.Item>
               <Descriptions.Item label="手机">{detail.phone || "已匿名"}</Descriptions.Item>
+              <Descriptions.Item label="年龄">{detail.age ? `${detail.age} 岁` : "—"}</Descriptions.Item>
               <Descriptions.Item label="岗位">{detail.position || "—"}</Descriptions.Item>
               <Descriptions.Item label="提交次数">第 {detail.attempt_no} 次</Descriptions.Item>
               <Descriptions.Item label="填写时长">{detail.duration_seconds ? `${Math.floor(detail.duration_seconds / 60)} 分 ${detail.duration_seconds % 60} 秒` : "—"}</Descriptions.Item>
@@ -629,9 +714,7 @@ export default function AssessmentAdminPage() {
             <Row gutter={[14, 14]} className="assessment-stat-grid">
               {detail.score?.overall_score !== null && detail.score?.overall_score !== undefined ? (
                 <Col xs={12} md={6}><Card><Statistic title="职场行为总分（旧版）" value={detail.score?.overall_score} suffix="/ 100" /></Card></Col>
-              ) : (
-                <Col xs={12} md={6}><Card><Statistic title="参考样本中的主要特质" value={`${detail.score?.profile_basis_dimension || "—"} · 第 ${detail.score?.norm_percentiles?.[detail.score?.profile_basis_dimension] ?? "—"} 百分位`} /></Card></Col>
-              )}
+              ) : null}
               <Col xs={12} md={6}><Card><Statistic title="倾向类型" value={detail.score?.profile_label || "—"} /></Card></Col>
               <Col xs={12} md={6}><Card><Statistic title="可信度" value={detail.score?.credibility?.score} suffix="%" /></Card></Col>
               <Col xs={12} md={6}><Card><Statistic title={detail.score?.rules_version !== "personality-v1" ? "面试核实线索" : "风险证据"} value={detail.score?.risks?.length || 0} suffix="项" /></Card></Col>
@@ -657,10 +740,12 @@ export default function AssessmentAdminPage() {
               <Card title={detail.score?.rules_version !== "personality-v1" ? "六项工作倾向" : "五项职场行为维度"}>
                 <div className="assessment-behavior-bars">
                   {Object.entries(detail.score?.behavior_scores || {}).map(([name, value]) => (
-                    <div key={name}><span><strong>{name}</strong><em>{detail.score?.behavior_bands?.[name] || value}</em></span><Progress percent={value} showInfo={false} strokeColor="#1f6a5d" /></div>
+                    <div key={name}>
+                      <span><strong>{name}</strong><em>{Number(value).toFixed(1)}</em></span>
+                      <Progress percent={Number(value)} showInfo={false} strokeColor="#1f6a5d" />
+                    </div>
                   ))}
                 </div>
-                <Alert type="info" showIcon title={detail.score?.rules_version !== "personality-v1" ? "解释边界" : "总分规则"} description={detail.score?.overall_basis} />
               </Card>
             </div>
 
@@ -675,11 +760,17 @@ export default function AssessmentAdminPage() {
                   <Row gutter={[20, 20]}>
                     <Col xs={24} md={12}><h4>3 项优势信号</h4><ol>{detail.ai_report.strengths?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
                     <Col xs={24} md={12}><h4>3 项面试核实点</h4><ol>{detail.ai_report.verification_points?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
+                    {detail.ai_report.primary_job_directions?.length ? (
+                      <Col xs={24} md={12}><h4>5 个主要匹配方向</h4><ol>{detail.ai_report.primary_job_directions.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
+                    ) : null}
+                    {detail.ai_report.secondary_job_directions?.length ? (
+                      <Col xs={24} md={12}><h4>5 个次要匹配方向</h4><ol>{detail.ai_report.secondary_job_directions.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
+                    ) : null}
                     <Col span={24}><h4>5 个建议追问</h4><ol className="assessment-interview-list">{detail.ai_report.interview_questions?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
                   </Row>
                 </div>
               ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击生成后，AI 只会读取确定性维度、情境作答和可信度，不会读取姓名、电话、年龄等信息。" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击生成后，AI 只会读取确定性维度、情境作答和可信度，不会读取姓名、电话、年龄或应聘岗位。" />
               )}
             </Card>
 

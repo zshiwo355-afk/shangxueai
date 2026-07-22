@@ -407,6 +407,7 @@ def _score_v3(rules: dict[str, Any], answers: dict[str, Any], duration_seconds: 
         "profile_basis_dimension": strongest,
         "behavior_scores": behavior_scores,
         "behavior_bands": behavior_bands,
+        "behavior_reference": rules["behavior_reference"],
         "workplace_choices": _choice_evidence_v3(rules, answers),
         "credibility": _credibility_v2(rules, answers, duration_seconds),
         "risks": signals,

@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +35,7 @@ public_router = APIRouter(
     prefix="/api/public/personality-forms", tags=["public-personality-assessments"]
 )
 
-AI_PROMPT_VERSION = "personality-report-v3"
+AI_PROMPT_VERSION = "personality-report-v4-job-directions"
 FIELD_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
@@ -61,6 +62,10 @@ class FormUpdatePayload(BaseModel):
 
 class FormStatusPayload(BaseModel):
     status: Literal["active", "disabled"]
+
+
+class SubmissionDeletePayload(BaseModel):
+    submission_ids: list[int] = Field(..., min_length=1, max_length=100)
 
 
 class DraftCreatePayload(BaseModel):
@@ -90,6 +95,12 @@ def _json_load(raw: str | None, fallback: Any) -> Any:
 
 def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _with_fixed_behavior_reference(score: dict[str, Any]) -> dict[str, Any]:
+    if score.get("behavior_reference") or score.get("rules_version") not in {"personality-v2", "personality-v3"}:
+        return score
+    return {**score, "behavior_reference": get_rules("personality-v3").get("behavior_reference")}
 
 
 def _default_info_fields() -> list[dict[str, Any]]:
@@ -192,7 +203,11 @@ def _snapshot(form: PersonalityForm) -> dict[str, Any]:
     }
 
 
-def _form_dict(form: PersonalityForm, submission_count: int = 0) -> dict[str, Any]:
+def _form_dict(
+    form: PersonalityForm,
+    submission_count: int = 0,
+    draft_count: int = 0,
+) -> dict[str, Any]:
     return {
         "id": int(form.id),
         "title": form.title,
@@ -206,6 +221,7 @@ def _form_dict(form: PersonalityForm, submission_count: int = 0) -> dict[str, An
         "question_count": len(get_rules(form.rules_version)["questions"]),
         "scoring_locked": True,
         "submission_count": int(submission_count),
+        "draft_count": int(draft_count),
         "created_at": form.created_at.isoformat() if form.created_at else None,
         "updated_at": form.updated_at.isoformat() if form.updated_at else None,
         "disabled_at": form.disabled_at.isoformat() if form.disabled_at else None,
@@ -409,12 +425,24 @@ async def list_forms(
     del admin
     forms = (await db.execute(select(PersonalityForm).order_by(PersonalityForm.created_at.desc()))).scalars().all()
     count_rows = await db.execute(
-        select(PersonalitySubmission.form_id, func.count(PersonalitySubmission.id))
-        .where(PersonalitySubmission.status == "submitted")
-        .group_by(PersonalitySubmission.form_id)
+        select(
+            PersonalitySubmission.form_id,
+            PersonalitySubmission.status,
+            func.count(PersonalitySubmission.id),
+        ).group_by(PersonalitySubmission.form_id, PersonalitySubmission.status)
     )
-    counts = {int(form_id): int(count) for form_id, count in count_rows.all()}
-    return [_form_dict(form, counts.get(int(form.id), 0)) for form in forms]
+    counts = {
+        (int(form_id), status): int(count)
+        for form_id, status, count in count_rows.all()
+    }
+    return [
+        _form_dict(
+            form,
+            counts.get((int(form.id), "submitted"), 0),
+            counts.get((int(form.id), "draft"), 0),
+        )
+        for form in forms
+    ]
 
 
 @admin_router.get("/questionnaire")
@@ -510,13 +538,42 @@ async def get_form(
     row = await db.get(PersonalityForm, form_id)
     if not row:
         raise HTTPException(status_code=404, detail="表单不存在。")
-    count = await db.scalar(
-        select(func.count(PersonalitySubmission.id)).where(
-            PersonalitySubmission.form_id == form_id,
-            PersonalitySubmission.status == "submitted",
-        )
+    count_rows = await db.execute(
+        select(PersonalitySubmission.status, func.count(PersonalitySubmission.id))
+        .where(PersonalitySubmission.form_id == form_id)
+        .group_by(PersonalitySubmission.status)
     )
-    return _form_dict(row, int(count or 0))
+    counts = {status: int(count) for status, count in count_rows.all()}
+    return _form_dict(row, counts.get("submitted", 0), counts.get("draft", 0))
+
+
+@admin_router.delete("/forms/{form_id}")
+async def delete_form(
+    form_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    row = await db.get(PersonalityForm, form_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="表单不存在或已删除。")
+    count_rows = await db.execute(
+        select(PersonalitySubmission.status, func.count(PersonalitySubmission.id))
+        .where(PersonalitySubmission.form_id == form_id)
+        .group_by(PersonalitySubmission.status)
+    )
+    counts = {status: int(count) for status, count in count_rows.all()}
+    await db.execute(
+        sql_delete(PersonalitySubmission).where(PersonalitySubmission.form_id == form_id)
+    )
+    await db.delete(row)
+    await db.flush()
+    return {
+        "success": True,
+        "deleted_form_id": form_id,
+        "deleted_submissions": counts.get("submitted", 0),
+        "deleted_drafts": counts.get("draft", 0),
+    }
 
 
 @admin_router.put("/forms/{form_id}")
@@ -631,6 +688,40 @@ async def list_submissions(
     }
 
 
+@admin_router.post("/forms/{form_id}/submissions/delete")
+async def delete_submissions(
+    form_id: int,
+    payload: SubmissionDeletePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    if not await db.get(PersonalityForm, form_id):
+        raise HTTPException(status_code=404, detail="表单不存在。")
+    submission_ids = sorted(set(payload.submission_ids))
+    existing_ids = set(
+        (
+            await db.execute(
+                select(PersonalitySubmission.id).where(
+                    PersonalitySubmission.form_id == form_id,
+                    PersonalitySubmission.status == "submitted",
+                    PersonalitySubmission.id.in_(submission_ids),
+                )
+            )
+        ).scalars().all()
+    )
+    if existing_ids != set(submission_ids):
+        raise HTTPException(status_code=404, detail="部分答卷不存在或已经删除，请刷新后重试。")
+    await db.execute(
+        sql_delete(PersonalitySubmission).where(
+            PersonalitySubmission.form_id == form_id,
+            PersonalitySubmission.id.in_(submission_ids),
+        )
+    )
+    await db.flush()
+    return {"success": True, "deleted": len(submission_ids)}
+
+
 @admin_router.get("/submissions/{submission_id}")
 async def get_submission(
     submission_id: int,
@@ -644,7 +735,7 @@ async def get_submission(
     form = await db.get(PersonalityForm, row.form_id)
     answers = _json_load(row.answers_json, {})
     form_snapshot = _json_load(row.form_snapshot_json, {})
-    score = _json_load(row.score_json, {})
+    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
     answer_details = build_answer_details(
         answers,
         score.get("rules_version")
@@ -661,6 +752,7 @@ async def get_submission(
         answer_details.sort(key=lambda item: order_index.get(item["question_id"], len(order_index)))
     return {
         **_submission_summary(row),
+        "age": row.respondent_age,
         "form_title": form.title if form else "已删除表单",
         "profile": _json_load(row.profile_json, {}),
         "answers": answers,
@@ -715,12 +807,18 @@ async def generate_ai_analysis(
         raise HTTPException(status_code=404, detail="答卷不存在。")
     if row.ai_report_json and not payload.regenerate:
         return _json_load(row.ai_report_json, {})
-    score = _json_load(row.score_json, {})
+    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
     system = (
         "你是企业面试辅助分析员。只能基于系统提供的确定性结果与匿名开放题进行解释，不能重新计分，"
         "不能作心理诊断，不能给出录用或淘汰结论。不要猜测姓名、性别、年龄、电话等个人信息。"
-        "输出合法 JSON，字段固定为 overall_summary、strengths、verification_points、interview_questions。"
-        "strengths 必须3条，verification_points 必须3条，interview_questions 必须5条，后三项均为字符串数组。"
+        "输入中不包含应聘岗位，岗位方向必须只根据测评结果推断。"
+        "输出合法 JSON，字段固定为 overall_summary、strengths、verification_points、interview_questions、"
+        "primary_job_directions、secondary_job_directions。strengths 必须3条，verification_points 必须3条，"
+        "interview_questions 必须5条，primary_job_directions 必须5条，secondary_job_directions 必须5条，"
+        "这些字段均为字符串数组。岗位方向应尽可能宽泛，可从信息技术、研究开发、产品与项目、市场与品牌、"
+        "运营管理、销售与商务、客户服务、人力资源、财务审计、行政支持、供应链与采购、生产与质量、"
+        "教育培训、数据分析、创意内容、公共服务等岗位族中选择；不要写具体职位、行业、公司或技术栈。"
+        "主要与次要方向不得重复，每条使用“方向：匹配依据”的格式，依据必须来自输入中的人格或工作倾向。"
     )
     safe_payload = {
         "overall_basis": score.get("overall_basis"),
@@ -731,6 +829,7 @@ async def generate_ai_analysis(
         "norm_reference": score.get("norm_reference"),
         "behavior_scores": score.get("behavior_scores"),
         "behavior_bands": score.get("behavior_bands"),
+        "behavior_reference": score.get("behavior_reference"),
         "workplace_choices": score.get("workplace_choices"),
         "credibility": score.get("credibility"),
         "interview_signals": score.get("risks"),
@@ -743,20 +842,30 @@ async def generate_ai_analysis(
             [{"role": "user", "content": _json_dump(safe_payload)}],
             system=system,
             temperature=0.2,
-            max_tokens=1600,
+            max_tokens=2200,
         )
     except LLMError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     strengths = _string_list(result.get("strengths"), 3)
     verification_points = _string_list(result.get("verification_points"), 3)
     interview_questions = _string_list(result.get("interview_questions"), 5)
-    if len(strengths) != 3 or len(verification_points) != 3 or len(interview_questions) != 5:
+    primary_job_directions = _string_list(result.get("primary_job_directions"), 5)
+    secondary_job_directions = _string_list(result.get("secondary_job_directions"), 5)
+    if (
+        len(strengths) != 3
+        or len(verification_points) != 3
+        or len(interview_questions) != 5
+        or len(primary_job_directions) != 5
+        or len(secondary_job_directions) != 5
+    ):
         raise HTTPException(status_code=502, detail="AI 分析结构不完整，请重试。")
     report = {
         "overall_summary": str(result.get("overall_summary") or "").strip()[:1200],
         "strengths": strengths,
         "verification_points": verification_points,
         "interview_questions": interview_questions,
+        "primary_job_directions": primary_job_directions,
+        "secondary_job_directions": secondary_job_directions,
         "prompt_version": AI_PROMPT_VERSION,
         "generated_at": datetime.now().isoformat(),
     }
