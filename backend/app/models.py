@@ -1320,6 +1320,9 @@ class PersonalitySubmission(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     anonymized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    share_code: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    share_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    share_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     __table_args__ = (

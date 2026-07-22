@@ -1,6 +1,8 @@
 import unittest
+from datetime import datetime, timedelta
 
-from app.personality_assessments_api import _with_fixed_behavior_reference
+from app.models import PersonalitySubmission
+from app.personality_assessments_api import _share_status, _with_fixed_behavior_reference
 from app.personality_scoring import get_public_questionnaire, get_rules, score_assessment
 
 
@@ -189,6 +191,23 @@ class PersonalityScoringV3Tests(unittest.TestCase):
             _with_fixed_behavior_reference({"rules_version": "personality-v2"})["behavior_reference"]["scores"],
             reference["scores"],
         )
+
+
+class PersonalityShareTests(unittest.TestCase):
+    def test_share_is_only_active_before_expiry_for_identified_submission(self) -> None:
+        now = datetime(2026, 7, 22, 12, 0, 0)
+        row = PersonalitySubmission(
+            status="submitted",
+            share_code="unpredictable-share-code",
+            share_enabled=True,
+            share_expires_at=now + timedelta(days=30),
+        )
+
+        self.assertTrue(_share_status(row, now)["enabled"])
+        self.assertFalse(_share_status(row, now + timedelta(days=31))["enabled"])
+
+        row.anonymized_at = now
+        self.assertFalse(_share_status(row, now)["enabled"])
 
 
 if __name__ == "__main__":

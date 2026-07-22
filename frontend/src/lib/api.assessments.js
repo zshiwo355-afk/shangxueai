@@ -6,6 +6,9 @@ const adminBase = "/api/admin/personality-assessments";
 export const getPublicAssessment = (code) =>
   getJson(`${publicBase}/${encodeURIComponent(code)}`, "加载测评失败");
 
+export const getSharedAssessmentResult = (code) =>
+  getJson(`/api/public/personality-results/${encodeURIComponent(code)}`, "加载分享报告失败");
+
 export const createAssessmentDraft = (code, profile) =>
   postJson(`${publicBase}/${encodeURIComponent(code)}/drafts`, { profile }, "创建答卷失败");
 
@@ -64,3 +67,7 @@ export const generateAssessmentAI = (id, regenerate = false) =>
   postJson(`${adminBase}/submissions/${id}/ai-analysis`, { regenerate }, "生成 AI 分析失败");
 export const anonymizeAssessmentSubmission = (id) =>
   postJson(`${adminBase}/submissions/${id}/anonymize`, {}, "匿名化答卷失败");
+export const enableAssessmentShare = (id, regenerate = false) =>
+  postJson(`${adminBase}/submissions/${id}/share`, { regenerate }, "启用分享链接失败");
+export const disableAssessmentShare = (id) =>
+  postJson(`${adminBase}/submissions/${id}/share/disable`, {}, "停用分享链接失败");

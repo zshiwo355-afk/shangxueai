@@ -4,10 +4,10 @@ import hashlib
 import json
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, or_, select, update
@@ -34,9 +34,14 @@ admin_router = APIRouter(
 public_router = APIRouter(
     prefix="/api/public/personality-forms", tags=["public-personality-assessments"]
 )
+share_router = APIRouter(
+    prefix="/api/public/personality-results", tags=["public-personality-assessment-results"]
+)
 
 AI_PROMPT_VERSION = "personality-report-v4-job-directions"
+SHARE_VALID_DAYS = 30
 FIELD_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+SHARE_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 
 
 class InfoField(BaseModel):
@@ -83,6 +88,10 @@ class DraftSubmitPayload(BaseModel):
 
 
 class AIAnalysisPayload(BaseModel):
+    regenerate: bool = False
+
+
+class ShareEnablePayload(BaseModel):
     regenerate: bool = False
 
 
@@ -248,6 +257,63 @@ def _submission_summary(row: PersonalitySubmission) -> dict[str, Any]:
         "duration_seconds": row.duration_seconds,
         "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
         "anonymized_at": row.anonymized_at.isoformat() if row.anonymized_at else None,
+    }
+
+
+def _share_status(
+    row: PersonalitySubmission,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now()
+    expired = bool(row.share_expires_at and row.share_expires_at <= now)
+    enabled = bool(
+        row.share_code
+        and row.share_enabled
+        and not expired
+        and not row.anonymized_at
+        and row.status == "submitted"
+    )
+    return {
+        "enabled": enabled,
+        "expired": expired,
+        "path": f"/assessment-result/{row.share_code}" if row.share_code else None,
+        "expires_at": row.share_expires_at.isoformat() if row.share_expires_at else None,
+    }
+
+
+def _submission_report(
+    row: PersonalitySubmission,
+    form: PersonalityForm | None,
+) -> dict[str, Any]:
+    answers = _json_load(row.answers_json, {})
+    form_snapshot = _json_load(row.form_snapshot_json, {})
+    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
+    answer_details = build_answer_details(
+        answers,
+        score.get("rules_version")
+        or form_snapshot.get("rules_version")
+        or (form.rules_version if form else None),
+    )
+    snapshot_order = [
+        question["id"]
+        for section in (form_snapshot.get("questionnaire") or {}).get("sections", [])
+        for question in section.get("questions", [])
+    ]
+    if snapshot_order:
+        order_index = {question_id: index for index, question_id in enumerate(snapshot_order)}
+        answer_details.sort(key=lambda item: order_index.get(item["question_id"], len(order_index)))
+    return {
+        "id": int(row.id),
+        "name": row.respondent_name,
+        "phone": row.respondent_phone,
+        "age": row.respondent_age,
+        "position": row.respondent_position,
+        "attempt_no": int(row.attempt_no),
+        "duration_seconds": row.duration_seconds,
+        "form_title": form.title if form else "已删除表单",
+        "answer_details": answer_details,
+        "score": score,
+        "ai_report": _json_load(row.ai_report_json, None),
     }
 
 
@@ -733,34 +799,76 @@ async def get_submission(
     if not row or row.status != "submitted":
         raise HTTPException(status_code=404, detail="答卷不存在。")
     form = await db.get(PersonalityForm, row.form_id)
-    answers = _json_load(row.answers_json, {})
-    form_snapshot = _json_load(row.form_snapshot_json, {})
-    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
-    answer_details = build_answer_details(
-        answers,
-        score.get("rules_version")
-        or form_snapshot.get("rules_version")
-        or (form.rules_version if form else None),
-    )
-    snapshot_order = [
-        question["id"]
-        for section in (form_snapshot.get("questionnaire") or {}).get("sections", [])
-        for question in section.get("questions", [])
-    ]
-    if snapshot_order:
-        order_index = {question_id: index for index, question_id in enumerate(snapshot_order)}
-        answer_details.sort(key=lambda item: order_index.get(item["question_id"], len(order_index)))
     return {
         **_submission_summary(row),
-        "age": row.respondent_age,
-        "form_title": form.title if form else "已删除表单",
+        **_submission_report(row, form),
         "profile": _json_load(row.profile_json, {}),
-        "answers": answers,
-        "answer_details": answer_details,
-        "score": score,
-        "ai_report": _json_load(row.ai_report_json, None),
-        "form_snapshot": form_snapshot,
+        "answers": _json_load(row.answers_json, {}),
+        "form_snapshot": _json_load(row.form_snapshot_json, {}),
+        "share": _share_status(row),
     }
+
+
+@admin_router.post("/submissions/{submission_id}/share")
+async def enable_submission_share(
+    submission_id: int,
+    payload: ShareEnablePayload,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    row = await db.get(PersonalitySubmission, submission_id)
+    if not row or row.status != "submitted":
+        raise HTTPException(status_code=404, detail="答卷不存在。")
+    if row.anonymized_at:
+        raise HTTPException(status_code=400, detail="匿名答卷不能生成分享链接。")
+    if payload.regenerate or not row.share_code:
+        row.share_code = secrets.token_urlsafe(32)
+    row.share_enabled = True
+    row.share_expires_at = datetime.now() + timedelta(days=SHARE_VALID_DAYS)
+    await db.flush()
+    return _share_status(row)
+
+
+@admin_router.post("/submissions/{submission_id}/share/disable")
+async def disable_submission_share(
+    submission_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict[str, Any]:
+    del admin
+    row = await db.get(PersonalitySubmission, submission_id)
+    if not row or row.status != "submitted":
+        raise HTTPException(status_code=404, detail="答卷不存在。")
+    row.share_enabled = False
+    await db.flush()
+    return _share_status(row)
+
+
+@share_router.get("/{share_code}")
+async def get_shared_submission(
+    share_code: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    if not SHARE_CODE_PATTERN.fullmatch(share_code):
+        raise HTTPException(status_code=410, detail="该报告链接已失效，请联系分享人重新获取。")
+    row = (
+        await db.execute(
+            select(PersonalitySubmission).where(
+                PersonalitySubmission.share_code == share_code,
+                PersonalitySubmission.share_enabled.is_(True),
+                PersonalitySubmission.status == "submitted",
+                PersonalitySubmission.anonymized_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if not row or not _share_status(row)["enabled"]:
+        raise HTTPException(status_code=410, detail="该报告链接已失效，请联系分享人重新获取。")
+    form = await db.get(PersonalityForm, row.form_id)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return _submission_report(row, form)
 
 
 @admin_router.post("/submissions/{submission_id}/mark-official")
@@ -893,6 +1001,7 @@ async def anonymize_submission(
     row.respondent_position = ""
     row.profile_json = "{}"
     row.is_official = False
+    row.share_enabled = False
     row.anonymized_at = datetime.now()
     await db.flush()
     return {"anonymized": True, "submission_id": int(row.id)}

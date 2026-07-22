@@ -1499,9 +1499,13 @@ CREATE TABLE `personality_submissions` (
   `submitted_at` datetime DEFAULT NULL,
   `ai_generated_at` datetime DEFAULT NULL,
   `anonymized_at` datetime DEFAULT NULL,
+  `share_code` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `share_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `share_expires_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_personality_submissions_draft_token` (`draft_token_hash`) USING BTREE,
+  UNIQUE KEY `uk_personality_submissions_share_code` (`share_code`) USING BTREE,
   KEY `idx_personality_submissions_form_status` (`form_id`,`status`,`submitted_at`) USING BTREE,
   KEY `idx_personality_submissions_form_phone` (`form_id`,`respondent_phone`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='人格测评答卷';

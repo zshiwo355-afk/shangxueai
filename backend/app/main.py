@@ -45,6 +45,7 @@ from .paper_ai_worker import paper_ai_worker
 from .personality_assessments_api import (
     admin_router as personality_admin_router,
     public_router as personality_public_router,
+    share_router as personality_share_router,
 )
 from .personality_retention_worker import personality_retention_worker
 from .points_admin_api import router as points_admin_router
@@ -169,6 +170,7 @@ app.include_router(paper_submit_router)
 # 人格与职场行为测评
 app.include_router(personality_admin_router)
 app.include_router(personality_public_router)
+app.include_router(personality_share_router)
 # 推送监控
 app.include_router(notifications_router)
 # 规则重载
@@ -499,6 +501,23 @@ async def live_public_entry(slug: str, request: Request):
             html_text = index_file.read_text(encoding="utf-8")
             return HTMLResponse(_inject_live_meta(html_text, meta), headers=FRONTEND_HTML_HEADERS)
     return {"message": "前端尚未构建，无法打开直播页。"}
+
+
+@app.get("/assessment-result/{share_code}", response_model=None, include_in_schema=False)
+async def personality_result_entry(share_code: str):
+    del share_code
+    if frontend_dist:
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            return FileResponse(
+                index_file,
+                headers={
+                    **FRONTEND_HTML_HEADERS,
+                    "X-Robots-Tag": "noindex, nofollow",
+                    "Referrer-Policy": "no-referrer",
+                },
+            )
+    return {"message": "前端尚未构建，无法打开测评报告。"}
 
 
 @app.get("/{full_path:path}", response_model=None)

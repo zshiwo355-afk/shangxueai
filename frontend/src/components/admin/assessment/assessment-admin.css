@@ -168,6 +168,18 @@
 .assessment-question-options b { color: var(--assessment-admin-accent); font-family: var(--assessment-number-font); }
 .assessment-answer-tag { max-width: 280px; height: auto; white-space: normal; line-height: 1.55; }
 
+.assessment-share-panel { display: grid; gap: 16px; }
+.assessment-public-result {
+  --assessment-admin-accent: #c84c35;
+  --assessment-number-font: "Avenir Next", "PingFang SC", sans-serif;
+  min-height: 100vh;
+  padding: 24px max(20px, calc((100vw - 1020px) / 2)) 48px;
+  background: #f7f5f2;
+}
+.assessment-public-result--center { display: grid; place-items: center; }
+.assessment-public-result__header { padding: 20px 0; }
+.assessment-public-result__header h1 { margin: 0; color: #302d29; font-size: 20px; }
+
 @media (max-width: 900px) {
   .assessment-admin-hero { align-items: flex-start; flex-direction: column; padding: 28px 24px; }
   .assessment-detail-grid { grid-template-columns: 1fr; }

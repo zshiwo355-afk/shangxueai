@@ -41,9 +41,74 @@ CREATE TABLE IF NOT EXISTS `personality_submissions` (
   `submitted_at` datetime DEFAULT NULL,
   `ai_generated_at` datetime DEFAULT NULL,
   `anonymized_at` datetime DEFAULT NULL,
+  `share_code` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `share_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `share_expires_at` datetime DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_personality_submissions_draft_token` (`draft_token_hash`) USING BTREE,
+  UNIQUE KEY `uk_personality_submissions_share_code` (`share_code`) USING BTREE,
   KEY `idx_personality_submissions_form_status` (`form_id`,`status`,`submitted_at`) USING BTREE,
   KEY `idx_personality_submissions_form_phone` (`form_id`,`respondent_phone`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='人格测评答卷';
+
+-- 已有数据库：幂等补充单份答卷分享字段。
+SET @ddl := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `personality_submissions` ADD COLUMN `share_code` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL AFTER `anonymized_at`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'personality_submissions'
+    AND COLUMN_NAME = 'share_code'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `personality_submissions` ADD COLUMN `share_enabled` tinyint(1) NOT NULL DEFAULT ''0'' AFTER `share_code`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'personality_submissions'
+    AND COLUMN_NAME = 'share_enabled'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `personality_submissions` ADD COLUMN `share_expires_at` datetime DEFAULT NULL AFTER `share_enabled`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'personality_submissions'
+    AND COLUMN_NAME = 'share_expires_at'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @ddl := (
+  SELECT IF(
+    COUNT(*) = 0,
+    'CREATE UNIQUE INDEX `uk_personality_submissions_share_code` ON `personality_submissions` (`share_code`)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'personality_submissions'
+    AND INDEX_NAME = 'uk_personality_submissions_share_code'
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
