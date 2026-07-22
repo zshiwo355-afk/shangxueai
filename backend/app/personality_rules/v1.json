@@ -1,0 +1,113 @@
+{
+  "version": "personality-v1",
+  "title": "通用职场行为与人格倾向测评",
+  "estimated_minutes": "10-12",
+  "response_instruction": "请选择该描述与你通常表现的符合程度。强不代表好，弱不代表差，请按真实情况选择。",
+  "response_options": [
+    {"value": "weak", "label": "弱", "score": 1, "hint": "基本不会这样做"},
+    {"value": "rather_weak", "label": "较弱", "score": 2, "hint": "较少会这样做"},
+    {"value": "medium", "label": "中", "score": 3, "hint": "视情况而定"},
+    {"value": "rather_strong", "label": "较强", "score": 4, "hint": "多数情况下会这样做"},
+    {"value": "strong", "label": "强", "score": 5, "hint": "几乎总会这样做"}
+  ],
+  "sections": [
+    {"id": 1, "title": "工作节奏", "subtitle": "请根据你通常的工作表现作答", "question_ids": ["Q01", "Q02", "Q03", "Q04", "Q05", "Q06", "Q07", "Q08"]},
+    {"id": 2, "title": "协作方式", "subtitle": "答案没有好坏，请选择最接近真实情况的一项", "question_ids": ["Q09", "Q10", "Q11", "Q12", "Q13", "Q14", "Q15", "Q16"]},
+    {"id": 3, "title": "变化与学习", "subtitle": "请不要按照理想状态作答", "question_ids": ["Q17", "Q18", "Q19", "Q20", "Q21", "Q22", "Q23", "Q24"]},
+    {"id": 4, "title": "工作情景一", "subtitle": "请判断你采取题中做法的倾向强弱", "question_ids": ["Q25", "Q26", "Q27", "Q28", "Q29", "Q30", "Q31"]},
+    {"id": 5, "title": "工作情景二", "subtitle": "请按真实反应作答，而不是选择看起来最理想的答案", "question_ids": ["Q32", "Q33", "Q34", "Q35", "Q36", "Q37", "Q38"]},
+    {"id": 6, "title": "最后一组", "subtitle": "完成后仍可返回检查和修改", "question_ids": ["Q39", "Q40", "Q41", "Q42", "Q43", "Q44", "Q45"]}
+  ],
+  "personality_dimensions": [
+    "责任与执行",
+    "主动沟通",
+    "团队协作",
+    "流程意识",
+    "情绪稳定",
+    "变化适应",
+    "开放与学习",
+    "社交能量"
+  ],
+  "behavior_dimensions": [
+    "责任与执行",
+    "主动沟通",
+    "团队协作",
+    "流程意识",
+    "问题处理与适应"
+  ],
+  "questions": [
+    {"id": "Q01", "kind": "personality", "dimension": "责任与执行", "direction": "positive", "weight": 1, "prompt": "即使没有人提醒，我也会按照约定节点推进任务。"},
+    {"id": "Q02", "kind": "personality", "dimension": "责任与执行", "direction": "reverse", "weight": 1, "prompt": "没有人追问时，我容易把已经答应的事情拖到最后。"},
+    {"id": "Q03", "kind": "personality", "dimension": "责任与执行", "direction": "positive", "weight": 1, "prompt": "工作被临时打断后，我能重新排好顺序并继续完成关键任务。"},
+    {"id": "Q04", "kind": "personality", "dimension": "主动沟通", "direction": "positive", "weight": 1, "prompt": "发现信息缺口可能影响进度时，我会主动说明并确认下一步。"},
+    {"id": "Q05", "kind": "personality", "dimension": "主动沟通", "direction": "reverse", "weight": 1, "prompt": "如果别人没有询问，我通常不会主动提及工作进展发生了变化。"},
+    {"id": "Q06", "kind": "personality", "dimension": "主动沟通", "direction": "positive", "weight": 1, "prompt": "信息不完整时，我会用简明的问题补齐影响决策的关键事实。"},
+    {"id": "Q07", "kind": "personality", "dimension": "团队协作", "direction": "positive", "weight": 1, "prompt": "团队任务受阻时，我愿意一起厘清分工并寻找可执行的办法。"},
+    {"id": "Q08", "kind": "personality", "dimension": "团队协作", "direction": "reverse", "weight": 1, "prompt": "即使他人的部分会影响最终结果，我也更愿意只关注自己的任务。"},
+    {"id": "Q09", "kind": "personality", "dimension": "团队协作", "direction": "positive", "weight": 1, "prompt": "出现分歧时，我能先复述对方的主要顾虑，再提出自己的方案。"},
+    {"id": "Q10", "kind": "personality", "dimension": "流程意识", "direction": "positive", "weight": 1, "prompt": "开始重复性工作前，我通常会先确认关键步骤和要求。"},
+    {"id": "Q11", "kind": "personality", "dimension": "流程意识", "direction": "reverse", "weight": 1, "prompt": "只要目标明确，我认为版本、过程和确认记录并不重要。"},
+    {"id": "Q12", "kind": "personality", "dimension": "流程意识", "direction": "positive", "weight": 1, "prompt": "采用临时处理办法后，我会记录偏差并补上后续事项。"},
+    {"id": "Q13", "kind": "personality", "dimension": "情绪稳定", "direction": "positive", "weight": 1, "prompt": "时间压力较大时，我仍能区分真正紧急的事情和当下情绪。"},
+    {"id": "Q14", "kind": "personality", "dimension": "情绪稳定", "direction": "reverse", "weight": 1, "prompt": "受到批评后，我的情绪经常会长时间影响后续工作。"},
+    {"id": "Q15", "kind": "personality", "dimension": "情绪稳定", "direction": "positive", "weight": 1, "prompt": "遇到意外延误时，我通常会先收集事实再作出反应。"},
+    {"id": "Q16", "kind": "personality", "dimension": "变化适应", "direction": "positive", "weight": 1, "prompt": "条件变化导致原计划失效时，我能较快重新安排优先级。"},
+    {"id": "Q17", "kind": "personality", "dimension": "变化适应", "direction": "reverse", "weight": 1, "prompt": "一旦形成自己的做法，即使条件改变，我也不太愿意调整。"},
+    {"id": "Q18", "kind": "personality", "dimension": "变化适应", "direction": "positive", "weight": 1, "prompt": "面对不熟悉的任务，我能先推进一个小而可验证的步骤。"},
+    {"id": "Q19", "kind": "personality", "dimension": "开放与学习", "direction": "positive", "weight": 1, "prompt": "遇到陌生工具或规则时，我会寻找可靠资料并亲自尝试。"},
+    {"id": "Q20", "kind": "personality", "dimension": "开放与学习", "direction": "reverse", "weight": 1, "prompt": "只要当前方法还能使用，我通常不会研究是否存在更好的做法。"},
+    {"id": "Q21", "kind": "personality", "dimension": "开放与学习", "direction": "positive", "weight": 1, "prompt": "完成一项工作后，我经常回顾有哪些地方可以提高效率或质量。"},
+    {"id": "Q22", "kind": "personality", "dimension": "社交能量", "direction": "positive", "weight": 1, "prompt": "与不熟悉的同事合作时，我能够主动开启与工作有关的交流。"},
+    {"id": "Q23", "kind": "personality", "dimension": "社交能量", "direction": "reverse", "weight": 1, "prompt": "连续与多人交流后，我常会回避后续必要的沟通。"},
+    {"id": "Q24", "kind": "personality", "dimension": "社交能量", "direction": "positive", "weight": 1, "prompt": "需要协调多人时，我能保持沟通和跟进的节奏。"},
+    {"id": "Q25", "kind": "personality", "dimension": "社交能量", "direction": "positive", "weight": 1, "prompt": "在集体讨论中，我能够清楚表达自己的想法并回应他人。"},
+
+    {"id": "Q26", "kind": "behavior", "dimension": "责任与执行", "direction": "positive", "weight": 1, "prompt": "项目可能延期时，我会重新评估进度，并尽早说明影响和新的计划。"},
+    {"id": "Q27", "kind": "behavior", "dimension": "责任与执行", "direction": "positive", "weight": 1, "prompt": "接到要求不够明确的任务时，我会先确认目标、优先级和完成标准。"},
+    {"id": "Q28", "kind": "behavior", "dimension": "责任与执行", "direction": "reverse", "weight": 1, "prompt": "发现自己的交付物有错误时，我倾向于先悄悄修正，等别人发现后再解释。"},
+    {"id": "Q29", "kind": "behavior", "dimension": "主动沟通", "direction": "positive", "weight": 1, "prompt": "需求变化会影响其他人时，我会主动说明变化、影响和待确认事项。"},
+    {"id": "Q30", "kind": "behavior", "dimension": "主动沟通", "direction": "positive", "weight": 1, "prompt": "与负责人意见不同时，我会说明事实依据、可能影响和备选方案。"},
+    {"id": "Q31", "kind": "behavior", "dimension": "主动沟通", "direction": "reverse", "weight": 1, "prompt": "跨部门信息迟迟没有回复时，我通常会继续等待，而不补充背景或主动跟进。"},
+    {"id": "Q32", "kind": "behavior", "dimension": "团队协作", "direction": "positive", "weight": 1, "prompt": "同事负责的关键任务落后时，我会先了解阻碍，再协商分工和承诺节点。"},
+    {"id": "Q33", "kind": "behavior", "dimension": "团队协作", "direction": "reverse", "weight": 1, "prompt": "团队出现困难时，只要自己的部分已经完成，我通常不会再参与处理。"},
+    {"id": "Q34", "kind": "behavior", "dimension": "团队协作", "direction": "positive", "weight": 1, "prompt": "团队对做法有争议时，我会推动大家先统一判断标准，再用事实比较方案。"},
+    {"id": "Q35", "kind": "behavior", "dimension": "流程意识", "direction": "reverse", "weight": 1, "prompt": "遇到紧急要求时，我会直接绕过必要流程，而且不留下说明或记录。"},
+    {"id": "Q36", "kind": "behavior", "dimension": "流程意识", "direction": "positive", "weight": 1, "prompt": "交接重复性工作时，我会说明步骤、输入、异常情况和检查方法。"},
+    {"id": "Q37", "kind": "behavior", "dimension": "流程意识", "direction": "positive", "weight": 1, "prompt": "发现流程存在重复劳动时，我会收集实际情况并提出可回退的改进办法。"},
+    {"id": "Q38", "kind": "behavior", "dimension": "问题处理与适应", "direction": "positive", "weight": 1, "prompt": "关键工具突然无法使用时，我会先确认目标，再寻找合规替代办法并验证结果。"},
+    {"id": "Q39", "kind": "behavior", "dimension": "问题处理与适应", "direction": "reverse", "weight": 1, "prompt": "面对陌生规则时，我倾向于暂停工作，直到有人给出完整答案。"},
+    {"id": "Q40", "kind": "behavior", "dimension": "问题处理与适应", "direction": "positive", "weight": 1, "prompt": "多个紧急任务同时变化时，我会比较影响、期限和依赖关系后重新排序。"},
+
+    {"id": "Q41", "kind": "credibility", "dimension": "可信度", "direction": "none", "weight": 0, "check_type": "attention", "expected_score": 4, "prompt": "为了确认你正在认真填写，请在本题选择“较强”。"},
+    {"id": "Q42", "kind": "credibility", "dimension": "可信度", "direction": "none", "weight": 0, "check_type": "consistency", "compare_question_id": "Q02", "compare_direction": "reverse", "prompt": "即使没有人提醒，我通常也会按照承诺节点推进工作。"},
+    {"id": "Q43", "kind": "credibility", "dimension": "可信度", "direction": "none", "weight": 0, "check_type": "consistency", "compare_question_id": "Q14", "compare_direction": "reverse", "prompt": "受到负面反馈后，我通常能在较短时间内恢复并继续处理任务。"},
+    {"id": "Q44", "kind": "credibility", "dimension": "可信度", "direction": "none", "weight": 0, "check_type": "plausibility", "max_pass_score": 3, "prompt": "在工作中，我从未出现过任何一次疏忽或遗漏。"},
+    {"id": "Q45", "kind": "credibility", "dimension": "可信度", "direction": "none", "weight": 0, "check_type": "attention", "expected_score": 2, "prompt": "本题用于检查填写过程，请选择“较弱”。"}
+  ],
+  "risk_rules": [
+    {"id": "R01", "question_id": "Q26", "operator": "lte", "threshold": 2, "label": "进度风险可能较晚暴露"},
+    {"id": "R02", "question_id": "Q28", "operator": "gte", "threshold": 4, "label": "问题影响可能未及时披露"},
+    {"id": "R03", "question_id": "Q31", "operator": "gte", "threshold": 4, "label": "跨部门沟通可能偏向等待"},
+    {"id": "R04", "question_id": "Q33", "operator": "gte", "threshold": 4, "label": "协作受阻时可能倾向只守住个人边界"},
+    {"id": "R05", "question_id": "Q35", "operator": "gte", "threshold": 4, "label": "紧急情况下可能绕过必要流程且不留痕"},
+    {"id": "R06", "question_id": "Q38", "operator": "lte", "threshold": 2, "label": "工具中断时主动寻找替代路径的倾向较弱"},
+    {"id": "R07", "question_id": "Q39", "operator": "gte", "threshold": 4, "label": "面对陌生规则时可能过度等待完整指引"},
+    {"id": "R08", "question_id": "Q40", "operator": "lte", "threshold": 2, "label": "多任务冲突时主动重排优先级的倾向较弱"}
+  ],
+  "profile_labels": {
+    "责任与执行": "稳健执行型",
+    "主动沟通": "主动推进型",
+    "团队协作": "协同连接型",
+    "流程意识": "稳健执行型",
+    "情绪稳定": "冷静分析型",
+    "变化适应": "灵活探索型",
+    "开放与学习": "灵活探索型",
+    "社交能量": "主动推进型"
+  },
+  "references": [
+    "https://ipip.ori.org/",
+    "https://ipip.ori.org/newScoringInstructions.htm",
+    "https://www.opm.gov/policy-data-oversight/assessment-and-selection/other-assessment-methods/situational-judgment-tests/"
+  ],
+  "disclaimer": "本测评仅用于面试辅助，不构成心理诊断，不得单独用于录用或淘汰决定。"
+}

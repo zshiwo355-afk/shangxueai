@@ -14,6 +14,7 @@ import {
   MenuUnfoldOutlined,
   ReadOutlined,
   SafetyCertificateOutlined,
+  RadarChartOutlined,
   SettingOutlined,
   SolutionOutlined,
   TeamOutlined,
@@ -42,6 +43,7 @@ const MentorsTab = lazy(() => import("./admin/mentors/MentorsTab"));
 const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
 const SyncLogsTab = lazy(() => import("./admin/SyncLogsTab"));
 const LiveAdminPage = lazy(() => import("./admin/live/LiveAdminPage"));
+const AssessmentAdminPage = lazy(() => import("./admin/assessment/AssessmentAdminPage"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -75,6 +77,7 @@ const MENU_GROUPS = [
     label: "用户与权限",
     children: [
       { key: "users", icon: <TeamOutlined />, label: "用户管理", path: "/admin/users" },
+      { key: "assessments", icon: <RadarChartOutlined />, label: "人才测评", path: "/admin/assessments" },
       { key: "sync-logs", icon: <HistoryOutlined />, label: "同步记录", path: "/admin/sync-logs" },
       { key: "whitelist", icon: <SafetyCertificateOutlined />, label: "白名单管理", superOnly: true, path: "/admin/whitelist" },
     ],
@@ -323,6 +326,7 @@ export default function AdminLayout() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="users" element={<UsersTab />} />
+              <Route path="assessments" element={<AssessmentAdminPage />} />
               <Route path="sync-logs" element={<SyncLogsTab />} />
               <Route path="options" element={<OptionsTab />} />
               <Route path="exams" element={<ExamsTab />} />

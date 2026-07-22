@@ -1445,6 +1445,65 @@ CREATE TABLE `live_comment_toggle_logs` (
   KEY `idx_live_comment_toggle_logs_operator` (`operator_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='直播评论开关记录';
 /*!40101 SET character_set_client = @saved_cs_client */;
+--
+-- Table structure for table `personality_forms`
+--
+
+DROP TABLE IF EXISTS `personality_forms`;
+CREATE TABLE `personality_forms` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `public_code` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `info_fields_json` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `schema_version` int NOT NULL DEFAULT '1',
+  `rules_version` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'personality-v3',
+  `created_by` bigint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `disabled_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_personality_forms_public_code` (`public_code`) USING BTREE,
+  KEY `idx_personality_forms_status_created` (`status`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='人格测评表单';
+
+--
+-- Table structure for table `personality_submissions`
+--
+
+DROP TABLE IF EXISTS `personality_submissions`;
+CREATE TABLE `personality_submissions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `form_id` bigint NOT NULL,
+  `draft_token_hash` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `attempt_no` int NOT NULL DEFAULT '1',
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `respondent_name` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `respondent_phone` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `respondent_age` int DEFAULT NULL,
+  `respondent_gender` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `respondent_position` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `profile_json` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `form_snapshot_json` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `answers_json` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `score_json` longtext COLLATE utf8mb4_unicode_ci,
+  `ai_report_json` longtext COLLATE utf8mb4_unicode_ci,
+  `ai_prompt_version` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_official` tinyint(1) NOT NULL DEFAULT '0',
+  `duration_seconds` int DEFAULT NULL,
+  `started_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `saved_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `submitted_at` datetime DEFAULT NULL,
+  `ai_generated_at` datetime DEFAULT NULL,
+  `anonymized_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_personality_submissions_draft_token` (`draft_token_hash`) USING BTREE,
+  KEY `idx_personality_submissions_form_status` (`form_id`,`status`,`submitted_at`) USING BTREE,
+  KEY `idx_personality_submissions_form_phone` (`form_id`,`respondent_phone`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='人格测评答卷';
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

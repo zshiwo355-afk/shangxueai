@@ -1265,3 +1265,62 @@ class QuestionImportJob(Base):
     __table_args__ = (
         Index("idx_question_import_jobs_creator", "created_by", "created_at"),
     )
+
+
+class PersonalityForm(Base):
+    __tablename__ = "personality_forms"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    public_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    info_fields_json: Mapped[str] = mapped_column(LONGTEXT, nullable=False, default="[]")
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    rules_version: Mapped[str] = mapped_column(String(64), nullable=False, default="personality-v3")
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_personality_forms_status_created", "status", "created_at"),
+    )
+
+
+class PersonalitySubmission(Base):
+    __tablename__ = "personality_submissions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    form_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    draft_token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    respondent_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    respondent_phone: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    respondent_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    respondent_gender: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    respondent_position: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    profile_json: Mapped[str] = mapped_column(LONGTEXT, nullable=False, default="{}")
+    form_snapshot_json: Mapped[str] = mapped_column(LONGTEXT, nullable=False)
+    answers_json: Mapped[str] = mapped_column(LONGTEXT, nullable=False, default="{}")
+    score_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    ai_report_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    ai_prompt_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_official: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    saved_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    anonymized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_personality_submissions_form_status", "form_id", "status", "submitted_at"),
+        Index("idx_personality_submissions_form_phone", "form_id", "respondent_phone"),
+    )
