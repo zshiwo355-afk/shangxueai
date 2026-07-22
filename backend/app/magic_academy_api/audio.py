@@ -48,9 +48,11 @@ from ._oss import (
     _build_signed_stream_url,
     _build_signed_inline_url,
     _download_oss_object,
+    _ensure_audio_object_content_type,
     _ensure_oss_settings,
     _build_oss_object_url,
     _upload_binary_to_oss,
+    _normalize_audio_response_mime,
     _validate_reading_image_payload,
     _start_multipart_upload,
     _complete_multipart_upload,
@@ -184,7 +186,7 @@ async def _resolve_checkin_audio_payload(
             "audio_object_key": "",
             "file_name": _safe_filename(meta_name),
             "file_size": int(file_size or 0),
-            "mime_type": (mime_type or mimetypes.guess_type(meta_name)[0] or suffix.lstrip(".")).strip(),
+            "mime_type": _normalize_audio_response_mime(mime_type, meta_name),
         }
     source_name = audio.filename or file_name or "reading-audio.m4a"
     suffix = Path(source_name).suffix.lower()
@@ -195,11 +197,9 @@ async def _resolve_checkin_audio_payload(
         raise HTTPException(status_code=400, detail="录音内容为空。")
     if len(raw) > MAX_AUDIO_SIZE:
         raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
-    resolved_mime = (
-        (audio.content_type or "").strip()
-        or (mime_type or "").strip()
-        or mimetypes.guess_type(source_name)[0]
-        or "audio/mpeg"
+    resolved_mime = _normalize_audio_response_mime(
+        (audio.content_type or "").strip() or (mime_type or "").strip(),
+        source_name,
     )
     object_key, _stored = _build_object_key_and_name(source_name, suffix)
     await asyncio.to_thread(_upload_binary_to_oss, object_key, raw, resolved_mime)
@@ -1371,7 +1371,7 @@ async def init_my_audio_upload(
         now=now,
     )
     _ensure_oss_settings()
-    mime_type = (payload.mime_type or "").strip() or mimetypes.guess_type(payload.original_filename)[0] or "audio/mpeg"
+    mime_type = _normalize_audio_response_mime(payload.mime_type, payload.original_filename)
     object_key, _stored = _build_object_key_and_name(payload.original_filename, suffix)
     upload_plan = await asyncio.to_thread(
         _start_multipart_upload, object_key, mime_type, int(payload.file_size or 0)
@@ -1435,7 +1435,7 @@ async def complete_my_audio_upload(
     if object_size > MAX_AUDIO_SIZE:
         raise HTTPException(status_code=400, detail="单个录音文件不能超过 50MB。")
 
-    resolved_mime = (mime_type or "").strip() or mimetypes.guess_type(file_name)[0] or "audio/mpeg"
+    resolved_mime = _normalize_audio_response_mime(mime_type, file_name or "reading-audio.m4a")
     image_payload = await _resolve_checkin_image_payload(image)
     row = MagicAudioUpload(
         user_id=user.id,
@@ -1830,10 +1830,18 @@ async def play_admin_checkin_audio(
 
     object_key = (row.audio_object_key or "").strip()
     if object_key:
+        normalized_mime = await asyncio.to_thread(
+            _ensure_audio_object_content_type,
+            object_key,
+            mime_type=row.mime_type or None,
+            filename=row.file_name or None,
+        )
+        if normalized_mime and normalized_mime != (row.mime_type or ""):
+            row.mime_type = normalized_mime
         signed_url = await asyncio.to_thread(
             _build_signed_inline_url,
             object_key,
-            mime_type=row.mime_type or None,
+            mime_type=normalized_mime or row.mime_type or None,
             filename=row.file_name or None,
         )
         return RedirectResponse(signed_url, status_code=307)

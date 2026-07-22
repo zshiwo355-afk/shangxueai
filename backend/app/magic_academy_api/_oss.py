@@ -29,6 +29,21 @@ MIN_MULTIPART_PART_SIZE = 8 * 1024 * 1024
 MAX_MULTIPART_PARTS = 1000
 # 小于此值的 mp4 直接下载到内存做 faststart；更大的走流式 OSS 服务端拼接，避免 OOM。
 FASTSTART_INLINE_MAX_BYTES = 64 * 1024 * 1024
+AUDIO_RESPONSE_MIME_BY_EXTENSION = {
+    ".aac": "audio/aac",
+    ".amr": "audio/amr",
+    ".caf": "audio/x-caf",
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+}
+AUDIO_RESPONSE_MIME_ALIASES = {
+    "audio/m4a": "audio/mp4",
+    "audio/mp4a-latm": "audio/mp4",
+    "audio/x-m4a": "audio/mp4",
+}
 
 
 def _normalize_oss_endpoint(value: str) -> str:
@@ -418,12 +433,42 @@ def _format_content_disposition(filename: str | None, *, attachment: bool) -> st
         return f"{kind}; filename*=UTF-8''{quote(name)}"
 
 
+def _normalize_audio_response_mime(mime_type: str | None, filename: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in AUDIO_RESPONSE_MIME_BY_EXTENSION:
+        return AUDIO_RESPONSE_MIME_BY_EXTENSION[suffix]
+
+    normalized = (mime_type or "").split(";", 1)[0].strip().lower()
+    if normalized in AUDIO_RESPONSE_MIME_ALIASES:
+        return AUDIO_RESPONSE_MIME_ALIASES[normalized]
+    if normalized.startswith("audio/"):
+        return normalized
+
+    guessed = (mimetypes.guess_type(filename or "")[0] or "").strip().lower()
+    return AUDIO_RESPONSE_MIME_ALIASES.get(guessed, guessed)
+
+
+def _ensure_audio_object_content_type(
+    object_key: str,
+    *,
+    mime_type: str | None = None,
+    filename: str | None = None,
+) -> str:
+    normalized = _normalize_audio_response_mime(mime_type, filename)
+    current = (mime_type or "").split(";", 1)[0].strip().lower()
+    if normalized and normalized != current:
+        bucket = _build_oss_bucket()
+        bucket.update_object_meta(object_key, {"Content-Type": normalized})
+    return normalized or current
+
+
 def _build_signed_inline_url(
     object_key: str,
     *,
     mime_type: str | None = None,
     filename: str | None = None,
 ) -> str:
+    # 当前 OSS 存储桶拒绝 response-content-type 覆盖；类型在上传或首次播放时写回对象元数据。
     del mime_type
     bucket = _build_oss_bucket()
     expire_seconds = max(int(settings.oss_signed_url_expire_seconds or 3600), 60)
@@ -529,6 +574,8 @@ __all__ = [
     "_complete_multipart_upload",
     "_build_signed_stream_url",
     "ensure_mp4_faststart",
+    "_normalize_audio_response_mime",
+    "_ensure_audio_object_content_type",
     "_build_signed_inline_url",
     "_upload_binary_to_oss",
     "_upload_file_to_oss",
