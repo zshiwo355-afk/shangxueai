@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     xf_appid: str = Field("", alias="XF_APPID")
     xf_api_key: str = Field("", alias="XF_API_KEY")
     xf_api_secret: str = Field("", alias="XF_API_SECRET")
+    reading_checkin_file_retention_days: int = Field(
+        30,
+        ge=1,
+        alias="READING_CHECKIN_FILE_RETENTION_DAYS",
+    )
     image_gen_model: str = Field("openai/gpt-image-2", alias="IMAGE_GEN_MODEL")
     image_gen_size: str = Field("1536x1024", alias="IMAGE_GEN_SIZE")
     image_gen_quality: str = Field("low", alias="IMAGE_GEN_QUALITY")

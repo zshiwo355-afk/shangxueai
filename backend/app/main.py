@@ -35,6 +35,7 @@ from .live_api import (
     public_router as live_public_router,
 )
 from .magic_push_service import reading_push_worker
+from .reading_checkin_file_cleanup import reading_checkin_file_cleanup_worker
 from .materials_api import router as materials_router
 from .maxkb import MaxKBClient
 from .notifications_api import router as notifications_router
@@ -87,6 +88,8 @@ _employee_sync_stop_event = asyncio.Event()
 _employee_sync_task: asyncio.Task | None = None
 _personality_retention_stop_event = asyncio.Event()
 _personality_retention_task: asyncio.Task | None = None
+_reading_file_cleanup_stop_event = asyncio.Event()
+_reading_file_cleanup_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -175,7 +178,8 @@ app.include_router(build_rules_router(rule_loader=rule_loader))
 @app.on_event("startup")
 async def _preload_rules() -> None:
     global _auto_action_task, _paper_ai_task, _reading_push_task
-    global _deadline_reminder_task, _employee_sync_task, _personality_retention_task
+    global _deadline_reminder_task, _employee_sync_task
+    global _personality_retention_task, _reading_file_cleanup_task
     try:
         async with session_scope() as session:
             await ensure_builtin_super_admin(session)
@@ -206,18 +210,25 @@ async def _preload_rules() -> None:
         _personality_retention_task = asyncio.create_task(
             personality_retention_worker(_personality_retention_stop_event)
         )
+    if _reading_file_cleanup_task is None or _reading_file_cleanup_task.done():
+        _reading_file_cleanup_stop_event.clear()
+        _reading_file_cleanup_task = asyncio.create_task(
+            reading_checkin_file_cleanup_worker(_reading_file_cleanup_stop_event)
+        )
 
 
 @app.on_event("shutdown")
 async def _stop_auto_action_worker() -> None:
     global _auto_action_task, _paper_ai_task, _reading_push_task
-    global _deadline_reminder_task, _employee_sync_task, _personality_retention_task
+    global _deadline_reminder_task, _employee_sync_task
+    global _personality_retention_task, _reading_file_cleanup_task
     _auto_action_stop_event.set()
     _paper_ai_stop_event.set()
     _reading_push_stop_event.set()
     _deadline_reminder_stop_event.set()
     _employee_sync_stop_event.set()
     _personality_retention_stop_event.set()
+    _reading_file_cleanup_stop_event.set()
     if _auto_action_task is None:
         pass
     else:
@@ -272,6 +283,15 @@ async def _stop_auto_action_worker() -> None:
             logger.exception("personality retention worker stopped with error")
         finally:
             _personality_retention_task = None
+    if _reading_file_cleanup_task is None:
+        pass
+    else:
+        try:
+            await _reading_file_cleanup_task
+        except Exception:  # noqa: BLE001
+            logger.exception("reading check-in file cleanup worker stopped with error")
+        finally:
+            _reading_file_cleanup_task = None
     # 关闭共享 httpx 客户端，避免 "Event loop is closed" 警告与文件描述符泄漏。
     try:
         await WecomClient.aclose()

@@ -669,7 +669,16 @@ async def _build_reading_content_user_rows(
             "should_complete": True,
             "completed": upload is not None,
             "upload_id": int(upload.id) if upload else None,
+            "has_audio": bool(upload and (upload.audio_object_key or "").strip()),
             "has_image": bool(upload and (upload.image_object_key or "").strip()),
+            "media_purged_at": _iso(upload.media_purged_at) if upload else None,
+            "media_expired": bool(upload and upload.media_purged_at),
+            "audio_expired": bool(
+                upload and upload.media_purged_at and (upload.file_name or "").strip()
+            ),
+            "image_expired": bool(
+                upload and upload.media_purged_at and (upload.image_file_name or "").strip()
+            ),
             "uploaded_at": _iso(trace_upload.uploaded_on) if trace_upload else None,
             "is_makeup": bool(trace_upload and (trace_upload.source or "") == SOURCE_AUDIO_MAKEUP),
             "makeup_at": _iso(trace_upload.uploaded_on) if trace_upload and (trace_upload.source or "") == SOURCE_AUDIO_MAKEUP else None,
@@ -1806,6 +1815,34 @@ async def preview_admin_checkin_image(
     raise HTTPException(status_code=404, detail="该打卡记录未上传图片。")
 
 
+@router.get("/admin/audios/{audio_id}/play", response_model=None)
+async def play_admin_checkin_audio(
+    audio_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = await db.get(MagicAudioUpload, audio_id)
+    if not row or row.is_deleted:
+        raise HTTPException(status_code=404, detail="打卡记录不存在。")
+    await _assert_admin_can_access_audio(db, admin, row)
+    if row.media_purged_at:
+        raise HTTPException(status_code=410, detail="录音已超过一个月保留期并完成清理。")
+
+    object_key = (row.audio_object_key or "").strip()
+    if object_key:
+        signed_url = await asyncio.to_thread(
+            _build_signed_inline_url,
+            object_key,
+            mime_type=row.mime_type or None,
+            filename=row.file_name or None,
+        )
+        return RedirectResponse(signed_url, status_code=307)
+    fallback = (row.audio_url or "").strip()
+    if fallback.startswith("http://") or fallback.startswith("https://"):
+        return RedirectResponse(fallback, status_code=307)
+    raise HTTPException(status_code=404, detail="该打卡记录未上传录音。")
+
+
 async def _assert_admin_can_access_audio(db: AsyncSession, admin: User, row: MagicAudioUpload) -> None:
     """超管可看全部；普通管理员仅能看自己创建的读书内容下的录音。"""
     if is_super_admin(admin):
@@ -2227,6 +2264,7 @@ async def get_admin_reading_content_user_statistics(
         "reading_date": _iso(content.reading_date),
         "push_at": _iso(_effective_push_at(content)),
         "makeup_deadline_at": _iso(content.makeup_deadline_at),
+        "file_retention_days": int(get_settings().reading_checkin_file_retention_days),
         "items": rows,
         "legacy_unbound_hint": legacy_hint,
     }

@@ -161,13 +161,15 @@ CREATE TABLE `magic_audio_uploads` (
   `uploaded_date` date NOT NULL DEFAULT (curdate()),
   `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
   `deleted_at` datetime DEFAULT NULL,
+  `media_purged_at` datetime DEFAULT NULL COMMENT '录音和图片文件实际清理时间，业务打卡记录仍保留',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_magic_audio_uploads_user_month` (`user_id`,`uploaded_date`,`is_deleted`) USING BTREE,
   KEY `idx_magic_audio_uploads_reading_content_id` (`reading_content_id`),
   KEY `idx_magic_audio_uploads_user_content` (`user_id`,`reading_content_id`,`is_deleted`),
-  KEY `idx_magic_audio_uploads_uploaded_on` (`uploaded_on`,`is_deleted`)
+  KEY `idx_magic_audio_uploads_uploaded_on` (`uploaded_on`,`is_deleted`),
+  KEY `idx_magic_audio_uploads_media_retention` (`media_purged_at`,`uploaded_on`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='魔学院读书录音上传';
 /*!40101 SET character_set_client = @saved_cs_client */;
 

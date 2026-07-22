@@ -10,7 +10,8 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { buildReadingCheckinImageUrl } from "../../lib/api.magic";
+import { buildReadingCheckinAudioUrl, buildReadingCheckinImageUrl } from "../../lib/api.magic";
+import { AdminAudioPreview } from "./admin/reading/AdminAudioTranscribePanel";
 import ReadingSeriesModal from "./admin/reading/ReadingSeriesModal";
 import QuestionFormModal from "./QuestionFormModal";
 import ReadingContentFormModal from "./ReadingContentFormModal";
@@ -238,31 +239,56 @@ export default function MagicAcademyPageModals({
       <Modal
         open={audioDetailOpen}
         title={audioDetailRow ? `${audioDetailRow.reading_date} ${audioDetailRow.title}` : "完成明细"}
-        width={980}
+        width={1280}
         footer={null}
         onCancel={() => setAudioDetailOpen(false)}
       >
         <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Alert
+            type="info"
+            showIcon
+            message="录音和打卡图片自上传起保留一个月，过期清理文件但不影响打卡完成记录。"
+          />
           {audioDetailLegacyHint ? <Alert type="info" showIcon message={audioDetailLegacyHint} /> : null}
           <Table
             rowKey="user_id"
             loading={audioDetailLoading}
             dataSource={audioDetailRows}
             pagination={{ pageSize: 10 }}
+            scroll={{ x: 1760 }}
             columns={[
-              { title: "员工姓名", dataIndex: "user_name" },
-              { title: "部门", dataIndex: "department_name", render: (value) => value || "—" },
-              { title: "岗位", dataIndex: "position", render: (value) => value || "—" },
-              { title: "应完成", dataIndex: "should_complete", render: (value) => value ? "是" : "否" },
-              { title: "已完成", dataIndex: "completed", render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
-              { title: "上传时间", dataIndex: "uploaded_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-              { title: "删除时间", dataIndex: "deleted_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-              { title: "删除原因", dataIndex: "delete_reason", render: (value) => value || "—" },
+              { title: "员工姓名", dataIndex: "user_name", width: 100 },
+              { title: "部门", dataIndex: "department_name", width: 220, render: (value) => value || "—" },
+              { title: "岗位", dataIndex: "position", width: 130, render: (value) => value || "—" },
+              { title: "应完成", dataIndex: "should_complete", width: 80, render: (value) => value ? "是" : "否" },
+              { title: "已完成", dataIndex: "completed", width: 80, render: (value) => value ? <Tag bordered={false} color="success">是</Tag> : "否" },
+              { title: "上传时间", dataIndex: "uploaded_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              {
+                title: "录音",
+                dataIndex: "has_audio",
+                width: 260,
+                render: (value, row) => {
+                  if (row.audio_expired) {
+                    return <Tag bordered={false}>已过一个月保留期</Tag>;
+                  }
+                  if (!value || !row.upload_id) {
+                    return <Text type="secondary">—</Text>;
+                  }
+                  return <AdminAudioPreview src={buildReadingCheckinAudioUrl(row.upload_id)} />;
+                },
+              },
+              { title: "删除时间", dataIndex: "deleted_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "删除原因", dataIndex: "delete_reason", width: 140, render: (value) => value || "—" },
               {
                 title: "打卡图片",
                 dataIndex: "has_image",
-                render: (value, row) => (value && row.upload_id
-                  ? (
+                width: 100,
+                render: (value, row) => {
+                  if (row.image_expired) {
+                    return <Tag bordered={false}>已清理</Tag>;
+                  }
+                  return value && row.upload_id
+                    ? (
                     <Image
                       src={buildReadingCheckinImageUrl(row.upload_id)}
                       width={44}
@@ -271,12 +297,13 @@ export default function MagicAcademyPageModals({
                       preview={{ src: buildReadingCheckinImageUrl(row.upload_id) }}
                     />
                   )
-                  : "—"),
+                    : "—";
+                },
               },
-              { title: "是否补卡", dataIndex: "is_makeup", render: (value) => value ? "是" : "否" },
-              { title: "补卡时间", dataIndex: "makeup_at", render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
-              { title: "备注", dataIndex: "remark", render: (value) => value || "—" },
-              { title: "当前状态", dataIndex: "status_text" },
+              { title: "是否补卡", dataIndex: "is_makeup", width: 90, render: (value) => value ? "是" : "否" },
+              { title: "补卡时间", dataIndex: "makeup_at", width: 170, render: (value) => value?.replace("T", " ").slice(0, 19) || "—" },
+              { title: "备注", dataIndex: "remark", width: 140, render: (value) => value || "—" },
+              { title: "当前状态", dataIndex: "status_text", width: 100, fixed: "right" },
             ]}
           />
         </Space>

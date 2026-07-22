@@ -987,6 +987,7 @@ class MagicAudioUpload(Base):
     uploaded_date: Mapped[datetime] = mapped_column(Date, server_default=func.current_date(), index=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    media_purged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -994,6 +995,7 @@ class MagicAudioUpload(Base):
         Index("idx_magic_audio_uploads_user_month", "user_id", "uploaded_date", "is_deleted"),
         Index("idx_magic_audio_uploads_reading_content_id", "reading_content_id"),
         Index("idx_magic_audio_uploads_user_content", "user_id", "reading_content_id", "is_deleted"),
+        Index("idx_magic_audio_uploads_media_retention", "media_purged_at", "uploaded_on"),
     )
 
 

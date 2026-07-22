@@ -12,6 +12,7 @@ AUDIO_LOG_UPLOAD_COMPLETED = "upload_completed"
 AUDIO_LOG_UPLOAD_FAILED = "upload_failed"
 AUDIO_LOG_MANUAL_DELETE = "manual_delete"
 AUDIO_LOG_SYSTEM_DELETE = "system_delete"
+AUDIO_LOG_MEDIA_PURGED = "media_purged"
 
 
 def _now() -> datetime:
@@ -47,6 +48,7 @@ def _snapshot_upload(row: MagicAudioUpload) -> dict[str, Any]:
         "uploaded_on": row.uploaded_on.isoformat() if row.uploaded_on else None,
         "is_deleted": bool(row.is_deleted),
         "deleted_at": row.deleted_at.isoformat() if row.deleted_at else None,
+        "media_purged_at": row.media_purged_at.isoformat() if row.media_purged_at else None,
     }
 
 

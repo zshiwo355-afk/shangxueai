@@ -23,7 +23,7 @@ function formatAudioDuration(value) {
   return `${minutes}:${rest}`;
 }
 
-function AdminAudioPreview({ src }) {
+export function AdminAudioPreview({ src }) {
   const [duration, setDuration] = useState(0);
   const [metadataFailed, setMetadataFailed] = useState(false);
 
