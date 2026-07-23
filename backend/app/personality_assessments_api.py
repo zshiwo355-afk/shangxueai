@@ -21,6 +21,7 @@ from .llm_errors import LLMError
 from .models import PersonalityForm, PersonalitySubmission, User
 from .personality_scoring import (
     build_answer_details,
+    enrich_score_insights,
     get_public_questionnaire,
     get_rules,
     score_assessment,
@@ -38,10 +39,11 @@ share_router = APIRouter(
     prefix="/api/public/personality-results", tags=["public-personality-assessment-results"]
 )
 
-AI_PROMPT_VERSION = "personality-report-v4-job-directions"
+AI_PROMPT_VERSION = "personality-report-v6-key-traits"
 SHARE_VALID_DAYS = 30
 FIELD_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 SHARE_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+TALENT_TITLES = {"优势定位", "质量判断", "问题定义", "经验重构", "信息辨别", "决策取舍", "业务转化"}
 
 
 class InfoField(BaseModel):
@@ -287,7 +289,8 @@ def _submission_report(
 ) -> dict[str, Any]:
     answers = _json_load(row.answers_json, {})
     form_snapshot = _json_load(row.form_snapshot_json, {})
-    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
+    score = enrich_score_insights(_with_fixed_behavior_reference(_json_load(row.score_json, {})))
+    ai_report = _json_load(row.ai_report_json, None)
     answer_details = build_answer_details(
         answers,
         score.get("rules_version")
@@ -313,7 +316,8 @@ def _submission_report(
         "form_title": form.title if form else "已删除表单",
         "answer_details": answer_details,
         "score": score,
-        "ai_report": _json_load(row.ai_report_json, None),
+        "ai_report": ai_report,
+        "ai_report_is_current": bool(ai_report and ai_report.get("prompt_version") == AI_PROMPT_VERSION),
     }
 
 
@@ -902,6 +906,41 @@ def _string_list(value: Any, limit: int) -> list[str]:
     return [str(item).strip()[:500] for item in value if str(item).strip()][:limit]
 
 
+def _talent_items(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list) or len(value) != 4:
+        return []
+    items: list[dict[str, str]] = []
+    titles: set[str] = set()
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            return []
+        item = {
+            key: str(raw.get(key) or "").strip()[:500]
+            for key in ("kind", "title", "basis", "ai_support", "human_responsibility", "action")
+        }
+        expected_kind = "strength" if index < 3 else "ai_support"
+        if (
+            item["kind"] != expected_kind
+            or item["title"] not in TALENT_TITLES
+            or item["title"] in titles
+            or any(not item[key] for key in ("basis", "ai_support", "human_responsibility", "action"))
+        ):
+            return []
+        titles.add(item["title"])
+        items.append(item)
+    return items
+
+
+def _development_plan(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    plan = {
+        key: str(value.get(key) or "").strip()[:500]
+        for key in ("now", "next_1_2_months", "quarter")
+    }
+    return plan if all(plan.values()) else {}
+
+
 @admin_router.post("/submissions/{submission_id}/ai-analysis")
 async def generate_ai_analysis(
     submission_id: int,
@@ -915,18 +954,30 @@ async def generate_ai_analysis(
         raise HTTPException(status_code=404, detail="答卷不存在。")
     if row.ai_report_json and not payload.regenerate:
         return _json_load(row.ai_report_json, {})
-    score = _with_fixed_behavior_reference(_json_load(row.score_json, {}))
+    score = enrich_score_insights(_with_fixed_behavior_reference(_json_load(row.score_json, {})))
     system = (
         "你是企业面试辅助分析员。只能基于系统提供的确定性结果与匿名开放题进行解释，不能重新计分，"
         "不能作心理诊断，不能给出录用或淘汰结论。不要猜测姓名、性别、年龄、电话等个人信息。"
         "输入中不包含应聘岗位，岗位方向必须只根据测评结果推断。"
-        "输出合法 JSON，字段固定为 overall_summary、strengths、verification_points、interview_questions、"
-        "primary_job_directions、secondary_job_directions。strengths 必须3条，verification_points 必须3条，"
+        "输出合法 JSON，字段固定为 overall_summary、strengths、management_trait、verification_points、"
+        "interview_questions、primary_job_directions、secondary_job_directions、talent_amplification、"
+        "development_plan。strengths 必须3条，每条使用“特质名称：解释”的格式；解释必须引用输入中的"
+        "具体人格维度、参考百分位、工作倾向或角色发挥结果，并说明可能呈现的工作方式。"
+        "management_trait 必须是一个字符串，使用“特质名称：解释与管理建议”的格式；应从输入中相对"
+        "不突出的倾向或维度间取舍提炼，只描述需要管理的工作方式，不得写成缺陷、心理诊断或录用结论。"
+        "strengths 与 management_trait 不得编造输入中不存在的分数、经历或能力。"
+        "verification_points 必须3条，"
         "interview_questions 必须5条，primary_job_directions 必须5条，secondary_job_directions 必须5条，"
         "这些字段均为字符串数组。岗位方向应尽可能宽泛，可从信息技术、研究开发、产品与项目、市场与品牌、"
         "运营管理、销售与商务、客户服务、人力资源、财务审计、行政支持、供应链与采购、生产与质量、"
         "教育培训、数据分析、创意内容、公共服务等岗位族中选择；不要写具体职位、行业、公司或技术栈。"
         "主要与次要方向不得重复，每条使用“方向：匹配依据”的格式，依据必须来自输入中的人格或工作倾向。"
+        "talent_amplification 必须是4个对象：前3个 kind=strength，最后1个 kind=ai_support。"
+        "每个对象固定包含 kind、title、basis、ai_support、human_responsibility、action；"
+        "title 不得重复且只能从优势定位、质量判断、问题定义、经验重构、信息辨别、决策取舍、业务转化中选择。"
+        "只能选择输入证据能够支持的名称，不得宣称测量了审美、营销或AI使用能力；最后一项应说明AI如何补位"
+        "相对不突出的倾向，但不能让AI替代人的最终判断。development_plan 必须是对象，固定包含 now、"
+        "next_1_2_months、quarter，分别给出现在、未来1至2个月和季度阶段的一条可执行建议。"
     )
     safe_payload = {
         "overall_basis": score.get("overall_basis"),
@@ -939,6 +990,8 @@ async def generate_ai_analysis(
         "behavior_bands": score.get("behavior_bands"),
         "behavior_reference": score.get("behavior_reference"),
         "workplace_choices": score.get("workplace_choices"),
+        "role_profiles": score.get("role_profiles"),
+        "radar_analysis": score.get("radar_analysis"),
         "credibility": score.get("credibility"),
         "interview_signals": score.get("risks"),
         "open_responses": score.get("open_responses"),
@@ -950,30 +1003,39 @@ async def generate_ai_analysis(
             [{"role": "user", "content": _json_dump(safe_payload)}],
             system=system,
             temperature=0.2,
-            max_tokens=2200,
+            max_tokens=3600,
         )
     except LLMError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     strengths = _string_list(result.get("strengths"), 3)
+    management_trait = str(result.get("management_trait") or "").strip()[:800]
     verification_points = _string_list(result.get("verification_points"), 3)
     interview_questions = _string_list(result.get("interview_questions"), 5)
     primary_job_directions = _string_list(result.get("primary_job_directions"), 5)
     secondary_job_directions = _string_list(result.get("secondary_job_directions"), 5)
+    talent_amplification = _talent_items(result.get("talent_amplification"))
+    development_plan = _development_plan(result.get("development_plan"))
     if (
         len(strengths) != 3
+        or not management_trait
         or len(verification_points) != 3
         or len(interview_questions) != 5
         or len(primary_job_directions) != 5
         or len(secondary_job_directions) != 5
+        or len(talent_amplification) != 4
+        or not development_plan
     ):
         raise HTTPException(status_code=502, detail="AI 分析结构不完整，请重试。")
     report = {
         "overall_summary": str(result.get("overall_summary") or "").strip()[:1200],
         "strengths": strengths,
+        "management_trait": management_trait,
         "verification_points": verification_points,
         "interview_questions": interview_questions,
         "primary_job_directions": primary_job_directions,
         "secondary_job_directions": secondary_job_directions,
+        "talent_amplification": talent_amplification,
+        "development_plan": development_plan,
         "prompt_version": AI_PROMPT_VERSION,
         "generated_at": datetime.now().isoformat(),
     }

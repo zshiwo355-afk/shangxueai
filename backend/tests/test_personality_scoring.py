@@ -2,8 +2,8 @@ import unittest
 from datetime import datetime, timedelta
 
 from app.models import PersonalitySubmission
-from app.personality_assessments_api import _share_status, _with_fixed_behavior_reference
-from app.personality_scoring import get_public_questionnaire, get_rules, score_assessment
+from app.personality_assessments_api import _share_status, _talent_items, _with_fixed_behavior_reference
+from app.personality_scoring import enrich_score_insights, get_public_questionnaire, get_rules, score_assessment
 
 
 def favorable_answers() -> dict[str, str]:
@@ -127,6 +127,12 @@ class PersonalityScoringV2Tests(unittest.TestCase):
         self.assertEqual(result, score_assessment(dict(answers), version="personality-v2"))
         self.assertIn("不存在满分", result["overall_basis"])
 
+    def test_v2_report_also_has_radar_analysis_and_role_stars(self) -> None:
+        result = enrich_score_insights(score_assessment(v2_answers(), version="personality-v2"))
+
+        self.assertTrue(result["radar_analysis"])
+        self.assertEqual(len(result["role_profiles"]), 3)
+
 
 def v3_answers() -> dict[str, object]:
     answers: dict[str, object] = {}
@@ -191,6 +197,54 @@ class PersonalityScoringV3Tests(unittest.TestCase):
             _with_fixed_behavior_reference({"rules_version": "personality-v2"})["behavior_reference"]["scores"],
             reference["scores"],
         )
+
+    def test_v3_role_stars_and_radar_analysis_are_deterministic(self) -> None:
+        score = {
+            "rules_version": "personality-v3",
+            "norm_percentiles": {
+                "开放性": 90,
+                "尽责性": 80,
+                "外向性": 60,
+                "宜人性": 50,
+                "情绪稳定性": 70,
+            },
+            "behavior_scores": {
+                "长期投入": 80,
+                "诚信履约": 85,
+                "节奏适应": 75,
+                "专业成长": 90,
+                "客户意识": 80,
+                "协作共益": 65,
+            },
+        }
+
+        first = enrich_score_insights(score)
+        second = enrich_score_insights(dict(score))
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            [(item["label"], item["stars"]) for item in first["role_profiles"]],
+            [("搭框架", 5), ("稳定执行", 4), ("带执行", 4)],
+        )
+        self.assertIn("开放性与尽责性相对突出", first["radar_analysis"])
+        self.assertIn("宜人性不是当前最突出的特质", first["radar_analysis"])
+
+    def test_ai_talent_items_require_three_strengths_and_one_support(self) -> None:
+        items = [
+            {
+                "kind": "strength" if index < 3 else "ai_support",
+                "title": title,
+                "basis": "来自确定性维度",
+                "ai_support": "由AI整理信息",
+                "human_responsibility": "由本人作最终判断",
+                "action": "完成一次可验证实践",
+            }
+            for index, title in enumerate(("优势定位", "问题定义", "经验重构", "决策取舍"))
+        ]
+
+        self.assertEqual(len(_talent_items(items)), 4)
+        items[3]["kind"] = "strength"
+        self.assertEqual(_talent_items(items), [])
 
 
 class PersonalityShareTests(unittest.TestCase):

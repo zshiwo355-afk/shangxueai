@@ -16,6 +16,7 @@ import {
 } from "antd";
 import {
   ApiOutlined,
+  ApartmentOutlined,
   RadarChartOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
@@ -66,10 +67,29 @@ const answerColumns = [
   { title: "原始值", dataIndex: "raw_score", width: 78, render: (value) => value ?? "—" },
 ];
 
+const developmentStages = [
+  ["now", "现在"],
+  ["next_1_2_months", "未来 1—2 个月"],
+  ["quarter", "季度阶段"],
+];
+
+function parseTrait(value, fallbackTitle) {
+  const normalized = String(value || "").replace(/\*\*/g, "").trim();
+  if (!normalized) return null;
+  const match = normalized.match(/^(.{2,24}?)(?:：|:|——|—|-)\s*([\s\S]+)$/);
+  return match
+    ? { title: match[1].trim(), body: match[2].trim() }
+    : { title: fallbackTitle, body: normalized };
+}
+
 
 export default function AssessmentReport({ detail, aiLoading = false, onRunAI = null }) {
   const screens = Grid.useBreakpoint();
   const isMobile = screens.md === false;
+  const strengthTraits = (detail.ai_report?.strengths || [])
+    .map((item, index) => parseTrait(item, `优势 ${index + 1}`))
+    .filter(Boolean);
+  const managementTrait = parseTrait(detail.ai_report?.management_trait, "需要管理的特质");
 
   return (
     <div className="assessment-detail">
@@ -103,7 +123,10 @@ export default function AssessmentReport({ detail, aiLoading = false, onRunAI = 
       <div className="assessment-detail-grid">
         <Card title={<><RadarChartOutlined /> {detail.score?.norm_percentiles ? "人格参考百分位" : "人格倾向雷达图"}</>}>
           <RadarPanel scores={detail.score?.radar_scores} />
-          <Typography.Paragraph type="secondary">
+          {detail.score?.radar_analysis ? (
+            <Typography.Paragraph className="assessment-radar-analysis">{detail.score.radar_analysis}</Typography.Paragraph>
+          ) : null}
+          <Typography.Paragraph type="secondary" className="assessment-radar-reference">
             {detail.score?.norm_reference
               ? `${detail.score.norm_reference.sample_label}（N=${detail.score.norm_reference.sample_size}）。${detail.score.norm_reference.sample_note}`
               : "人格倾向用于描述风格，不进入职场行为总分。"}
@@ -121,6 +144,34 @@ export default function AssessmentReport({ detail, aiLoading = false, onRunAI = 
         </Card>
       </div>
 
+      {detail.score?.role_profiles?.length ? (
+        <Card
+          className="assessment-role-card"
+          title={<><ApartmentOutlined /> 角色发挥方式</>}
+          extra={<Typography.Text type="secondary">独立计算 · 仅表示角色倾向</Typography.Text>}
+        >
+          <div className="assessment-role-grid">
+            {detail.score.role_profiles.map((role) => (
+              <article key={role.key}>
+                <header>
+                  <strong>{role.label}</strong>
+                  <span className="assessment-role-stars" aria-label={`${role.stars} 星`}>
+                    {"★".repeat(role.stars)}{"☆".repeat(5 - role.stars)}
+                  </span>
+                </header>
+                <p>{role.summary}</p>
+                <div className="assessment-role-evidence">
+                  {role.evidence?.map((item) => <span key={item}>{item}</span>)}
+                </div>
+              </article>
+            ))}
+          </div>
+          <Typography.Paragraph type="secondary" className="assessment-role-note">
+            星级由人格参考百分位与六项工作倾向按固定公式独立计算，不代表能力高低，也不构成录用结论。
+          </Typography.Paragraph>
+        </Card>
+      ) : null}
+
       <Card
         className="assessment-ai-card"
         title={<><RobotOutlined /> AI 面试辅助分析</>}
@@ -128,10 +179,90 @@ export default function AssessmentReport({ detail, aiLoading = false, onRunAI = 
       >
         {detail.ai_report ? (
           <div className="assessment-ai-report">
+            {onRunAI && !detail.ai_report_is_current ? (
+              <Alert
+                showIcon
+                type="warning"
+                title="当前为旧版AI分析"
+                description="重新生成后可查看关键特质拆解、个人天赋与AI赋能建议；系统不会自动覆盖历史内容。"
+              />
+            ) : null}
             <Typography.Paragraph className="assessment-ai-summary">{detail.ai_report.overall_summary}</Typography.Paragraph>
             <Row gutter={[20, 20]}>
-              <Col xs={24} md={12}><h4>3 项优势信号</h4><ol>{detail.ai_report.strengths?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
-              <Col xs={24} md={12}><h4>3 项面试核实点</h4><ol>{detail.ai_report.verification_points?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
+              {strengthTraits.length ? (
+                <Col span={24}>
+                  <section className="assessment-key-traits">
+                    <div className="assessment-key-traits__heading">
+                      <h4>关键特质拆解</h4>
+                      <span>三大优势</span>
+                    </div>
+                    <div className="assessment-key-traits__grid">
+                      {strengthTraits.map((trait, index) => (
+                        <article key={`${trait.title}-${index}`}>
+                          <span>{String(index + 1).padStart(2, "0")}</span>
+                          <div>
+                            <strong>{trait.title}</strong>
+                            <p>{trait.body}</p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    {managementTrait ? (
+                      <article className="assessment-key-traits__management">
+                        <span>一个需要管理的地方</span>
+                        <div>
+                          <strong>{managementTrait.title}</strong>
+                          <p>{managementTrait.body}</p>
+                        </div>
+                      </article>
+                    ) : null}
+                  </section>
+                </Col>
+              ) : null}
+              <Col span={24}><h4>3 项面试核实点</h4><ol>{detail.ai_report.verification_points?.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
+              {detail.ai_report.talent_amplification?.length ? (
+                <Col span={24}>
+                  <section className="assessment-talent-section">
+                    <div className="assessment-talent-heading">
+                      <h4>个人天赋与 AI 赋能建议</h4>
+                      <span>3 项优势放大 · 1 项 AI 补位</span>
+                    </div>
+                    <div className="assessment-talent-grid">
+                      {detail.ai_report.talent_amplification.map((item, index) => (
+                        <article key={`${item.title}-${index}`} className={item.kind === "ai_support" ? "is-support" : ""}>
+                          <header>
+                            <Tag color={item.kind === "ai_support" ? "gold" : "green"}>
+                              {item.kind === "ai_support" ? "AI 补位" : "优势放大"}
+                            </Tag>
+                            <strong>{item.title}</strong>
+                          </header>
+                          <p>{item.basis}</p>
+                          <dl>
+                            <div><dt>AI 适合辅助</dt><dd>{item.ai_support}</dd></div>
+                            <div><dt>本人保留职责</dt><dd>{item.human_responsibility}</dd></div>
+                            <div><dt>行动建议</dt><dd>{item.action}</dd></div>
+                          </dl>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </Col>
+              ) : null}
+              {detail.ai_report.development_plan ? (
+                <Col span={24}>
+                  <section className="assessment-development-section">
+                    <h4>分阶段发展建议</h4>
+                    <div>
+                      {developmentStages.map(([key, label]) => (
+                        <article key={key}>
+                          <span>{label}</span>
+                          <p>{detail.ai_report.development_plan[key]}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </Col>
+              ) : null}
               {detail.ai_report.primary_job_directions?.length ? (
                 <Col xs={24} md={12}><h4>5 个主要匹配方向</h4><ol>{detail.ai_report.primary_job_directions.map((item, index) => <li key={index}>{item}</li>)}</ol></Col>
               ) : null}

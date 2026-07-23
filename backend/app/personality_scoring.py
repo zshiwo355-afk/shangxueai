@@ -15,6 +15,135 @@ RULE_FILES = {
     "personality-v3": RULES_DIR / "v3.json",
 }
 
+ROLE_PROFILES = (
+    {
+        "key": "framework",
+        "label": "搭框架",
+        "weights": (
+            ("norm_percentiles", "开放性", 0.30),
+            ("norm_percentiles", "尽责性", 0.25),
+            ("behavior_scores", "长期投入", 0.25),
+            ("behavior_scores", "专业成长", 0.20),
+        ),
+        "high": "更适合参与方向梳理、方案设计和结构搭建。",
+        "medium": "具备参与框架设计的基础，复杂场景仍建议结合实际经历核实。",
+        "low": "当前更自然的发挥方式不是长期承担方向与框架设计。",
+    },
+    {
+        "key": "lead_execution",
+        "label": "带执行",
+        "weights": (
+            ("norm_percentiles", "尽责性", 0.25),
+            ("norm_percentiles", "外向性", 0.15),
+            ("norm_percentiles", "宜人性", 0.10),
+            ("norm_percentiles", "情绪稳定性", 0.10),
+            ("behavior_scores", "诚信履约", 0.15),
+            ("behavior_scores", "节奏适应", 0.10),
+            ("behavior_scores", "协作共益", 0.15),
+        ),
+        "high": "更适合协调资源、拆解任务并持续推进结果。",
+        "medium": "可以承担带队推进职责，团队协作方式需要结合实际经历核实。",
+        "low": "当前更适合先从个人交付积累带队推进经验。",
+    },
+    {
+        "key": "steady_execution",
+        "label": "稳定执行",
+        "weights": (
+            ("norm_percentiles", "尽责性", 0.30),
+            ("behavior_scores", "诚信履约", 0.25),
+            ("behavior_scores", "节奏适应", 0.20),
+            ("behavior_scores", "客户意识", 0.15),
+            ("behavior_scores", "专业成长", 0.10),
+        ),
+        "high": "更适合在明确目标下保持质量和交付节奏。",
+        "medium": "能够承担稳定交付任务，持续性需要结合真实项目核实。",
+        "low": "长期固定执行可能不是最自然的发挥方式。",
+    },
+)
+
+PERSONALITY_COPY = {
+    "开放性": ("愿意探索新方法并关注长期可能性", "需要探索、优化或搭建新方法的环境"),
+    "尽责性": ("重视结构、计划和结果落地", "目标清楚、允许自主拆解并对结果负责的环境"),
+    "外向性": ("更容易通过表达和互动推动事情", "需要表达、协调和外部连接的环境"),
+    "宜人性": ("更关注合作关系和他人感受", "重视合作、反馈和共同目标的环境"),
+    "情绪稳定性": ("面对压力时更容易保持节奏和判断", "存在变化但要求持续保持判断的环境"),
+}
+
+
+def _role_stars(score: float) -> int:
+    if score >= 85:
+        return 5
+    if score >= 70:
+        return 4
+    if score >= 55:
+        return 3
+    if score >= 40:
+        return 2
+    return 1
+
+
+def _dimension_evidence(source: str, dimension: str, value: float) -> str:
+    if source == "norm_percentiles":
+        band = "相对突出" if value >= 70 else "相对靠后" if value <= 30 else "处于中间范围"
+    else:
+        band = "倾向较高" if value >= 65 else "倾向较低" if value <= 35 else "处于中等"
+    return f"{dimension}{band}"
+
+
+def _radar_analysis(percentiles: dict[str, Any]) -> str | None:
+    if any(dimension not in percentiles for dimension in PERSONALITY_COPY):
+        return None
+    ranked = sorted(
+        ((dimension, float(percentiles[dimension])) for dimension in PERSONALITY_COPY),
+        key=lambda item: (-item[1], item[0]),
+    )
+    (first, high), (second, _), (lowest, low) = ranked[0], ranked[1], ranked[-1]
+    distribution = "各维度分布较均衡，" if high - low <= 15 else "各维度呈现出较清晰的差异，"
+    return (
+        f"人格雷达图显示，{distribution}{first}与{second}相对突出，说明填写人"
+        f"{PERSONALITY_COPY[first][0]}，同时{PERSONALITY_COPY[second][0]}。"
+        f"相较之下，{lowest}不是当前最突出的特质，这不代表能力不足，而是反映其更自然的行为重心。"
+        f"整体更适合{PERSONALITY_COPY[first][1]}。该结果来自长期状态的自我描述，"
+        "建议结合实际项目经历进一步核实。"
+    )
+
+
+def enrich_score_insights(score: dict[str, Any]) -> dict[str, Any]:
+    if score.get("rules_version") not in {"personality-v2", "personality-v3"}:
+        return score
+    sources = {
+        "norm_percentiles": score.get("norm_percentiles") or {},
+        "behavior_scores": score.get("behavior_scores") or {},
+    }
+    roles = []
+    for profile in ROLE_PROFILES:
+        if any(dimension not in sources[source] for source, dimension, _ in profile["weights"]):
+            return score
+        fit = sum(float(sources[source][dimension]) * weight for source, dimension, weight in profile["weights"])
+        stars = _role_stars(fit)
+        roles.append(
+            {
+                "key": profile["key"],
+                "label": profile["label"],
+                "stars": stars,
+                "summary": profile["high"] if stars >= 4 else profile["medium"] if stars == 3 else profile["low"],
+                "evidence": [
+                    _dimension_evidence(source, dimension, float(sources[source][dimension]))
+                    for source, dimension, _ in sorted(profile["weights"], key=lambda item: -item[2])[:3]
+                ],
+                "_fit": fit,
+            }
+        )
+    roles.sort(key=lambda item: (-item["stars"], -item["_fit"], item["label"]))
+    for role in roles:
+        role.pop("_fit")
+    analysis = _radar_analysis(sources["norm_percentiles"])
+    return {
+        **score,
+        "role_profiles": roles,
+        **({"radar_analysis": analysis} if analysis else {}),
+    }
+
 
 @lru_cache(maxsize=len(RULE_FILES))
 def get_rules(version: str | None = None) -> dict[str, Any]:
@@ -424,4 +553,4 @@ def score_assessment(
         return _score_v1(rules, answers, duration_seconds)
     if rules["version"] == "personality-v2":
         return _score_v2(rules, answers, duration_seconds)
-    return _score_v3(rules, answers, duration_seconds)
+    return enrich_score_insights(_score_v3(rules, answers, duration_seconds))

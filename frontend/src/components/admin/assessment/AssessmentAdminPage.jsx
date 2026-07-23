@@ -366,7 +366,7 @@ export default function AssessmentAdminPage() {
     setAiLoading(true);
     try {
       const aiReport = await generateAssessmentAI(detail.id, regenerate);
-      setDetail((current) => ({ ...current, ai_report: aiReport, has_ai_report: true }));
+      setDetail((current) => ({ ...current, ai_report: aiReport, ai_report_is_current: true, has_ai_report: true }));
       message.success("AI 分析已生成。 ");
     } catch (error) {
       message.error(error.message);
