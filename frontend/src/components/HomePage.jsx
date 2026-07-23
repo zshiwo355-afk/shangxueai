@@ -29,7 +29,7 @@ function challengeStatusLabel(status) {
   if (status === "passed") return "已通过";
   if (status === "failed") return "未通过";
   if (status === "in_progress") return "进行中";
-  if (status === "pending_review") return "待复核";
+  if (status === "pending_review") return "已完成";
   return "待开始";
 }
 
@@ -223,11 +223,11 @@ export default function HomePage() {
   }, [message]);
 
   const todoChallenges = useMemo(
-    () => challenges.filter((item) => ["pending", "in_progress", "pending_review"].includes(item.exam?.status)),
+    () => challenges.filter((item) => ["pending", "in_progress"].includes(item.exam?.status)),
     [challenges],
   );
   const doneChallenges = useMemo(
-    () => challenges.filter((item) => ["passed", "failed"].includes(item.exam?.status)),
+    () => challenges.filter((item) => ["passed", "failed", "pending_review"].includes(item.exam?.status)),
     [challenges],
   );
   const todoPapers = useMemo(() => papers.filter(paperIsTodo), [papers]);
@@ -288,17 +288,12 @@ export default function HomePage() {
       ? {
           key: "challenge",
           icon: <ClockCircleOutlined />,
-          title: todoChallenges[0].exam.status === "pending_review" ? "查看通关结果" : "处理待办通关",
+          title: "处理待办通关",
           description: `${todoChallenges[0].exam.title || "AI 通关"} · ${challengeStatusLabel(
             todoChallenges[0].exam.status,
           )}`,
-          action: todoChallenges[0].exam.status === "pending_review" ? "查看" : "进入",
-          onClick: () =>
-            navigate(
-              todoChallenges[0].exam.status === "pending_review"
-                ? `/exam/${todoChallenges[0].exam.id}/result`
-                : `/exam/${todoChallenges[0].exam.id}/intro`,
-            ),
+          action: "进入",
+          onClick: () => navigate(`/exam/${todoChallenges[0].exam.id}/intro`),
         }
       : null,
     continueVideo
@@ -338,7 +333,7 @@ export default function HomePage() {
   const openTodoChallenges = () => {
     const exam = todoChallenges[0]?.exam;
     if (exam) {
-      navigate(exam.status === "pending_review" ? `/exam/${exam.id}/result` : `/exam/${exam.id}/intro`);
+      navigate(`/exam/${exam.id}/intro`);
       return;
     }
     navigate("/training/challenges");

@@ -5,15 +5,18 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchMyExams } from "../lib/api.exam";
 
 const { Paragraph, Text, Title } = Typography;
-const VALID_FILTER_KEYS = new Set(["all", "pending", "review", "done"]);
+const VALID_FILTER_KEYS = new Set(["all", "pending", "done"]);
 
 function normalizeFilterKey(value) {
   return VALID_FILTER_KEYS.has(value) ? value : "all";
 }
 
 function challengeStatusMeta(exam, attempts) {
-  if (exam?.status === "pending_review" || attempts.some((item) => item.review_pending)) {
-    return { label: "待复核", color: "gold" };
+  const latest = attempts.at(-1);
+  if (exam?.status === "pending_review") {
+    return (latest?.final_is_pass ?? latest?.is_pass)
+      ? { label: "已通过", color: "success" }
+      : { label: "未通过", color: "error" };
   }
   if (exam?.status === "in_progress") {
     return { label: "进行中", color: "processing" };
@@ -49,8 +52,7 @@ function latestScore(entry) {
 function scoreHint(entry) {
   const latest = entry.attempts.at(-1);
   if (!latest) return "等待开始";
-  if (latest.review_pending) return "AI 预评";
-  if (latest.final_score != null) return latest.final_is_pass ? "综合通过" : "综合待提升";
+  if (latest.final_score != null) return latest.final_is_pass ? "已通过" : "待提升";
   return "最近一次";
 }
 
@@ -98,17 +100,14 @@ export default function ChallengeHistoryPage() {
 
   const summary = useMemo(() => {
     const pending = items.filter((item) => ["pending", "in_progress"].includes(item.exam?.status)).length;
-    const review = items.filter((item) => item.exam?.status === "pending_review").length;
     const passed = items.filter((item) => item.exam?.status === "passed").length;
-    return { total: items.length, pending, review, passed };
+    const failed = items.filter((item) => item.exam?.status === "failed").length;
+    return { total: items.length, pending, passed, failed };
   }, [items]);
 
   const filteredItems = useMemo(() => {
     if (filterKey === "pending") {
       return items.filter((item) => ["pending", "in_progress"].includes(item.exam?.status));
-    }
-    if (filterKey === "review") {
-      return items.filter((item) => item.exam?.status === "pending_review");
     }
     if (filterKey === "done") {
       return items.filter((item) => ["passed", "failed"].includes(item.exam?.status));
@@ -123,7 +122,7 @@ export default function ChallengeHistoryPage() {
     const status = challengeStatusMeta(exam, attempts);
     const score = latestScore(entry);
     const primaryAction =
-      exam.status === "pending_review" || exam.status === "passed" || exam.status === "failed"
+      exam.status === "passed" || exam.status === "failed"
         ? () => navigate(`/exam/${exam.id}/result`)
         : () => navigate(`/exam/${exam.id}/intro`);
 
@@ -162,7 +161,7 @@ export default function ChallengeHistoryPage() {
         <div className="history-record-card__actions">
           <Space size={10} wrap>
             <Button type="primary" onClick={primaryAction}>
-              {exam.status === "pending_review" || exam.status === "passed" || exam.status === "failed" ? "查看结果" : "进入通关"}
+              {exam.status === "passed" || exam.status === "failed" ? "查看结果" : "进入通关"}
             </Button>
             <Button icon={<HistoryOutlined />} onClick={() => navigate(`/exam/${exam.id}/result`)}>
               历史详情
@@ -205,8 +204,8 @@ export default function ChallengeHistoryPage() {
           <strong style={{ color: "var(--accent-deep, #426f9f)" }}>{summary.pending}</strong>
         </Card>
         <Card className="history-summary__card" bordered={false}>
-          <span>待复核</span>
-          <strong style={{ color: "#d97706" }}>{summary.review}</strong>
+          <span>未通过</span>
+          <strong style={{ color: "#dc2626" }}>{summary.failed}</strong>
         </Card>
         <Card className="history-summary__card" bordered={false}>
           <span>已通过</span>
@@ -219,7 +218,6 @@ export default function ChallengeHistoryPage() {
           <Space align="center" size={[8, 8]} wrap>
             <Button type={filterKey === "all" ? "primary" : "default"} onClick={() => applyFilter("all")}>全部</Button>
             <Button type={filterKey === "pending" ? "primary" : "default"} onClick={() => applyFilter("pending")}>待通关</Button>
-            <Button type={filterKey === "review" ? "primary" : "default"} onClick={() => applyFilter("review")}>待复核</Button>
             <Button type={filterKey === "done" ? "primary" : "default"} onClick={() => applyFilter("done")}>已结束</Button>
           </Space>
           <Text type="secondary">{filteredItems.length} 条</Text>

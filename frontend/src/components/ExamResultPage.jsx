@@ -9,34 +9,15 @@ const { Paragraph, Text } = Typography;
 
 function attemptStatusTag(attempt) {
   if (attempt.status === "in_progress") return <Tag bordered={false} color="processing">进行中</Tag>;
-  if (attempt.review_pending) return <Tag bordered={false} color="gold">待复核</Tag>;
-  if (attempt.final_is_pass) return <Tag bordered={false} color="success">合格</Tag>;
-  return <Tag bordered={false}>待提升</Tag>;
+  if (attempt.final_is_pass ?? attempt.is_pass) return <Tag bordered={false} color="success">及格</Tag>;
+  return <Tag bordered={false} color="error">不及格</Tag>;
 }
 
-function scoreLine(attempt, examAiWeight) {
-  if (attempt.review_pending || attempt.final_score == null) {
-    return (
-      <Space size={[12, 8]} wrap>
-        <span>
-          AI <strong>{Math.round(attempt.score || 0)}</strong>
-        </span>
-        <Tag bordered={false} color="gold">待复核</Tag>
-      </Space>
-    );
-  }
-
-  const aiWeight = Math.round((examAiWeight ?? 0.5) * 100);
-  const adminWeight = 100 - aiWeight;
-
+function scoreLine(attempt) {
   return (
     <Space size={[12, 8]} wrap>
-      <span>AI <strong>{Math.round(attempt.score || 0)}</strong></span>
-      <span style={{ color: "var(--text-faint)" }}>×{aiWeight}%</span>
-      <span>老师 <strong>{Math.round(attempt.admin_score || 0)}</strong></span>
-      <span style={{ color: "var(--text-faint)" }}>×{adminWeight}%</span>
       <span>
-        综合 <strong style={{ color: "var(--accent-deep)", fontSize: 18 }}>{Math.round(attempt.final_score || 0)}</strong>
+        得分 <strong style={{ color: "var(--accent-deep)", fontSize: 18 }}>{Math.round(attempt.final_score ?? attempt.score ?? 0)}</strong>
       </span>
     </Space>
   );
@@ -90,11 +71,6 @@ export default function ExamResultPage() {
     return exam.status === "pending" && exam.attempt_count < exam.max_attempts;
   }, [exam]);
 
-  const hasPendingReview = useMemo(
-    () => attempts.some((attempt) => attempt.review_pending),
-    [attempts],
-  );
-
   if (loading) {
     return <div className="page-shell"><p>加载中...</p></div>;
   }
@@ -130,7 +106,6 @@ export default function ExamResultPage() {
         <Card className="exam-hero-card exam-hero-card--minimal" bordered={false}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             <Space size={[8, 8]} wrap>
-              {exam.status === "pending_review" ? <Tag bordered={false} color="gold">待复核</Tag> : null}
               {exam.status === "passed" ? <Tag bordered={false} color="success">已通过</Tag> : null}
               {exam.status === "failed" ? <Tag bordered={false} color="error">未通过</Tag> : null}
               {exam.status === "pending" ? <Tag bordered={false}>可继续通关</Tag> : null}
@@ -146,13 +121,13 @@ export default function ExamResultPage() {
                 <strong style={{ color: "#16a34a" }}>{exam.pass_score}</strong>
               </div>
               <div className="exam-metric-card">
-                <span>AI 权重</span>
-                <strong>{`${Math.round(exam.ai_weight * 100)}%`}</strong>
+                <span>评分方式</span>
+                <strong>AI 自动评分</strong>
               </div>
             </div>
 
             <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              {hasPendingReview ? "最近一次仍在复核中。" : "可查看每次作答。"}
+              分数提交后即时生成，可查看每次作答与复盘。
             </Paragraph>
           </Space>
         </Card>
@@ -160,14 +135,14 @@ export default function ExamResultPage() {
         {justFinished ? (
           <Card
             className="exam-state-card exam-result-card exam-result-card--minimal"
-            title={`第 ${justFinished.attempt?.attempt_no} 次已提交`}
+            title={`第 ${justFinished.attempt?.attempt_no} 次已完成`}
             bordered={false}
           >
             <Space direction="vertical" size={16} style={{ width: "100%" }}>
               <Space size={[8, 8]} wrap>
-                <Tag bordered={false} color="gold">待复核</Tag>
+                {attemptStatusTag(justFinished.attempt || {})}
                 <span>
-                  AI 预评分 <strong>{Math.round(justFinished.attempt?.score || 0)}</strong>
+                  得分 <strong>{Math.round(justFinished.attempt?.final_score ?? justFinished.attempt?.score ?? 0)}</strong>
                 </span>
                 <Tag bordered={false} color="blue">{justFinished.attempt?.training_type}</Tag>
                 <Tag bordered={false}>{justFinished.attempt?.customer_type}</Tag>
@@ -195,22 +170,13 @@ export default function ExamResultPage() {
                   <Space direction="vertical" size={18} style={{ width: "100%" }}>
                     <Space size={[12, 8]} wrap>
                       {attemptStatusTag(attempt)}
-                      {scoreLine(attempt, exam.ai_weight)}
+                      {scoreLine(attempt)}
                       <Tag bordered={false} color="blue">{attempt.training_type}</Tag>
                       <Tag bordered={false}>{attempt.customer_type}</Tag>
                       <span style={{ color: "var(--text-faint)" }}>
                         {attempt.completed_at?.slice(0, 16).replace("T", " ")}
                       </span>
                     </Space>
-
-                    {attempt.admin_comment ? (
-                      <Card type="inner" className="exam-comment-card">
-                        <h3 style={{ margin: "0 0 6px" }}>老师评语</h3>
-                        <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>
-                          {attempt.admin_comment}
-                        </Paragraph>
-                      </Card>
-                    ) : null}
 
                     {attempt.review_json ? (
                       <ReviewView review={attempt.review_json} showHero={false} />

@@ -1,4 +1,4 @@
-"""管理端考试 / 通关接口：派发、列表、复核、删除、企微推送。"""
+"""管理端考试 / 通关接口：派发、列表、详情、删除、企微推送。"""
 from __future__ import annotations
 
 import asyncio
@@ -22,11 +22,9 @@ from .dtos import (
 )
 from .helpers import (
     _attempt_to_dto,
-    _exam_lock,
     _exam_to_dto,
     _notify_exam_assigned_in_session,
     _parse_iso_dt,
-    _review_exam_attempt_locked,
     logger,
 )
 
@@ -174,7 +172,18 @@ async def list_exams(
         user_ids = {e.user_id for e in exams}
         user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
         user_map = {u.id: u for u in user_rows.scalars().all()}
-        return [_exam_to_dto(e, user_map.get(e.user_id)) for e in exams]
+        attempt_rows = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id.in_({e.id for e in exams}))
+            .order_by(ExamAttempt.exam_id.asc(), ExamAttempt.attempt_no.desc())
+        )
+        latest_attempts: dict[int, ExamAttempt] = {}
+        for attempt in attempt_rows.scalars().all():
+            latest_attempts.setdefault(int(attempt.exam_id), attempt)
+        return [
+            _exam_to_dto(e, user_map.get(e.user_id), latest_attempts.get(int(e.id)))
+            for e in exams
+        ]
 
     total = int((await db.execute(count_stmt)).scalar_one() or 0)
     stmt = stmt.limit(page_size).offset((page - 1) * page_size)
@@ -185,7 +194,19 @@ async def list_exams(
     if user_ids:
         user_rows = await db.execute(select(User).where(User.id.in_(user_ids)))
         user_map = {u.id: u for u in user_rows.scalars().all()}
-    items = [_exam_to_dto(e, user_map.get(e.user_id)).model_dump() for e in exams]
+    latest_attempts: dict[int, ExamAttempt] = {}
+    if exams:
+        attempt_rows = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id.in_({e.id for e in exams}))
+            .order_by(ExamAttempt.exam_id.asc(), ExamAttempt.attempt_no.desc())
+        )
+        for attempt in attempt_rows.scalars().all():
+            latest_attempts.setdefault(int(attempt.exam_id), attempt)
+    items = [
+        _exam_to_dto(e, user_map.get(e.user_id), latest_attempts.get(int(e.id))).model_dump()
+        for e in exams
+    ]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -195,34 +216,9 @@ async def list_pending_review(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> list[dict]:
-    """返回所有 status=completed 且 reviewed_at IS NULL 的 attempt（含所属考试和应试者）。
-    默认最多 200 条，按 completed_at 倒序，避免历史积压一次拉空。
-    """
-    del admin
-    rows = await db.execute(
-        select(ExamAttempt)
-        .where(ExamAttempt.status == "completed", ExamAttempt.reviewed_at.is_(None))
-        .order_by(desc(ExamAttempt.completed_at))
-        .limit(limit)
-    )
-    attempts = rows.scalars().all()
-    if not attempts:
-        return []
-    exam_ids = {a.exam_id for a in attempts}
-    exams_res = await db.execute(select(Exam).where(Exam.id.in_(exam_ids)))
-    exam_map = {e.id: e for e in exams_res.scalars().all()}
-    user_ids = {e.user_id for e in exam_map.values()}
-    users_res = await db.execute(select(User).where(User.id.in_(user_ids)))
-    user_map = {u.id: u for u in users_res.scalars().all()}
-    out = []
-    for att in attempts:
-        exam = exam_map.get(att.exam_id)
-        user = user_map.get(exam.user_id) if exam else None
-        out.append({
-            "attempt": _attempt_to_dto(att).model_dump(),
-            "exam": _exam_to_dto(exam, user).model_dump() if exam else None,
-        })
-    return out
+    """兼容旧客户端：AI 通关已自动判分，不再产生待复核记录。"""
+    del limit, db, admin
+    return []
 
 
 @admin_router.get("/{exam_id}", response_model=dict)
@@ -239,8 +235,16 @@ async def get_exam_detail(
     attempts_res = await db.execute(
         select(ExamAttempt).where(ExamAttempt.exam_id == exam_id).order_by(ExamAttempt.attempt_no.asc())
     )
-    attempts = [_attempt_to_dto(a) for a in attempts_res.scalars().all()]
-    return {"exam": _exam_to_dto(exam, user).model_dump(), "attempts": [a.model_dump() for a in attempts]}
+    attempt_models = attempts_res.scalars().all()
+    attempts = [_attempt_to_dto(a) for a in attempt_models]
+    return {
+        "exam": _exam_to_dto(
+            exam,
+            user,
+            attempt_models[-1] if attempt_models else None,
+        ).model_dump(),
+        "attempts": [a.model_dump() for a in attempts],
+    }
 
 
 @admin_router.delete("/{exam_id}")
@@ -363,19 +367,8 @@ async def submit_admin_review(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ) -> dict:
-    async with _exam_lock(attempt_id):
-        response_payload, _attempt_id_for_notify, log_payload = await _review_exam_attempt_locked(
-            attempt_id=attempt_id,
-            payload=payload,
-            db=db,
-            admin=admin,
-        )
-
-    logger.info(
-        "exam attempt reviewed: attempt_id=%s ai=%.1f admin=%.1f final=%.1f pass=%s exam_status=%s",
-        attempt_id, *log_payload,
-    )
-    return response_payload
+    del attempt_id, payload, db, admin
+    raise HTTPException(status_code=410, detail="AI 通关已改为自动判分，无需人工复核。")
 
 
 __all__ = ["admin_router", "review_router"]

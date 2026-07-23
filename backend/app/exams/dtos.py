@@ -74,6 +74,8 @@ class ExamDTO(BaseModel):
     created_at: str = ""
     updated_at: str = ""
     completed_at: str | None = None
+    latest_score: float | None = None
+    latest_is_pass: bool | None = None
 
 
 class ExamAttemptDTO(BaseModel):
@@ -114,10 +116,10 @@ class ExamStartResponse(BaseModel):
 class ExamFinishResponse(BaseModel):
     attempt: ExamAttemptDTO
     exam_status: str
-    can_retry: bool        # 是否还有重考机会（要等管理员复核完才知道，提交时不能立即返回 true）
+    can_retry: bool        # 本次未通过且仍有剩余次数时为 True
     attempts_used: int
     max_attempts: int
-    pending_review: bool   # 提交后必为 True：等管理员复核
+    pending_review: bool = False  # 兼容旧客户端；AI 通关已改为即时自动判分
 
 
 class BulkExamIdsPayload(BaseModel):

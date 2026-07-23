@@ -1,6 +1,5 @@
 import {
   CheckCircleOutlined,
-  ClockCircleOutlined,
   PlayCircleOutlined,
 } from "@ant-design/icons";
 import { App as AntdApp, Button, Card, Empty, Space, Tag, Typography } from "antd";
@@ -84,7 +83,6 @@ export default function ExamIntroPage() {
 
   const remaining = Math.max(exam.max_attempts - exam.attempt_count, 0);
   const finished = exam.status === "passed" || exam.status === "failed";
-  const pendingReview = exam.status === "pending_review" || attempts.some((item) => item.review_pending);
   const hasInProgress = attempts.some((item) => item.status === "in_progress");
 
   return (
@@ -129,8 +127,8 @@ export default function ExamIntroPage() {
               <strong style={{ color: remaining > 0 ? "var(--accent-deep, #426f9f)" : "#dc2626" }}>{remaining}</strong>
             </div>
             <div className="exam-metric-card">
-              <span>AI 权重</span>
-              <strong>{`${Math.round(exam.ai_weight * 100)}%`}</strong>
+              <span>评分方式</span>
+              <strong>AI 自动评分</strong>
             </div>
           </div>
 
@@ -143,8 +141,8 @@ export default function ExamIntroPage() {
       <Card className="exam-rule-card exam-rule-card--minimal" variant="outlined">
         <ul className="exam-rule-list exam-rule-list--minimal">
           <li>最多 {exam.max_attempts} 次</li>
-          <li>提交后先看 AI 预评</li>
-          <li>最终结果以复核为准</li>
+          <li>提交后即时生成 AI 评分</li>
+          <li>达到及格分即视为通过</li>
         </ul>
       </Card>
 
@@ -158,16 +156,6 @@ export default function ExamIntroPage() {
             <Button type="primary" onClick={() => navigate(`/exam/${examId}/result`)}>
               查看结果
             </Button>
-          </Space>
-        </Card>
-      ) : pendingReview ? (
-        <Card className="exam-state-card exam-state-card--warning exam-state-card--minimal" bordered={false}>
-          <Space direction="vertical" size={12} style={{ width: "100%" }}>
-            <Space>
-              <ClockCircleOutlined />
-              <Text>最近一次提交正在复核中。</Text>
-            </Space>
-            <Button onClick={() => navigate(`/exam/${examId}/result`)}>查看结果</Button>
           </Space>
         </Card>
       ) : hasInProgress ? (

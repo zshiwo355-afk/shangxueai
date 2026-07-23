@@ -1,5 +1,5 @@
-import { DeleteOutlined, EyeOutlined, PlusOutlined, RedoOutlined } from "@ant-design/icons";
-import { Alert, Badge, Button, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Slider, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, PlusOutlined, RedoOutlined } from "@ant-design/icons";
+import { Alert, Button, DatePicker, Drawer, Empty, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Tabs, Tag, Table, Typography, App as AntdApp } from "antd";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -9,12 +9,11 @@ import {
   adminDeleteExam,
   adminGetExamDetail,
   adminListExams,
-  adminListPendingReview,
   adminListUsers,
   adminPushExamWecom,
-  adminSubmitReview,
 } from "../../lib/api.admin";
 import { adminListOptions } from "../../lib/api.options";
+import { downloadCsv, todayStamp } from "../../lib/csvExport";
 import ChatHistoryView from "../ChatHistoryView";
 import DepartmentUserTreeSelect, { resolveDepartmentSelectionUserIds } from "../common/DepartmentUserTreeSelect";
 import ReviewView from "../ReviewView";
@@ -24,7 +23,6 @@ const { Paragraph, Text } = Typography;
 const STATUS_TAGS = {
   pending: { color: "warning", text: "待通关" },
   in_progress: { color: "processing", text: "进行中" },
-  pending_review: { color: "gold", text: "待复核" },
   passed: { color: "success", text: "已通过" },
   failed: { color: "error", text: "未通过" },
 };
@@ -41,17 +39,37 @@ function statusTag(status) {
   return <Tag bordered={false} color={cfg.color}>{cfg.text}</Tag>;
 }
 
-export default function ExamAssignmentsPanel({ onPendingCountChange }) {
+function statusText(status) {
+  return STATUS_TAGS[status]?.text || status || "—";
+}
+
+const EXPORT_COLUMNS = [
+  { title: "ID", key: "id" },
+  { title: "应试者", value: (row) => row.user_display_name || row.user_username || "" },
+  { title: "用户名", key: "user_username" },
+  { title: "标题", key: "title" },
+  { title: "训练类型", value: (row) => row.fixed_training_type || "随机" },
+  { title: "难度", value: (row) => row.fixed_difficulty || "随机" },
+  { title: "客户类型", value: (row) => row.fixed_customer_type || "随机" },
+  { title: "分数", value: (row) => row.latest_score == null ? "" : Math.round(row.latest_score) },
+  { title: "结果", value: (row) => row.latest_is_pass == null ? "" : (row.latest_is_pass ? "及格" : "不及格") },
+  { title: "及格分", key: "pass_score" },
+  { title: "状态", value: (row) => statusText(row.status) },
+  { title: "已尝试次数", key: "attempt_count" },
+  { title: "最大尝试次数", key: "max_attempts" },
+  { title: "派发时间", value: (row) => row.created_at ? dayjs(row.created_at).format("YYYY-MM-DD HH:mm") : "" },
+  { title: "截止时间", value: (row) => row.deadline_at ? dayjs(row.deadline_at).format("YYYY-MM-DD HH:mm") : "不限" },
+];
+
+export default function ExamAssignmentsPanel() {
   const [exams, setExams] = useState([]);
   const [examTotal, setExamTotal] = useState(0);
   const [users, setUsers] = useState([]);
   const [options, setOptions] = useState({ training_type: [], difficulty: [], customer_type: [], employment_status: [] });
-  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [examLoading, setExamLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [reviewingAttempt, setReviewingAttempt] = useState(null); // {attempt, exam}
   const [createForm] = Form.useForm();
   const { message, modal } = AntdApp.useApp();
   const [selectedIds, setSelectedIds] = useState([]);
@@ -62,6 +80,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [exporting, setExporting] = useState(false);
 
   const loadExams = async (overrides = {}) => {
     const p = overrides.page ?? page;
@@ -90,13 +109,12 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
   const loadStatic = async () => {
     setLoading(true);
     try {
-      const [userData, ttData, dffData, ctData, employmentStatusData, pending] = await Promise.all([
+      const [userData, ttData, dffData, ctData, employmentStatusData] = await Promise.all([
         adminListUsers(),
         adminListOptions("training_type"),
         adminListOptions("difficulty"),
         adminListOptions("customer_type"),
         adminListOptions("employment_status"),
-        adminListPendingReview().catch(() => []),
       ]);
       setUsers(Array.isArray(userData) ? userData : []);
       setOptions({
@@ -105,7 +123,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
         customer_type: (ctData || []).filter((o) => o.enabled).map((o) => o.value),
         employment_status: (employmentStatusData || []).filter((o) => o.enabled).map((o) => o.value),
       });
-      setPendingCount(Array.isArray(pending) ? pending.length : 0);
     } catch (err) {
       message.error(err?.message || "加载失败。");
     } finally {
@@ -124,10 +141,26 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize, keyword, statusFilter]);
 
-  // 把 pending 数往上抛给壳，让 tab 标题挂红点
-  useEffect(() => {
-    onPendingCountChange?.(pendingCount);
-  }, [pendingCount, onPendingCountChange]);
+  const exportFilteredExams = async () => {
+    setExporting(true);
+    try {
+      const params = {};
+      if (keyword) params.keyword = keyword;
+      if (statusFilter && statusFilter !== "all") params.status = statusFilter;
+      const data = await adminListExams(params);
+      const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      if (!items.length) {
+        message.warning("当前筛选条件下没有可导出的通关数据。");
+        return;
+      }
+      downloadCsv(`AI对练考试_筛选结果_${todayStamp()}.csv`, EXPORT_COLUMNS, items);
+      message.success(`已导出 ${items.length} 条筛选结果。`);
+    } catch (err) {
+      message.error(err?.message || "通关数据导出失败。");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const submitCreate = async () => {
     const values = await createForm.validateFields();
@@ -137,7 +170,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
     }
     const payload = {
       title: values.title,
-      ai_weight: typeof values.ai_weight === "number" ? values.ai_weight : 0.5,
       pass_score: Number(values.pass_score) || 60,
       max_attempts: Number(values.max_attempts) || 2,
     };
@@ -251,28 +283,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       setDetail(data);
     } catch (err) {
       message.error(err?.message || "加载失败。");
-    }
-  };
-
-  const openReview = (attempt, exam) => {
-    setReviewingAttempt({ attempt, exam });
-  };
-
-  const submitReview = async (values) => {
-    try {
-      const data = await adminSubmitReview(reviewingAttempt.attempt.id, {
-        admin_score: values.admin_score,
-        admin_comment: values.admin_comment || "",
-      });
-      message.success(`复核已提交。最终成绩 ${Math.round(data.attempt.final_score || 0)} 分，${data.attempt.final_is_pass ? "合格 ✓" : "不合格 ✗"}`);
-      setReviewingAttempt(null);
-      loadExams();
-      loadStatic();
-      if (detail) {
-        openDetail({ id: detail.exam.id });
-      }
-    } catch (err) {
-      message.error(err?.message || "复核失败。");
     }
   };
 
@@ -399,10 +409,22 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
       ),
     },
     {
-      title: "AI / 老师 权重",
-      dataIndex: "ai_weight",
-      width: 120,
-      render: (v) => `${Math.round((v || 0.5) * 100)}% / ${Math.round((1 - (v || 0.5)) * 100)}%`,
+      title: "分数",
+      dataIndex: "latest_score",
+      width: 90,
+      align: "center",
+      render: (value) => value == null
+        ? <Typography.Text type="secondary">—</Typography.Text>
+        : <strong>{Math.round(value)}</strong>,
+    },
+    {
+      title: "结果",
+      dataIndex: "latest_is_pass",
+      width: 100,
+      align: "center",
+      render: (value) => value == null
+        ? <Typography.Text type="secondary">—</Typography.Text>
+        : <Tag bordered={false} color={value ? "success" : "error"}>{value ? "及格" : "不及格"}</Tag>,
     },
     { title: "状态", dataIndex: "status", render: (v) => statusTag(v) },
     {
@@ -468,15 +490,24 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
               { value: "all", label: "全部状态" },
               { value: "pending", label: "待通关" },
               { value: "in_progress", label: "进行中" },
-              { value: "pending_review", label: "待复核" },
               { value: "passed", label: "已通过" },
               { value: "failed", label: "未通过" },
             ]}
           />
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreating(true); }}>
-          派发通关
-        </Button>
+        <Space size={8} wrap>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={exporting}
+            disabled={loading || examLoading}
+            onClick={exportFilteredExams}
+          >
+            导出筛选结果
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreating(true); }}>
+            派发通关
+          </Button>
+        </Space>
       </div>
 
       <Table
@@ -541,7 +572,7 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
           form={createForm}
           layout="vertical"
           preserve={false}
-          initialValues={{ ai_weight: 0.5, pass_score: 60, max_attempts: 2, dispatch_mode: "user", newcomer_only: false }}
+          initialValues={{ pass_score: 60, max_attempts: 2, dispatch_mode: "user", newcomer_only: false }}
         >
           <Form.Item label="派发维度" name="dispatch_mode">
             <Radio.Group
@@ -697,27 +728,8 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
               placeholder="选择截止时间"
             />
           </Form.Item>
-          <Form.Item
-            label={
-              <Space>
-                <span>AI 评分占比</span>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  最终成绩 = AI 分 × 此值 + 老师分 × (1 - 此值)
-                </Text>
-              </Space>
-            }
-            name="ai_weight"
-          >
-            <Slider
-              min={0}
-              max={1}
-              step={0.05}
-              marks={{ 0: "全凭老师", 0.5: "各 50%", 1: "全凭 AI" }}
-              tooltip={{ formatter: (v) => `AI ${Math.round(v * 100)}% / 老师 ${Math.round((1 - v) * 100)}%` }}
-            />
-          </Form.Item>
           <Paragraph type="secondary" style={{ margin: 0 }}>
-            用户提交后会进入「待复核」状态，需老师人工评分后才决定通过与否。
+            用户提交后由 AI 即时给出最终分数，并按及格分自动判定结果。
           </Paragraph>
         </Form>
       </Modal>
@@ -737,7 +749,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                 <span>应试者：{detail.exam.user_display_name || detail.exam.user_username}</span>
                 <span>已尝试 {detail.exam.attempt_count} / {detail.exam.max_attempts}</span>
                 <span>及格 {detail.exam.pass_score} 分</span>
-                <span>AI {Math.round(detail.exam.ai_weight * 100)}% / 老师 {Math.round((1 - detail.exam.ai_weight) * 100)}%</span>
               </Space>
             </div>
 
@@ -750,7 +761,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                   label: (
                     <Space size={4}>
                       第 {a.attempt_no} 次
-                      {a.review_pending ? <Badge dot color="gold" /> : null}
                     </Space>
                   ),
                   children: (
@@ -758,30 +768,18 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
                       <Space size={[8, 8]} wrap>
                         {a.status === "in_progress" ? (
                           <Tag bordered={false} color="processing">进行中</Tag>
-                        ) : a.review_pending ? (
-                          <Tag bordered={false} color="gold">待复核</Tag>
                         ) : a.final_is_pass ? (
-                          <Tag bordered={false} color="success">合格</Tag>
+                          <Tag bordered={false} color="success">及格</Tag>
                         ) : (
-                          <Tag bordered={false} color="error">不合格</Tag>
+                          <Tag bordered={false} color="error">不及格</Tag>
                         )}
-                        {a.score != null ? <span>AI 分 <strong>{Math.round(a.score)}</strong></span> : null}
-                        {a.admin_score != null ? <span>老师分 <strong>{Math.round(a.admin_score)}</strong></span> : null}
-                        {a.final_score != null ? <span>综合 <strong style={{ color: "var(--accent-deep)" }}>{Math.round(a.final_score)}</strong></span> : null}
+                        {a.final_score != null || a.score != null ? (
+                          <span>得分 <strong style={{ color: "var(--accent-deep)" }}>{Math.round(a.final_score ?? a.score)}</strong></span>
+                        ) : null}
                         <Tag bordered={false}>{a.training_type}</Tag>
                         <Tag bordered={false}>{a.customer_type}</Tag>
                         <Tag bordered={false}>{a.difficulty}</Tag>
                       </Space>
-
-                      {a.review_pending ? (
-                        <Button type="primary" onClick={() => openReview(a, detail.exam)}>
-                          填写复核分数
-                        </Button>
-                      ) : a.admin_comment ? (
-                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                          老师评语：{a.admin_comment}
-                        </Paragraph>
-                      ) : null}
 
                       {a.review_json ? (
                         <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -799,67 +797,6 @@ export default function ExamAssignmentsPanel({ onPendingCountChange }) {
           </Space>
         ) : null}
       </Drawer>
-
-      {/* 复核弹窗 */}
-      {reviewingAttempt ? (
-        <ReviewAttemptModal
-          key={reviewingAttempt.attempt.id}
-          reviewing={reviewingAttempt}
-          onCancel={() => setReviewingAttempt(null)}
-          onSubmit={submitReview}
-        />
-      ) : null}
     </>
-  );
-}
-
-function ReviewAttemptModal({ reviewing, onCancel, onSubmit }) {
-  const [form] = Form.useForm();
-  const initialValues = useMemo(() => ({
-    admin_score: Math.round(reviewing.attempt.score || 0),
-    admin_comment: "",
-  }), [reviewing]);
-
-  const handleOk = async () => {
-    let values;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
-    await onSubmit(values);
-  };
-
-  return (
-    <Modal
-      open
-      title={`复核第 ${reviewing.attempt.attempt_no} 次（AI 分 ${Math.round(reviewing.attempt.score || 0)}）`}
-      onCancel={onCancel}
-      onOk={handleOk}
-      okText="提交复核"
-      cancelText="取消"
-      width={520}
-      destroyOnHidden
-    >
-      <Form form={form} layout="vertical" preserve={false} initialValues={initialValues}>
-        <Form.Item
-          label="老师评分（0-100）"
-          name="admin_score"
-          rules={[
-            { required: true, message: "请填分" },
-            { type: "number", min: 0, max: 100, message: "0-100 之间" },
-          ]}
-        >
-          <InputNumber min={0} max={100} step={1} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item label="评语（可选）" name="admin_comment">
-          <Input.TextArea rows={4} placeholder="给学员一些反馈" maxLength={1000} showCount />
-        </Form.Item>
-        <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-          本场通关 AI 占比 {Math.round(reviewing.exam.ai_weight * 100)}% / 老师占比 {Math.round((1 - reviewing.exam.ai_weight) * 100)}%；
-          及格 {reviewing.exam.pass_score} 分。
-        </Typography.Paragraph>
-      </Form>
-    </Modal>
   );
 }

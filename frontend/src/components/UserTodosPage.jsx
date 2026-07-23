@@ -113,12 +113,10 @@ function buildExamTodos(challenges) {
   for (const item of challenges) {
     const exam = item.exam || item;
     if (!exam) continue;
-    if (!["pending", "in_progress", "pending_review"].includes(exam.status)) continue;
-    const isReview = exam.status === "pending_review";
-    const deadline = isReview ? null : exam.deadline_at;
+    if (!["pending", "in_progress"].includes(exam.status)) continue;
+    const deadline = exam.deadline_at;
     let subtitle = "尚未开始";
     if (exam.status === "in_progress") subtitle = "进行中";
-    else if (exam.status === "pending_review") subtitle = "等待管理员复核";
     out.push({
       id: `exam:${exam.id}`,
       kind: "exam",
@@ -126,8 +124,8 @@ function buildExamTodos(challenges) {
       subtitle,
       deadline,
       bucket: bucketByDeadline(deadline),
-      url: isReview ? `/exam/${exam.id}/result` : `/exam/${exam.id}/intro`,
-      action: isReview ? "查看结果" : "去通关",
+      url: `/exam/${exam.id}/intro`,
+      action: "去通关",
     });
   }
   return out;

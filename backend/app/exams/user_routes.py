@@ -47,7 +47,7 @@ def build_user_router(*, settings: Settings, rule_loader: RuleLoader) -> APIRout
         for e in exams:
             atts = attempts_map.get(int(e.id), [])
             out.append({
-                "exam": _exam_to_dto(e).model_dump(),
+                "exam": _exam_to_dto(e, latest_attempt=atts[-1] if atts else None).model_dump(),
                 "attempts": [a.model_dump() for a in atts],
             })
         return out
@@ -82,8 +82,8 @@ def build_user_router(*, settings: Settings, rule_loader: RuleLoader) -> APIRout
                 rule_loader=rule_loader,
             )
         logger.info(
-            "exam/finish ok user=%s exam_id=%s attempt_no=%s ai_score=%s -> pending_review",
-            user.id, exam_id, attempt_no, score,
+            "exam/finish ok user=%s exam_id=%s attempt_no=%s ai_score=%s status=%s",
+            user.id, exam_id, attempt_no, score, response.exam_status,
         )
         return response
 

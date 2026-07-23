@@ -137,14 +137,6 @@ async def kpi(
         else 0.0
     )
 
-    # 待复核 AI 通关：attempt 已 completed，但还没 reviewed_at
-    pending_exams = int((await db.execute(
-        select(func.count(ExamAttempt.id)).where(
-            ExamAttempt.status == "completed",
-            ExamAttempt.reviewed_at.is_(None),
-        )
-    )).scalar() or 0)
-
     return {
         "users": {
             "total": total_users,
@@ -163,9 +155,7 @@ async def kpi(
             "pending_review": pending_papers,
             "week_pass_rate": paper_pass_rate,
         },
-        "exams": {
-            "pending_review": pending_exams,
-        },
+        "exams": {},
     }
 
 

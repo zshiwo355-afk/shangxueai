@@ -158,13 +158,6 @@ export async function adminBulkDeleteExams(ids, force = false) {
 export async function adminPushExamWecom(id) {
   return postJson(`/api/admin/exams/${id}/wecom-push`, {}, "推送通关任务失败。");
 }
-export async function adminListPendingReview() {
-  return getJson("/api/admin/exams/pending-review", "待复核列表加载失败。");
-}
-export async function adminSubmitReview(attemptId, payload) {
-  return postJson(`/api/admin/exam-attempts/${attemptId}/review`, payload, "复核提交失败。");
-}
-
 export async function adminListTrainingRecords(params = {}) {
   return getJson(`/api/admin/training-records${toQs(params)}`, "训练记录加载失败。");
 }

@@ -16,7 +16,7 @@ import { loadActiveSession } from "../lib/storage";
 const { Paragraph, Title } = Typography;
 
 function buildExamStatus(exam) {
-  if (exam?.status === "pending_review") return { label: "待复核", color: "gold" };
+  if (exam?.status === "pending_review") return { label: "已完成", color: "default" };
   if (exam?.status === "in_progress") return { label: "进行中", color: "processing" };
   if (exam?.status === "passed") return { label: "已通过", color: "success" };
   if (exam?.status === "failed") return { label: "未通过", color: "error" };
@@ -72,10 +72,10 @@ export default function TrainingWorkspacePage() {
   }, [message]);
 
   const pendingExams = exams.filter((item) =>
-    ["pending", "in_progress", "pending_review"].includes(item.exam?.status),
+    ["pending", "in_progress"].includes(item.exam?.status),
   );
   const completedExams = exams.filter((item) =>
-    ["passed", "failed"].includes(item.exam?.status),
+    ["passed", "failed", "pending_review"].includes(item.exam?.status),
   );
   const recentRecords = records.slice(0, 3);
 
@@ -84,11 +84,7 @@ export default function TrainingWorkspacePage() {
       navigate("/training/challenges");
       return;
     }
-    navigate(
-      exam.status === "pending_review"
-        ? `/exam/${exam.id}/result`
-        : `/exam/${exam.id}/intro`,
-    );
+    navigate(`/exam/${exam.id}/intro`);
   };
 
   const nextActions = [
@@ -115,11 +111,11 @@ export default function TrainingWorkspacePage() {
       ? {
           key: "exam",
           icon: <ClockCircleOutlined />,
-          title: pendingExams[0].exam.status === "pending_review" ? "查看通关结果" : "处理待办通关",
+          title: "处理待办通关",
           description: `${pendingExams[0].exam.title || "AI 通关"} · ${
             buildExamStatus(pendingExams[0].exam).label
           }`,
-          action: pendingExams[0].exam.status === "pending_review" ? "查看" : "进入",
+          action: "进入",
           onClick: () => openChallengeTarget(pendingExams[0].exam),
         }
       : {
@@ -330,10 +326,7 @@ export default function TrainingWorkspacePage() {
               {pendingExams.slice(0, 3).map((item) => {
                 const exam = item.exam || {};
                 const status = buildExamStatus(exam);
-                const target =
-                  exam.status === "pending_review"
-                    ? `/exam/${exam.id}/result`
-                    : `/exam/${exam.id}/intro`;
+                const target = `/exam/${exam.id}/intro`;
 
                 return (
                   <div key={exam.id} className="workspace-line-item workspace-line-item--soft">

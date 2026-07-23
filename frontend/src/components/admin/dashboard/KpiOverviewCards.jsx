@@ -35,7 +35,6 @@ export default function KpiOverviewCards({ kpi }) {
   const t = kpi.training || {};
   const r = kpi.reading || {};
   const p = kpi.papers || {};
-  const e = kpi.exams || {};
 
   const cells = [
     {
@@ -73,14 +72,6 @@ export default function KpiOverviewCards({ kpi }) {
       suffix: "份",
       alert: (p.pending_review || 0) > 0,
       footer: "提交后等待复核",
-    },
-    {
-      icon: <FormOutlined />,
-      label: "待复核 AI 对练",
-      value: e.pending_review || 0,
-      suffix: "次",
-      alert: (e.pending_review || 0) > 0,
-      footer: "AI 通关考试待人工复核",
     },
     {
       icon: <BookOutlined />,

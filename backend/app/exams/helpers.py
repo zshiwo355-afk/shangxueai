@@ -63,7 +63,24 @@ def _parse_iso_dt(value: str | None) -> datetime | None:
         raise HTTPException(status_code=400, detail=f"日期格式错误：{value}") from exc
 
 
-def _exam_to_dto(exam: Exam, user: User | None = None) -> ExamDTO:
+def _exam_to_dto(
+    exam: Exam,
+    user: User | None = None,
+    latest_attempt: ExamAttempt | None = None,
+) -> ExamDTO:
+    status = exam.status
+    if status == "pending_review" and latest_attempt is not None:
+        latest_pass = (
+            latest_attempt.final_is_pass
+            if latest_attempt.final_is_pass is not None
+            else latest_attempt.is_pass
+        )
+        if latest_pass:
+            status = "passed"
+        elif exam.attempt_count >= exam.max_attempts:
+            status = "failed"
+        else:
+            status = "pending"
     return ExamDTO(
         id=exam.id,
         user_id=exam.user_id,
@@ -71,7 +88,7 @@ def _exam_to_dto(exam: Exam, user: User | None = None) -> ExamDTO:
         user_display_name=(user.display_name or user.username) if user else None,
         title=exam.title,
         pass_score=exam.pass_score,
-        status=exam.status,
+        status=status,
         attempt_count=exam.attempt_count,
         max_attempts=exam.max_attempts,
         fixed_training_type=exam.fixed_training_type,
@@ -83,6 +100,20 @@ def _exam_to_dto(exam: Exam, user: User | None = None) -> ExamDTO:
         created_at=exam.created_at.isoformat() if exam.created_at else "",
         updated_at=exam.updated_at.isoformat() if exam.updated_at else "",
         completed_at=exam.completed_at.isoformat() if exam.completed_at else None,
+        latest_score=(
+            float(latest_attempt.final_score)
+            if latest_attempt and latest_attempt.final_score is not None
+            else float(latest_attempt.score)
+            if latest_attempt and latest_attempt.score is not None
+            else None
+        ),
+        latest_is_pass=(
+            bool(latest_attempt.final_is_pass)
+            if latest_attempt and latest_attempt.final_is_pass is not None
+            else bool(latest_attempt.is_pass)
+            if latest_attempt and latest_attempt.is_pass is not None
+            else None
+        ),
     )
 
 
@@ -101,7 +132,6 @@ def _attempt_to_dto(att: ExamAttempt) -> ExamAttemptDTO:
                 chat_history = [item for item in parsed if isinstance(item, dict)]
         except (TypeError, ValueError):
             chat_history = []
-    review_pending = att.status == "completed" and att.reviewed_at is None
     return ExamAttemptDTO(
         id=att.id,
         exam_id=att.exam_id,
@@ -121,7 +151,7 @@ def _attempt_to_dto(att: ExamAttempt) -> ExamAttemptDTO:
         final_score=att.final_score,
         final_is_pass=bool(att.final_is_pass) if att.final_is_pass is not None else None,
         reviewed_at=att.reviewed_at.isoformat() if att.reviewed_at else None,
-        review_pending=review_pending,
+        review_pending=False,
         started_at=att.started_at.isoformat() if att.started_at else "",
         completed_at=att.completed_at.isoformat() if att.completed_at else None,
     )
@@ -144,6 +174,28 @@ async def _random_option(db: AsyncSession, category: str, exclude: list[str] | N
     return random.choice(pool)
 
 
+def _apply_auto_grading(exam: Exam, attempt: ExamAttempt, score: float) -> bool:
+    """把 AI 分数写成最终成绩，并推进通关状态；返回是否允许再次尝试。"""
+    is_pass = score >= float(exam.pass_score)
+    attempt.score = score
+    attempt.is_pass = is_pass
+    attempt.final_score = score
+    attempt.final_is_pass = is_pass
+
+    exam.attempt_count = attempt.attempt_no
+    can_retry = not is_pass and exam.attempt_count < exam.max_attempts
+    if is_pass:
+        exam.status = "passed"
+        exam.completed_at = attempt.completed_at
+    elif can_retry:
+        exam.status = "pending"
+        exam.completed_at = None
+    else:
+        exam.status = "failed"
+        exam.completed_at = attempt.completed_at
+    return can_retry
+
+
 async def _start_exam_locked(
     *,
     exam_id: int,
@@ -155,6 +207,27 @@ async def _start_exam_locked(
     exam = await db.get(Exam, exam_id)
     if not exam or exam.user_id != user.id:
         raise HTTPException(status_code=404, detail="考试不存在或无权访问。")
+    if exam.status == "pending_review":
+        latest_completed = (
+            await db.execute(
+                select(ExamAttempt)
+                .where(ExamAttempt.exam_id == exam_id, ExamAttempt.status == "completed")
+                .order_by(desc(ExamAttempt.attempt_no))
+            )
+        ).scalars().first()
+        latest_pass = (
+            latest_completed.final_is_pass
+            if latest_completed and latest_completed.final_is_pass is not None
+            else latest_completed.is_pass
+            if latest_completed
+            else False
+        )
+        if latest_pass:
+            exam.status = "passed"
+        elif exam.attempt_count >= exam.max_attempts:
+            exam.status = "failed"
+        else:
+            exam.status = "pending"
     if exam.status in ("passed", "failed"):
         raise HTTPException(status_code=400, detail="该考试已结束，无法再次进行。")
 
@@ -177,17 +250,6 @@ async def _start_exam_locked(
             state=StateView(**build_state_view(session, settings)),
         )
 
-    pending = await db.execute(
-        select(ExamAttempt)
-        .where(
-            ExamAttempt.exam_id == exam_id,
-            ExamAttempt.status == "completed",
-            ExamAttempt.reviewed_at.is_(None),
-        )
-        .order_by(desc(ExamAttempt.attempt_no))
-    )
-    if pending.scalars().first() is not None:
-        raise HTTPException(status_code=400, detail="上一轮答题正在等待管理员复核。")
     if exam.attempt_count >= exam.max_attempts:
         raise HTTPException(status_code=400, detail="已用完所有考试机会。")
 
@@ -302,30 +364,40 @@ async def _finish_exam_locked(
 
     score = float(normalized.get("score") or 0)
     attempt.status = "completed"
-    attempt.score = score
-    attempt.is_pass = score >= exam.pass_score
     attempt.result = str(normalized.get("result") or "")
     attempt.review_json = json.dumps(normalized, ensure_ascii=False)
     attempt.chat_history_json = json.dumps(
         [t.model_dump() for t in session.chat_history], ensure_ascii=False
     )
     attempt.completed_at = datetime.now(tz=timezone.utc)
-
-    exam.attempt_count = attempt.attempt_no
-    exam.status = "pending_review"
+    can_retry = _apply_auto_grading(exam, attempt, score)
+    is_pass = bool(attempt.final_is_pass)
     await session_store.delete_session(db, attempt.session_id)
     attempt.session_id = None
 
     await db.flush()
+    if is_pass:
+        try:
+            await grant_points(
+                db,
+                user_id=int(exam.user_id),
+                rule_code="exam_pass",
+                business_type="exam_attempt",
+                business_id=int(attempt.id),
+                dedupe_extra=f"e{int(exam.id)}",
+                remark=f"AI通关考试#{exam.id} 通过",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("grant_points failed for exam_attempt=%s", attempt.id)
     await db.refresh(attempt)
     await db.refresh(exam)
     response = ExamFinishResponse(
         attempt=_attempt_to_dto(attempt),
         exam_status=exam.status,
-        can_retry=False,
+        can_retry=can_retry,
         attempts_used=exam.attempt_count,
         max_attempts=exam.max_attempts,
-        pending_review=True,
+        pending_review=False,
     )
     attempt_id_for_notify = int(attempt.id)
     attempt_no = int(attempt.attempt_no)
@@ -413,6 +485,7 @@ __all__ = [
     "_exam_to_dto",
     "_attempt_to_dto",
     "_random_option",
+    "_apply_auto_grading",
     "_start_exam_locked",
     "_finish_exam_locked",
     "_review_exam_attempt_locked",
