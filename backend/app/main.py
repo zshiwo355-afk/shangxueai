@@ -29,6 +29,7 @@ from .exams_api import (
     build_user_router as build_exams_user_router,
 )
 from .magic_academy_api import magic_video_router, router as magic_academy_router
+from .magic_academy_api.audio import integration_router as reading_checkin_integration_router
 from .live_api import (
     admin_router as live_admin_router,
     get_public_live_meta,
@@ -150,6 +151,7 @@ app.include_router(users_admin_router)
 app.include_router(whitelist_router)
 app.include_router(magic_academy_router)
 app.include_router(magic_video_router)
+app.include_router(reading_checkin_integration_router)
 app.include_router(materials_router)
 app.include_router(live_admin_router)
 app.include_router(live_public_router)

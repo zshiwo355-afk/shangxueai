@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TARGET_TYPES = {"all_users", "all_newcomers", "department", "position", "job_level", "employment_status", "role", "user"}
 VIDEO_STATUSES = {"draft", "published", "disabled"}
@@ -300,6 +300,49 @@ class AdminReadingAudioStatisticsExportPayload(BaseModel):
         if isinstance(value, (list, tuple, set)):
             return [str(item or "").strip() for item in value if str(item or "").strip()]
         raise ValueError("导出字段格式不正确。")
+
+
+class ReadingCheckinIntegrationQuery(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    query_date: date | None = Field(default=None, alias="date")
+    start_date: date | None = None
+    end_date: date | None = None
+    department: str | None = None
+    user_id: int | None = None
+    checked_in: bool | None = None
+    status: str = "all"
+
+
+class ReadingCheckinIntegrationItem(BaseModel):
+    checkin_date: date
+    user_id: int
+    user_name: str
+    department: str
+    position: str
+    user_active: bool
+    should_checkin: bool
+    is_due: bool
+    checked_in: bool
+    status: str
+    assigned_content_ids: list[int] = Field(default_factory=list)
+    completed_content_ids: list[int] = Field(default_factory=list)
+    checkin_ids: list[int] = Field(default_factory=list)
+    deleted_checkin_ids: list[int] = Field(default_factory=list)
+    submitted_times: list[datetime] = Field(default_factory=list)
+    has_makeup: bool = False
+    checkin_methods: list[str] = Field(default_factory=list)
+    assignment_source: str
+
+
+class ReadingCheckinIntegrationResponse(BaseModel):
+    query: ReadingCheckinIntegrationQuery
+    generated_at: datetime
+    total: int
+    person_count: int
+    date_count: int
+    items: list[ReadingCheckinIntegrationItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ReadingContentImportRowPayload(BaseModel):

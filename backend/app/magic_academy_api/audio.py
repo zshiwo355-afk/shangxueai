@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+from collections import Counter
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
-from fastapi import Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +26,8 @@ from ..magic_academy_schemas import (
     AudioMakeupSettingPayload,
     MagicAudioUploadFailPayload,
     MagicAudioUploadInitPayload,
+    ReadingCheckinIntegrationQuery,
+    ReadingCheckinIntegrationResponse,
 )
 from ..magic_audio_audit import (
     AUDIO_LOG_MANUAL_DELETE,
@@ -36,6 +40,8 @@ from ..models import (
     MagicAudioMakeupSetting,
     MagicAudioUpload,
     MagicAudioUploadLog,
+    MagicPushBatch,
+    MagicPushEntry,
     MagicReadingContent,
     MagicReadingContentTarget,
     MagicReadingSeries,
@@ -84,10 +90,12 @@ from ._video_helpers import _ensure_auto_audio_checkin
 import logging
 
 logger = logging.getLogger("app.magic_academy_api.audio")
+integration_router = APIRouter(prefix="/api/integrations/v1", tags=["reading-checkin-integration"])
 
 AUTO_CHECKIN_PUBLIC_FILENAME = "录音打卡.m4a"
 AUTO_CHECKIN_PUBLIC_SIZE = 221 * 1024
 AUTO_CHECKIN_PUBLIC_MIME = "audio/x-m4a"
+MAX_READING_CHECKIN_INTEGRATION_ITEMS = 10_000
 DEFAULT_READING_AUDIO_EXPORT_COLUMNS = [
     "reading_content_id",
     "reading_date",
@@ -1125,6 +1133,328 @@ async def _get_audio_makeup_setting(
     return row
 
 
+def _resolve_reading_checkin_query_range(
+    date_value: date | None,
+    start_date: date | None,
+    end_date: date | None,
+) -> tuple[date, date]:
+    if date_value and (start_date or end_date):
+        raise HTTPException(status_code=400, detail="date 不能和 start_date/end_date 同时使用。")
+    if date_value:
+        return date_value, date_value
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="请提供 date，或同时提供 start_date 和 end_date。")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date 不能早于 start_date。")
+    if (end_date - start_date).days + 1 > 31:
+        raise HTTPException(status_code=400, detail="日期范围最多查询 31 天。")
+    return start_date, end_date
+
+
+def _integration_checkin_methods(uploads: list[MagicAudioUpload]) -> list[str]:
+    methods: set[str] = set()
+    for item in uploads:
+        if bool(item.auto_checkin_by_whitelist) or (item.source or "") == SOURCE_WHITELIST_AUTO:
+            methods.add("auto")
+            continue
+        has_audio = bool((item.audio_object_key or "").strip() or (item.file_name or "").strip())
+        has_image = bool((item.image_object_key or "").strip() or (item.image_file_name or "").strip())
+        if has_audio:
+            methods.add("audio")
+        if has_image:
+            methods.add("image")
+        if item.media_purged_at and not has_audio and not has_image:
+            methods.add("purged")
+    if uploads and not methods:
+        methods.add("record")
+    order = {"audio": 0, "image": 1, "auto": 2, "purged": 3, "record": 4}
+    return sorted(methods, key=lambda value: order.get(value, 99))
+
+
+def _business_date(value: date | datetime | None) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _build_reading_checkin_integration_items(
+    *,
+    contents: list[MagicReadingContent],
+    users: list[User],
+    pushed_content_ids: set[int],
+    push_recipient_ids_by_content: dict[int, set[int]],
+    targets_map: dict[int, list[MagicReadingContentTarget]],
+    uploads: list[MagicAudioUpload],
+    deleted_uploads: list[MagicAudioUpload],
+    now: datetime,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    user_map = {int(item.id): item for item in users}
+    states: dict[tuple[int, date], dict[str, Any]] = {}
+
+    def ensure_state(user_id: int, checkin_date: date) -> dict[str, Any] | None:
+        owner = user_map.get(int(user_id))
+        if owner is None:
+            return None
+        return states.setdefault(
+            (int(user_id), checkin_date),
+            {
+                "user": owner,
+                "assigned_contents": [],
+                "assignment_sources": set(),
+                "uploads": [],
+                "deleted_uploads": [],
+            },
+        )
+
+    fallback_content_count = 0
+    active_users = [
+        item
+        for item in users
+        if not bool(item.disabled) and (item.status or "active") == "active"
+    ]
+    for content in contents:
+        content_id = int(content.id)
+        if content_id in pushed_content_ids:
+            recipient_ids = push_recipient_ids_by_content.get(content_id, set())
+            assignment_source = "push_snapshot"
+        else:
+            fallback_content_count += 1
+            targets = targets_map.get(content_id, [])
+            recipient_ids = {
+                int(item.id)
+                for item in active_users
+                if any(_reading_target_matches_user(item, target) for target in targets)
+            }
+            assignment_source = "current_target_rules"
+        for recipient_id in recipient_ids:
+            state = ensure_state(recipient_id, content.reading_date)
+            if state is None:
+                continue
+            state["assigned_contents"].append(content)
+            state["assignment_sources"].add(assignment_source)
+
+    for item in uploads:
+        checkin_date = _business_date(item.uploaded_date)
+        if checkin_date is None:
+            continue
+        state = ensure_state(int(item.user_id), checkin_date)
+        if state is not None:
+            state["uploads"].append(item)
+    for item in deleted_uploads:
+        checkin_date = _business_date(item.uploaded_date)
+        if checkin_date is None:
+            continue
+        state = ensure_state(int(item.user_id), checkin_date)
+        if state is not None:
+            state["deleted_uploads"].append(item)
+
+    duplicate_keys = Counter(
+        (int(item.user_id), int(item.reading_content_id or 0), _business_date(item.uploaded_date))
+        for item in uploads
+        if _business_date(item.uploaded_date) is not None
+    )
+    duplicate_count = sum(1 for count in duplicate_keys.values() if count > 1)
+
+    items: list[dict[str, Any]] = []
+    for (user_id, checkin_date), state in sorted(states.items(), key=lambda pair: (pair[0][1], pair[0][0])):
+        owner = state["user"]
+        assigned_contents = state["assigned_contents"]
+        active_records = sorted(state["uploads"], key=lambda item: (item.uploaded_on, int(item.id)))
+        deleted_records = sorted(state["deleted_uploads"], key=lambda item: (item.uploaded_on, int(item.id)))
+        due_contents = [item for item in assigned_contents if _effective_push_at(item) <= now]
+        should_checkin = bool(assigned_contents)
+        is_due = bool(due_contents)
+        checked_in = bool(active_records)
+        if checked_in:
+            status_code = "completed" if should_checkin else "completed_without_assignment"
+        elif deleted_records:
+            status_code = "deleted"
+        elif not is_due:
+            status_code = "future"
+        elif all(item.makeup_deadline_at and item.makeup_deadline_at < now for item in due_contents):
+            status_code = "expired"
+        else:
+            status_code = "pending"
+
+        sources = state["assignment_sources"]
+        assignment_source = next(iter(sources)) if len(sources) == 1 else "mixed" if sources else "none"
+        items.append({
+            "checkin_date": checkin_date,
+            "user_id": user_id,
+            "user_name": _user_name(owner),
+            "department": owner.department or "",
+            "position": owner.position or "",
+            "user_active": not bool(owner.disabled) and (owner.status or "active") == "active",
+            "should_checkin": should_checkin,
+            "is_due": is_due,
+            "checked_in": checked_in,
+            "status": status_code,
+            "assigned_content_ids": sorted({int(item.id) for item in assigned_contents}),
+            "completed_content_ids": sorted({
+                int(item.reading_content_id)
+                for item in active_records
+                if item.reading_content_id is not None
+            }),
+            "checkin_ids": [int(item.id) for item in active_records],
+            "deleted_checkin_ids": [int(item.id) for item in deleted_records],
+            "submitted_times": [item.uploaded_on for item in active_records],
+            "has_makeup": any((item.source or "") == SOURCE_AUDIO_MAKEUP for item in active_records),
+            "checkin_methods": _integration_checkin_methods(active_records),
+            "assignment_source": assignment_source,
+        })
+
+    warnings: list[str] = []
+    if fallback_content_count:
+        warnings.append(f"assignment_snapshot_missing_content_count={fallback_content_count}")
+    if duplicate_count:
+        warnings.append(f"duplicate_active_checkins_group_count={duplicate_count}")
+    unassigned_count = sum(1 for item in items if item["status"] == "completed_without_assignment")
+    if unassigned_count:
+        warnings.append(f"completed_without_assignment_count={unassigned_count}")
+    return items, warnings
+
+
+def _filter_reading_checkin_integration_items(
+    items: list[dict[str, Any]],
+    *,
+    checked_in: bool | None,
+    status: str,
+) -> list[dict[str, Any]]:
+    status = (status or "all").strip().lower()
+    valid_statuses = {
+        "all", "completed", "completed_without_assignment", "incomplete",
+        "pending", "expired", "deleted", "future",
+    }
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="status 参数不支持。")
+
+    output = items
+    if checked_in is True:
+        output = [item for item in output if item["checked_in"]]
+    elif checked_in is False:
+        output = [item for item in output if not item["checked_in"] and item["should_checkin"] and item["is_due"]]
+    if status == "incomplete":
+        output = [item for item in output if not item["checked_in"] and item["should_checkin"] and item["is_due"]]
+    elif status != "all":
+        output = [item for item in output if item["status"] == status]
+    return output
+
+
+@integration_router.get("/reading-checkins", response_model=ReadingCheckinIntegrationResponse)
+async def get_reading_checkins_integration(
+    date_value: date | None = Query(default=None, alias="date", description="单日业务日期，不能和日期范围同时使用。"),
+    start_date: date | None = Query(default=None, description="范围查询开始日期。"),
+    end_date: date | None = Query(default=None, description="范围查询结束日期，最多包含 31 天。"),
+    department: str | None = Query(default=None, max_length=128, description="完整部门名称，精确匹配。"),
+    user_id: int | None = Query(default=None, ge=1, description="员工 ID。"),
+    checked_in: bool | None = Query(default=None, description="true 只返回已打卡，false 只返回已到推送时间的未打卡。"),
+    status: str = Query(default="all", max_length=32, description="all/completed/incomplete/pending/expired/deleted/future。"),
+    db: AsyncSession = Depends(get_db),
+) -> ReadingCheckinIntegrationResponse:
+    """无鉴权只读接口：返回人员按业务日期聚合后的读书打卡事实。"""
+    started_at = perf_counter()
+    range_start, range_end = _resolve_reading_checkin_query_range(date_value, start_date, end_date)
+    department = (department or "").strip() or None
+    now = _now()
+
+    user_stmt = select(User).where(User.role.in_(["user", "admin"]))
+    if department:
+        user_stmt = user_stmt.where(User.department == department)
+    if user_id:
+        user_stmt = user_stmt.where(User.id == user_id)
+    users = (await db.execute(user_stmt.order_by(User.id.asc()))).scalars().all()
+
+    contents = (await db.execute(
+        select(MagicReadingContent)
+        .where(
+            MagicReadingContent.is_deleted.is_(False),
+            MagicReadingContent.reading_date >= range_start,
+            MagicReadingContent.reading_date <= range_end,
+        )
+        .order_by(MagicReadingContent.reading_date.asc(), MagicReadingContent.id.asc())
+    )).scalars().all()
+    content_ids = [int(item.id) for item in contents]
+    user_ids = [int(item.id) for item in users]
+
+    pushed_content_ids: set[int] = set()
+    push_recipient_ids_by_content: dict[int, set[int]] = {}
+    targets_map: dict[int, list[MagicReadingContentTarget]] = {}
+    if content_ids:
+        pushed_content_ids = {
+            int(item)
+            for item in (await db.execute(
+                select(MagicPushBatch.content_id).where(
+                    MagicPushBatch.content_type == "reading_content",
+                    MagicPushBatch.content_id.in_(content_ids),
+                )
+            )).scalars().all()
+        }
+        push_entries = (await db.execute(
+            select(MagicPushEntry.content_id, MagicPushEntry.recipient_user_id).where(
+                MagicPushEntry.content_type == "reading_content",
+                MagicPushEntry.content_id.in_(content_ids),
+            )
+        )).all()
+        for content_id, recipient_user_id in push_entries:
+            push_recipient_ids_by_content.setdefault(int(content_id), set()).add(int(recipient_user_id))
+        targets_map = await _build_admin_reading_targets_map(db, content_ids)
+
+    upload_rows: list[MagicAudioUpload] = []
+    if user_ids:
+        upload_rows = (await db.execute(
+            select(MagicAudioUpload)
+            .where(
+                MagicAudioUpload.user_id.in_(user_ids),
+                MagicAudioUpload.uploaded_date >= range_start,
+                MagicAudioUpload.uploaded_date <= range_end,
+            )
+            .order_by(MagicAudioUpload.uploaded_date.asc(), MagicAudioUpload.user_id.asc(), MagicAudioUpload.uploaded_on.asc())
+        )).scalars().all()
+
+    items, warnings = _build_reading_checkin_integration_items(
+        contents=contents,
+        users=users,
+        pushed_content_ids=pushed_content_ids,
+        push_recipient_ids_by_content=push_recipient_ids_by_content,
+        targets_map=targets_map,
+        uploads=[item for item in upload_rows if not item.is_deleted],
+        deleted_uploads=[item for item in upload_rows if item.is_deleted],
+        now=now,
+    )
+    items = _filter_reading_checkin_integration_items(items, checked_in=checked_in, status=status)
+    if len(items) > MAX_READING_CHECKIN_INTEGRATION_ITEMS:
+        raise HTTPException(status_code=422, detail="查询结果超过 10000 条，请增加部门、人员或更小的日期范围筛选。")
+    logger.info(
+        "[reading_checkin_integration] start_date=%s end_date=%s department=%r user_id=%s "
+        "checked_in=%s status=%s rows=%s duration_ms=%s",
+        range_start,
+        range_end,
+        department,
+        user_id,
+        checked_in,
+        status,
+        len(items),
+        round((perf_counter() - started_at) * 1000),
+    )
+    return ReadingCheckinIntegrationResponse(
+        query=ReadingCheckinIntegrationQuery(
+            date=date_value,
+            start_date=start_date,
+            end_date=end_date,
+            department=department,
+            user_id=user_id,
+            checked_in=checked_in,
+            status=(status or "all").strip().lower(),
+        ),
+        generated_at=now,
+        total=len(items),
+        person_count=len({int(item["user_id"]) for item in items}),
+        date_count=len({item["checkin_date"] for item in items}),
+        items=items,
+        warnings=warnings,
+    )
+
+
 async def _has_audio_checkin_on_date(
     db: AsyncSession,
     user_id: int,
@@ -1868,7 +2198,7 @@ async def list_admin_audios_by_date(
     department: str | None = None,
     user_id: int | None = None,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_super_admin),
+    admin: User = Depends(require_admin),
 ) -> dict[str, Any]:
     target_date = _parse_optional_date(date, field_name="date")
     if not target_date:
@@ -1930,6 +2260,7 @@ async def list_admin_audios_by_date(
             "transcript_error": item.transcript_error or "",
             "transcribed_at": _iso(item.transcribed_at),
             "uploaded_time": _iso(item.uploaded_on),
+            "is_makeup": (item.source or "") == SOURCE_AUDIO_MAKEUP,
         })
     return {"date": target_date.isoformat(), "items": items}
 
