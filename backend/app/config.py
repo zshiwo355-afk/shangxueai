@@ -88,12 +88,19 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(30, alias="DB_POOL_SIZE")
     db_pool_max_overflow: int = Field(20, alias="DB_POOL_MAX_OVERFLOW")
     db_pool_recycle_seconds: int = Field(1800, alias="DB_POOL_RECYCLE_SECONDS")
+    # MySQL DATETIME defaults use the database session's local clock, not UTC.
+    lottery_db_timestamp_offset: str = Field(
+        "+08:00",
+        alias="LOTTERY_DB_TIMESTAMP_OFFSET",
+        pattern=r"^(?:[+-](?:0\d|1[0-3]):[0-5]\d|[+-]14:00)$",
+    )
 
     # ---- 鉴权（JWT，密码 MD5）----
     auth_enabled: bool = Field(True, alias="AUTH_ENABLED")
     jwt_secret: str = Field("change-me-in-production-shangxueai", alias="JWT_SECRET")
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     jwt_ttl_hours: int = Field(720, alias="JWT_TTL_HOURS")  # 30 天
+    auth_cookie_name: str = Field("shangxueai_session", alias="AUTH_COOKIE_NAME")
     super_admin_username: str = Field("", alias="SUPER_ADMIN_USERNAME")
     super_admin_password: str = Field("", alias="SUPER_ADMIN_PASSWORD")
     super_admin_name: str = Field("", alias="SUPER_ADMIN_NAME")

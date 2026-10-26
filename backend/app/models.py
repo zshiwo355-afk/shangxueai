@@ -1329,3 +1329,211 @@ class PersonalitySubmission(Base):
         Index("idx_personality_submissions_form_status", "form_id", "status", "submitted_at"),
         Index("idx_personality_submissions_form_phone", "form_id", "respondent_phone"),
     )
+
+
+# =========================================================================
+# 客户抽奖：活动 / 奖品 / 员工授权 / 专属链接 / 抽奖与领奖记录
+# =========================================================================
+
+
+class LotteryCampaign(Base):
+    __tablename__ = "lottery_campaigns"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    rules_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    max_chances_per_link: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    max_links_per_employee: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    hero_image_url: Mapped[str] = mapped_column(String(2048), default="")
+    hero_image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    hero_image_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    share_title: Mapped[str] = mapped_column(String(120), default="")
+    share_desc: Mapped[str] = mapped_column(String(300), default="")
+    share_image_url: Mapped[str] = mapped_column(String(2048), default="")
+    share_image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    share_image_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    config_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_lottery_campaigns_status_time", "status", "start_at", "end_at"),
+        Index("idx_lottery_campaigns_created", "created_at"),
+    )
+
+
+class LotteryPrize(Base):
+    __tablename__ = "lottery_prizes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    type: Mapped[str] = mapped_column(String(16), nullable=False, default="physical")
+    image_url: Mapped[str] = mapped_column(String(2048), default="")
+    image_object_key: Mapped[str] = mapped_column(String(1024), default="")
+    image_material_asset_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    probability_ppm: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stock_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stock_awarded: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_lottery_prizes_campaign_sort", "campaign_id", "enabled", "sort_order"),
+        Index("idx_lottery_prizes_campaign_type", "campaign_id", "type", "deleted_at"),
+    )
+
+
+class LotteryCampaignStaff(Base):
+    __tablename__ = "lottery_campaign_staff"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    link_quota: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_chances_per_link: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "user_id", name="uk_lottery_campaign_staff_user"),
+        Index("idx_lottery_campaign_staff_user", "user_id", "enabled"),
+    )
+
+
+class LotteryInviteLink(Base):
+    __tablename__ = "lottery_invite_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    public_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    customer_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    customer_code: Mapped[str] = mapped_column(String(120), default="")
+    customer_note: Mapped[str] = mapped_column(String(500), default="")
+    chance_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    chance_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_draw_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recipient_name: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    recipient_phone: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
+    recipient_address: Mapped[str] = mapped_column(String(500), nullable=False, default="", server_default="")
+    receipt_submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_lottery_invite_links_campaign_creator", "campaign_id", "created_by_user_id", "created_at"),
+        Index("idx_lottery_invite_links_status_expiry", "status", "expires_at"),
+    )
+
+
+class LotteryLinkActionLog(Base):
+    __tablename__ = "lottery_link_action_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    invite_link_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    before_chance_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    after_chance_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    delta: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reason: Mapped[str] = mapped_column(String(500), default="")
+    operator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_lottery_link_actions_link_time", "invite_link_id", "created_at"),
+        Index("idx_lottery_link_actions_operator", "operator_id", "created_at"),
+    )
+
+
+class LotteryDraw(Base):
+    __tablename__ = "lottery_draws"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    invite_link_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    draw_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    result_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    prize_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    prize_type_snapshot: Mapped[str] = mapped_column(String(16), default="")
+    prize_name_snapshot: Mapped[str] = mapped_column(String(120), default="")
+    prize_image_url_snapshot: Mapped[str] = mapped_column(String(2048), default="")
+    prize_probability_ppm_snapshot: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    config_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    chance_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    chance_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    random_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    ip_hash: Mapped[str] = mapped_column(String(64), default="")
+    user_agent: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("invite_link_id", "request_id", name="uk_lottery_draws_link_request"),
+        UniqueConstraint("invite_link_id", "draw_sequence", name="uk_lottery_draws_link_sequence"),
+        Index("idx_lottery_draws_campaign_time", "campaign_id", "created_at"),
+        Index("idx_lottery_draws_prize_time", "prize_id", "created_at"),
+    )
+
+
+class LotteryClaim(Base):
+    __tablename__ = "lottery_claims"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    invite_link_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    draw_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
+    recipient_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    recipient_phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    recipient_address: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    operator_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    operator_remark: Mapped[str] = mapped_column(String(500), default="")
+    fulfilled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_lottery_claims_campaign_status", "campaign_id", "status", "created_at"),
+        Index("idx_lottery_claims_link", "invite_link_id", "created_at"),
+    )
+
+
+class LotteryAuditLog(Base):
+    __tablename__ = "lottery_audit_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    before_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
+    operator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_lottery_audit_campaign_time", "campaign_id", "created_at"),
+        Index("idx_lottery_audit_entity", "entity_type", "entity_id", "created_at"),
+    )

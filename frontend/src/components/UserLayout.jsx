@@ -1,6 +1,7 @@
 import {
   BookOutlined,
   FormOutlined,
+  GiftOutlined,
   HomeOutlined,
   LogoutOutlined,
   MenuOutlined,
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { key: "training", label: "销售对练", path: "/workspace/training", icon: <RocketOutlined /> },
   { key: "magic", label: "课程管理", path: "/workspace/magic", icon: <BookOutlined /> },
   { key: "papers", label: "考试中心", path: "/papers", icon: <FormOutlined /> },
+  { key: "lottery", label: "客户抽奖", path: "/lottery-workspace", icon: <GiftOutlined /> },
 ];
 
 function resolveSection(pathname) {
@@ -48,6 +50,9 @@ function resolveSection(pathname) {
   }
   if (pathname.startsWith("/papers")) {
     return "考试中心";
+  }
+  if (pathname.startsWith("/lottery-workspace")) {
+    return "客户抽奖";
   }
   return "用户首页";
 }
@@ -117,7 +122,8 @@ export default function UserLayout() {
               const active = location.pathname === item.path
                 || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
                 || (item.key === "magic" && resolveSection(location.pathname) === "课程管理")
-                || (item.key === "papers" && resolveSection(location.pathname) === "考试中心");
+                || (item.key === "papers" && resolveSection(location.pathname) === "考试中心")
+                || (item.key === "lottery" && resolveSection(location.pathname) === "客户抽奖");
 
               return (
                 <button
@@ -217,7 +223,8 @@ export default function UserLayout() {
             const active = location.pathname === item.path
               || (item.key === "training" && resolveSection(location.pathname) === "销售对练")
               || (item.key === "magic" && resolveSection(location.pathname) === "课程管理")
-              || (item.key === "papers" && resolveSection(location.pathname) === "考试中心");
+              || (item.key === "papers" && resolveSection(location.pathname) === "考试中心")
+              || (item.key === "lottery" && resolveSection(location.pathname) === "客户抽奖");
             return (
               <button
                 key={item.key}

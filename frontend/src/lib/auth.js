@@ -7,45 +7,81 @@ const TOKEN_KEY = "shangxueai-token";
 const USER_KEY = "shangxueai-user";
 
 let _onUnauthorized = null;
+let _memoryToken = "";
+let _memoryUser = null;
+let _cookieSessionActive = false;
+
+function readStorage(key) {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Some WeCom webviews disable or isolate localStorage. Memory and the
+    // HttpOnly server cookie keep the current session usable in that case.
+  }
+}
 
 export function setUnauthorizedHandler(fn) {
   _onUnauthorized = typeof fn === "function" ? fn : null;
 }
 
 export function getToken() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(TOKEN_KEY) || "";
+  const stored = readStorage(TOKEN_KEY);
+  if (stored !== null) {
+    _memoryToken = stored;
+    return stored;
+  }
+  return _memoryToken;
 }
 
 export function setToken(token) {
-  if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
+  _memoryToken = token || "";
+  writeStorage(TOKEN_KEY, _memoryToken);
 }
 
 export function getCurrentUser() {
-  if (typeof window === "undefined") return null;
+  const raw = readStorage(USER_KEY);
+  if (raw === null) return _memoryUser;
+  if (!raw) {
+    _memoryUser = null;
+    return null;
+  }
   try {
-    const raw = window.localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
+    _memoryUser = JSON.parse(raw);
+    return _memoryUser;
   } catch {
+    _memoryUser = null;
     return null;
   }
 }
 
 export function setCurrentUser(user) {
-  if (typeof window === "undefined") return;
-  if (user) window.localStorage.setItem(USER_KEY, JSON.stringify(user));
-  else window.localStorage.removeItem(USER_KEY);
+  _memoryUser = user || null;
+  writeStorage(USER_KEY, user ? JSON.stringify(user) : "");
+}
+
+export function setCookieSessionActive(active) {
+  _cookieSessionActive = !!active;
 }
 
 export function clearAuth() {
   setToken("");
   setCurrentUser(null);
+  setCookieSessionActive(false);
 }
 
 export function isAuthenticated() {
-  return !!getToken();
+  return !!getToken() || _cookieSessionActive;
 }
 
 export function isAdmin() {
@@ -71,13 +107,18 @@ export function installAuthFetch() {
   const original = window.fetch.bind(window);
 
   window.fetch = async function patchedFetch(input, init = {}) {
+    const skipAuthRedirect = !!init.skipAuthRedirect;
+    if (skipAuthRedirect) {
+      init = { ...init };
+      delete init.skipAuthRedirect;
+    }
     let url = "";
     if (typeof input === "string") url = input;
     else if (input && input.url) url = input.url;
 
     const isApi = /\/api\//.test(url) || url.startsWith("/api/");
     if (isApi) {
-      init = { cache: "no-store", ...init };
+      init = { cache: "no-store", credentials: "include", ...init };
       const token = getToken();
       if (token) {
         const headers = new Headers(init.headers || {});
@@ -89,7 +130,7 @@ export function installAuthFetch() {
     }
 
     const response = await original(input, init);
-    if (isApi && response.status === 401) {
+    if (isApi && response.status === 401 && !skipAuthRedirect) {
       clearAuth();
       if (_onUnauthorized) {
         try {

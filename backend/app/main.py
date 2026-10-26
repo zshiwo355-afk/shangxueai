@@ -6,6 +6,7 @@ import html
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -35,6 +36,14 @@ from .live_api import (
     get_public_live_meta,
     public_router as live_public_router,
 )
+from .lottery_api import (
+    admin_router as lottery_admin_router,
+    employee_router as lottery_employee_router,
+    get_public_lottery_meta,
+    public_router as lottery_public_router,
+)
+from .lottery_share_api import router as lottery_share_router
+from .lottery_share_page import render_lottery_share_page
 from .magic_push_service import reading_push_worker
 from .reading_checkin_file_cleanup import reading_checkin_file_cleanup_worker
 from .materials_api import router as materials_router
@@ -155,6 +164,10 @@ app.include_router(reading_checkin_integration_router)
 app.include_router(materials_router)
 app.include_router(live_admin_router)
 app.include_router(live_public_router)
+app.include_router(lottery_admin_router)
+app.include_router(lottery_employee_router)
+app.include_router(lottery_share_router)
+app.include_router(lottery_public_router)
 # 训练
 app.include_router(build_training_router(settings=settings, rule_loader=rule_loader))
 app.include_router(training_records_router)
@@ -190,7 +203,7 @@ async def _preload_rules() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("super admin bootstrap failed: %s", exc)
     try:
-        count = await rule_loader.reload_all()
+        count = await asyncio.wait_for(rule_loader.reload_all(), timeout=10.0)
         logger.info("rule_loader preloaded %d rules", count)
     except Exception as exc:  # noqa: BLE001
         logger.warning("rule preload failed (will lazy-load on demand): %s", exc)
@@ -503,6 +516,109 @@ async def live_public_entry(slug: str, request: Request):
             html_text = index_file.read_text(encoding="utf-8")
             return HTMLResponse(_inject_live_meta(html_text, meta), headers=FRONTEND_HTML_HEADERS)
     return {"message": "前端尚未构建，无法打开直播页。"}
+
+
+@app.get("/share/lottery/{public_code}", response_model=None, include_in_schema=False)
+async def lottery_share_entry(public_code: str, request: Request):
+    meta = None
+    temporarily_unavailable = False
+    try:
+        async with session_scope() as session:
+            meta = await get_public_lottery_meta(session, public_code, request)
+    except Exception as exc:  # noqa: BLE001
+        temporarily_unavailable = True
+        logger.warning("lottery invitation lookup failed error_type=%s", type(exc).__name__)
+    index_file = frontend_dist / "index.html" if frontend_dist else None
+    index_html = index_file.read_text(encoding="utf-8") if index_file and index_file.exists() else None
+    page, status_code = render_lottery_share_page(
+        meta, public_code,
+        (settings.resolved_wecom_frontend_base_url or str(request.base_url)).rstrip("/"),
+        temporarily_unavailable=temporarily_unavailable,
+        index_html=index_html,
+    )
+    return HTMLResponse(page, status_code=status_code, headers={
+        **FRONTEND_HTML_HEADERS, "Referrer-Policy": "no-referrer",
+    })
+
+
+@app.get("/lottery/{public_code}", response_model=None, include_in_schema=False)
+async def lottery_public_entry(public_code: str, request: Request):
+    if frontend_dist:
+        index_file = frontend_dist / "index.html"
+        if index_file.exists():
+            meta = None
+            try:
+                async with session_scope() as session:
+                    meta = await get_public_lottery_meta(session, public_code, request)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("lottery meta lookup failed code=%s err=%s", public_code, exc)
+            html_text = index_file.read_text(encoding="utf-8")
+            return HTMLResponse(_inject_live_meta(html_text, meta), headers=FRONTEND_HTML_HEADERS)
+    return {"message": "前端尚未构建，无法打开抽奖页。"}
+
+
+def _render_lottery_preview_html(index_html: str, meta: dict[str, str] | None) -> str:
+    # Native WeChat link cards can read metadata without JS-SDK credentials.
+    # Keep only one title so crawlers do not pick the application's generic title.
+    source = re.sub(r"<title\b[^>]*>.*?</title>", "", index_html, flags=re.I | re.S) if meta else index_html
+    source = _inject_live_meta(source, meta).replace(
+        "</head>", '<meta name="referrer" content="no-referrer" />\n</head>', 1,
+    )
+    # Run before any external/module script: slow or failed app bundles must not
+    # leave the employee credential in a URL that native WeChat can forward.
+    # Only this page's memory holds it, and React consumes it exactly once.
+    bootstrap = r'''<script id="lottery-preview-bootstrap">(function(){
+"use strict";
+var key="__lotteryShareBootstrap", path=window.location.pathname;
+if(!/^\/lottery-share(?:\/[^/]+)?$/.test(path))return;
+var previous=window[key];
+if(previous&&typeof previous.release==="function")previous.release();
+var credential=new URLSearchParams(window.location.hash.slice(1)).get("ticket")||"";
+if(credential.length>8192)credential="";
+var stopped=false, api;
+function release(){
+  stopped=true;credential="";
+  document.removeEventListener("WeixinJSBridgeReady",hide);
+  window.removeEventListener("pagehide",release);
+  if(window[key]===api)delete window[key];
+}
+function hide(){
+  if(stopped)return;
+  if(window.location.pathname!==path){release();return;}
+  try{if(window.WeixinJSBridge)window.WeixinJSBridge.call("hideOptionMenu");}catch(ignore){}
+}
+api={take:function(requestedPath){
+  if(stopped||requestedPath!==path||window.location.pathname!==path)return "";
+  var value=credential;credential="";return value;
+},release:release};
+window[key]=api;
+var clean=path+window.location.search;
+try{if(window.location.hash)window.history.replaceState(window.history.state,"",clean);}
+catch(ignore){release();window.location.replace(clean);return;}
+hide();
+document.addEventListener("WeixinJSBridgeReady",hide);
+window.addEventListener("pagehide",release);
+})();</script>'''
+    # Insert first in <head>, not near </head> after Vite's module entry point.
+    if re.search(r"<head\b[^>]*>", source, flags=re.I):
+        return re.sub(r"(<head\b[^>]*>)", lambda match: match.group(1) + bootstrap, source, count=1, flags=re.I)
+    return bootstrap + source
+
+
+@app.get("/lottery-share/{public_code}", response_model=None, include_in_schema=False)
+async def lottery_employee_preview_entry(public_code: str, request: Request):
+    if not frontend_dist or not (frontend_dist / "index.html").exists():
+        raise HTTPException(status_code=503, detail="分享页面尚未构建。")
+    async with session_scope() as session:
+        meta = await get_public_lottery_meta(session, public_code, request)
+    if not meta:
+        raise HTTPException(status_code=404, detail="活动或客户链接已失效。")
+    # Employees arrive with a short-lived fragment ticket. A forwarded URL without
+    # that ticket enters the customer page, never an employee authorization view.
+    source = (frontend_dist / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(_render_lottery_preview_html(source, meta), headers={
+        **FRONTEND_HTML_HEADERS, "Referrer-Policy": "no-referrer",
+    })
 
 
 @app.get("/assessment-result/{share_code}", response_model=None, include_in_schema=False)

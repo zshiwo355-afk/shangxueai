@@ -181,8 +181,8 @@ export async function throwRequestError(response, fallbackMessage) {
   });
 }
 
-export async function getJson(path, fallbackMessage) {
-  const response = await safeFetch(buildApiUrl(path), undefined, fallbackMessage);
+export async function getJson(path, fallbackMessage, init) {
+  const response = await safeFetch(buildApiUrl(path), init, fallbackMessage);
   if (!response.ok) await throwRequestError(response, fallbackMessage);
   return parseJsonResponse(response, fallbackMessage);
 }

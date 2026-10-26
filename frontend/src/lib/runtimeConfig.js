@@ -28,7 +28,11 @@ export function getStoredApiBaseUrl() {
   if (typeof window === "undefined") {
     return "";
   }
-  return normalizeApiBase(window.localStorage.getItem(API_BASE_STORAGE_KEY) || "");
+  try {
+    return normalizeApiBase(window.localStorage.getItem(API_BASE_STORAGE_KEY) || "");
+  } catch {
+    return "";
+  }
 }
 
 export function saveApiBaseUrl(url) {
@@ -36,10 +40,14 @@ export function saveApiBaseUrl(url) {
     return "";
   }
   const normalized = normalizeApiBase(url);
-  if (normalized) {
-    window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
-  } else {
-    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+  try {
+    if (normalized) {
+      window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+    } else {
+      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    }
+  } catch {
+    // Restricted embedded browsers may disable localStorage entirely.
   }
   return normalized;
 }
@@ -48,7 +56,11 @@ export function clearStoredApiBaseUrl() {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+  try {
+    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+  } catch {
+    // Keep clearing the in-memory runtime override when storage is unavailable.
+  }
   if (typeof window.__APP_API_BASE_URL__ === "string") {
     try {
       delete window.__APP_API_BASE_URL__;
@@ -82,7 +94,7 @@ export function getApiBaseUrl() {
     }
     return runtimeBase;
   }
-  const envBase = normalizeApiBase(import.meta.env.VITE_API_BASE_URL || "");
+  const envBase = normalizeApiBase(import.meta.env?.VITE_API_BASE_URL || "");
   if (envBase) {
     return envBase;
   }

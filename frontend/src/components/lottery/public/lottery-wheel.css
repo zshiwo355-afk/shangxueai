@@ -1,0 +1,12 @@
+/* Both rotations use exactly the same timing, so their angles cancel even
+   between frames, not just when the wheel stops. The page's motion profile
+   supplies timing for normal/reduced motion and the result reveal together. */
+.lottery-wheel-stage .lottery-wheel,
+.lottery-wheel-stage .lottery-wheel__label {
+  transition: transform var(--lottery-wheel-spin-duration) var(--lottery-wheel-spin-easing);
+}
+
+.lottery-wheel-stage .lottery-wheel__label {
+  transform-origin: center;
+  will-change: transform;
+}

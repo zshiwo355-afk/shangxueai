@@ -1,0 +1,54 @@
+.lottery-share-modal { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.lottery-share-modal__loading { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 12px; color: #6b7280; }
+.lottery-share-modal__recipient { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; padding: 18px 20px; background: #fff6e6; border: 1px solid #efdbb5; border-radius: 12px; }
+.lottery-share-modal__recipient > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lottery-share-modal__recipient > div:last-child { text-align: right; }
+.lottery-share-modal__recipient span { font-size: 12px; color: #8b6b3b; }
+.lottery-share-modal__recipient strong { font-size: 22px; line-height: 1.3; color: #633421; overflow-wrap: anywhere; }
+.lottery-share-modal__recipient small { font-size: 14px; font-weight: 500; }
+.lottery-share-modal__confirm { margin: 0; color: #6b4f2f; font-size: 13px; line-height: 1.7; }
+.lottery-share-modal__card { display: flex; gap: 14px; padding: 14px; border: 1px solid #e8e4dc; background: #fff; border-radius: 12px; }
+.lottery-share-modal__card-image { flex: 0 0 76px; height: 76px; overflow: hidden; border-radius: 8px; background: #fbf1dc; }
+.lottery-share-modal__card-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lottery-share-modal__image-fallback { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #a97728; }
+.lottery-share-modal__image-fallback .anticon { font-size: 27px; }
+.lottery-share-modal__image-fallback span:last-child { font-size: 10px; }
+.lottery-share-modal__card-copy { flex: 1; min-width: 0; }
+.lottery-share-modal__card-copy h3 { margin: 1px 0 7px; font-size: 16px; line-height: 1.5; color: #243448; overflow-wrap: anywhere; }
+.lottery-share-modal__card-copy p { margin: 0; font-size: 12px; line-height: 1.6; color: #7a8593; overflow-wrap: anywhere; }
+.lottery-share-modal__hint { margin: 0; color: #7b8491; font-size: 12px; line-height: 1.6; }
+.lottery-share-modal__secondary { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.lottery-share-modal__qr { display: grid; grid-template-columns: 192px minmax(0, 1fr); align-items: center; gap: 24px; padding: 20px; border: 1px solid #dce9e1; border-radius: 16px; background: #f4faf6; }
+.lottery-share-modal__qr-code { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lottery-share-modal__qr-code > span { font-size: 12px; color: #267148; }
+.lottery-share-modal__qr-guide { min-width: 0; }
+.lottery-share-modal__qr-guide h3 { margin: 0 0 16px; font-size: 17px; color: #243f31; }
+.lottery-share-modal__qr-guide ol { display: flex; flex-direction: column; gap: 14px; list-style: none; padding: 0; margin: 0; }
+.lottery-share-modal__qr-guide li { display: flex; align-items: flex-start; gap: 10px; }
+.lottery-share-modal__qr-guide li > b { flex: 0 0 22px; height: 22px; border-radius: 50%; text-align: center; line-height: 22px; color: #24754a; background: #e0eee5; font-size: 12px; }
+.lottery-share-modal__qr-guide li div { min-width: 0; display: flex; flex-direction: column; gap: 3px; overflow-wrap: anywhere; }
+.lottery-share-modal__qr-guide strong { font-size: 13px; color: #304c3c; }
+.lottery-share-modal__qr-guide span { color: #738378; font-size: 12px; line-height: 1.6; }
+.lottery-share-modal__qr-guide p { margin: 16px 0 0; color: #6e7c73; font-size: 12px; line-height: 1.7; }
+.lottery-share-modal__wechat { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 22px 18px; border: 1px solid #dce9e1; border-radius: 16px; background: #f4faf6; text-align: center; }
+.lottery-share-modal__wechat > .anticon { color: #269b54; font-size: 32px; }
+.lottery-share-modal__wechat h3 { margin: 0; font-size: 18px; color: #243f31; }
+.lottery-share-modal__wechat p { margin: 0; color: #65766b; font-size: 13px; line-height: 1.7; }
+.lottery-share-modal__wechat > span:last-child { font-size: 12px; color: #738378; }
+.lottery-share-modal__backup { border-top: 1px solid #eef0ed; padding-top: 12px; }
+.lottery-share-modal__backup summary { cursor: pointer; color: #78818e; font-size: 12px; }
+.lottery-share-modal__backup summary:focus-visible { outline: 2px solid #91b8ed; outline-offset: 3px; }
+.lottery-share-modal__backup .lottery-share-modal__link { margin: 8px 0; }
+.lottery-share-modal__backup .lottery-share-modal__hint { margin-top: 8px; }
+.lottery-share-modal__link-label { display: block; margin-top: 12px; font-size: 12px; color: #78818e; }
+.lottery-share-modal__link { box-sizing: border-box; width: 100%; min-height: 58px; resize: none; border: 1px solid #e3e7ec; border-radius: 8px; padding: 8px 10px; color: #657184; background: #fafbfc; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.lottery-share-modal__link:focus { outline: 2px solid #91b8ed; outline-offset: 1px; }
+@media (max-width: 480px) {
+  .lottery-share-modal__qr { grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 18px; }
+  .lottery-share-modal__qr-guide h3 { text-align: center; }
+  .lottery-share-modal__recipient { gap: 12px; padding: 15px; }
+  .lottery-share-modal__recipient strong { font-size: 20px; }
+  .lottery-share-modal__card { gap: 10px; padding: 12px; }
+  .lottery-share-modal__card-image { flex-basis: 64px; height: 64px; }
+  .lottery-share-modal__secondary > .ant-btn { flex: 1 1 auto; }
+}

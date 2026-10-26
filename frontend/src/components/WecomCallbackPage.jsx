@@ -2,7 +2,7 @@ import { App as AntdApp, Spin } from "antd";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { clearAuth, setCurrentUser, setToken } from "../lib/auth";
+import { clearAuth, setCookieSessionActive, setCurrentUser, setToken } from "../lib/auth";
 
 function parseHashPayload() {
   const raw = window.location.hash.startsWith("#")
@@ -39,6 +39,7 @@ export default function WecomCallbackPage() {
     }
     setToken(token);
     setCurrentUser(user);
+    setCookieSessionActive(true);
     navigate(redirect || "/home", { replace: true });
   }, [message, navigate]);
 

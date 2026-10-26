@@ -2,7 +2,7 @@
 
 - 密码存 md5(plaintext) 32 位小写 hex
 - 登录成功后颁发 JWT，前端放 localStorage，请求带 Authorization: Bearer <token>
-- get_current_user 统一从 Authorization header 或 ?access_token 取 token
+- get_current_user 统一从 Authorization header、?access_token 或 Cookie 取 token
 - require_admin 用作管理员路由 guard
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -34,6 +34,34 @@ from .wecom_auth import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _settings = get_settings()
+
+
+def _auth_cookie_name() -> str:
+    return (_settings.auth_cookie_name or "").strip() or "shangxueai_session"
+
+
+def _request_is_https(request: Request) -> bool:
+    forwarded_proto = (
+        (request.headers.get("x-forwarded-proto") or "")
+        .split(",", 1)[0]
+        .strip()
+        .lower()
+    )
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _set_auth_cookie(response: Response, request: Request, token: str, expires_at: int) -> None:
+    now = int(datetime.now(tz=timezone.utc).timestamp())
+    max_age = max(int(expires_at) - now, 0)
+    response.set_cookie(
+        key=_auth_cookie_name(),
+        value=token,
+        max_age=max_age,
+        path="/",
+        secure=_request_is_https(request),
+        httponly=True,
+        samesite="lax",
+    )
 
 
 def md5_password(raw: str) -> str:
@@ -63,23 +91,27 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录态无效。") from exc
 
 
-def _extract_token(request: Request) -> str | None:
+def _extract_token(request: Request) -> tuple[str | None, str | None]:
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     if auth:
         parts = auth.strip().split(" ", 1)
         if len(parts) == 2 and parts[0].lower() == "bearer":
-            return parts[1].strip()
+            return parts[1].strip(), "authorization_bearer"
     qp = request.query_params.get("access_token")
     if qp:
-        return qp.strip()
-    return None
+        return qp.strip(), "query"
+    cookie_token = request.cookies.get(_auth_cookie_name())
+    if cookie_token:
+        return cookie_token.strip(), "cookie"
+    return None, None
 
 
 async def get_current_user(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    token = _extract_token(request)
+    token, token_source = _extract_token(request)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录。")
     payload = decode_token(token)
@@ -94,6 +126,19 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or user.disabled:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不存在或已禁用。")
+
+    # Provision the persistent cookie for users who already have a valid
+    # localStorage token when this change is deployed.
+    if (
+        token_source == "authorization_bearer"
+        and request.cookies.get(_auth_cookie_name()) != token
+    ):
+        try:
+            expires_at = int(payload.get("exp") or 0)
+        except (TypeError, ValueError):
+            expires_at = 0
+        if expires_at:
+            _set_auth_cookie(response, request, token, expires_at)
     return user
 
 
@@ -205,7 +250,12 @@ class AuthProvidersResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> LoginResponse:
     raw = payload.password
     digest = (
         raw.lower()
@@ -221,6 +271,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> Lo
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号或密码错误。")
 
     token, exp = create_token(user.id, user.username, user.role)
+    _set_auth_cookie(response, request, token, exp)
     return LoginResponse(
         token=token,
         expires_at=exp,
@@ -262,8 +313,9 @@ async def me(user: User = Depends(get_current_user)) -> MeResponse:
 
 
 @router.post("/logout")
-async def logout() -> dict:
-    """JWT 是无状态的，登出由前端清 token 即可；这里仅返回 ok。"""
+async def logout(response: Response) -> dict:
+    """Clear the persistent cookie; the frontend also removes local state."""
+    response.delete_cookie(key=_auth_cookie_name(), path="/")
     return {"ok": True}
 
 
@@ -287,6 +339,7 @@ async def wecom_start(
 
 @router.get("/wecom/callback")
 async def wecom_callback(
+    request: Request,
     code: str = "",
     state: str = "",
     db: AsyncSession = Depends(get_db),
@@ -300,7 +353,7 @@ async def wecom_callback(
             raise WecomAuthError("企业微信未返回授权码。", code="wecom_missing_code")
         user, _member = await login_by_code(db, code=code.strip())
         token, exp = create_token(user.id, user.username, user.role)
-        return RedirectResponse(
+        response = RedirectResponse(
             build_frontend_callback_redirect(
                 redirect=redirect,
                 token=token,
@@ -308,6 +361,8 @@ async def wecom_callback(
                 user=build_auth_user_payload(user),
             )
         )
+        _set_auth_cookie(response, request, token, exp)
+        return response
     except WecomAuthError as exc:
         return RedirectResponse(
             build_frontend_callback_redirect(

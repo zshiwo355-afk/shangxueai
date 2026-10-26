@@ -44,6 +44,7 @@ const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
 const SyncLogsTab = lazy(() => import("./admin/SyncLogsTab"));
 const LiveAdminPage = lazy(() => import("./admin/live/LiveAdminPage"));
 const AssessmentAdminPage = lazy(() => import("./admin/assessment/AssessmentAdminPage"));
+const LotteryAdminPage = lazy(() => import("./admin/lottery/LotteryAdminPage"));
 
 const { Header, Sider, Content } = Layout;
 
@@ -67,6 +68,7 @@ const MENU_GROUPS = [
     label: "运营激励",
     children: [
       { key: "points", icon: <TrophyOutlined />, label: "积分管理", path: "/admin/points" },
+      { key: "lottery", icon: <GiftOutlined />, label: "活动抽奖", path: "/admin/lottery" },
       { key: "mentors", icon: <UserSwitchOutlined />, label: "导师管理", path: "/admin/mentors" },
       { key: "notifications", icon: <BellOutlined />, label: "推送监控", path: "/admin/notifications" },
     ],
@@ -166,6 +168,7 @@ export default function AdminLayout() {
     if (location.pathname.startsWith("/admin/mentors")) return "mentors";
     if (location.pathname.startsWith("/admin/points")) return "points";
     if (location.pathname.startsWith("/admin/notifications")) return "notifications";
+    if (location.pathname.startsWith("/admin/lottery")) return "lottery";
     if (location.pathname.startsWith("/admin/live")) return "live";
     if (location.pathname.startsWith("/admin/magic-academy/reading")) return "magic-reading";
     if (location.pathname.startsWith("/admin/magic-academy")) return "magic-academy";
@@ -338,6 +341,7 @@ export default function AdminLayout() {
               <Route path="materials" element={<MaterialLibraryPage />} />
               <Route path="mentors" element={<MentorsTab />} />
               <Route path="points" element={<PointsAdminPage />} />
+              <Route path="lottery/*" element={<LotteryAdminPage />} />
               <Route path="notifications" element={<NotificationsTab />} />
               <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
               <Route path="*" element={<Navigate to="dashboard" replace />} />

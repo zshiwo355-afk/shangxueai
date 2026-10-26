@@ -33,3 +33,8 @@ backend/.env.*
 uploads/
 backend/uploads/
 tmp/
+
+# Local deployment artifacts, exports, and database recovery backups
+/deploy_artifacts/
+/exports/
+/recovery/

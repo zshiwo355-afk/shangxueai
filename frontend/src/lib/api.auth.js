@@ -124,8 +124,12 @@ export async function login({ username, password }) {
   return postJson("/api/auth/login", { username, password: digest }, "登录失败，请稍后重试。");
 }
 
-export async function fetchMe() {
-  return getJson("/api/auth/me", "登录态校验失败。");
+export async function fetchMe({ skipAuthRedirect = false } = {}) {
+  return getJson(
+    "/api/auth/me",
+    "登录态校验失败。",
+    skipAuthRedirect ? { skipAuthRedirect: true } : undefined,
+  );
 }
 
 export async function logoutApi() {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Spin } from "antd";
 
@@ -24,10 +24,23 @@ const UserPapersListPage = lazy(() => import("./components/user/papers/UserPaper
 const UserPaperTakePage = lazy(() => import("./components/user/papers/UserPaperTakePage"));
 const UserPaperResultPage = lazy(() => import("./components/user/papers/UserPaperResultPage"));
 const LivePublicPage = lazy(() => import("./components/live/LivePublicPage"));
+const LotteryPublicPage = lazy(() => import("./components/lottery/public/LotteryPublicPage"));
+const LotterySharePreviewPage = lazy(() => import("./components/lottery/LotterySharePreviewPage"));
+const LotteryLinkWorkspacePage = lazy(() => import("./components/lottery/LotteryLinkWorkspacePage"));
 const PublicAssessmentPage = lazy(() => import("./components/assessment/PublicAssessmentPage"));
 const PublicAssessmentResultPage = lazy(() => import("./components/assessment/PublicAssessmentResultPage"));
 
-import { isAdmin, isAuthenticated, isSuperAdmin, setUnauthorizedHandler } from "./lib/auth";
+import { fetchMe } from "./lib/api.auth";
+import {
+  clearAuth,
+  getToken,
+  isAdmin,
+  isAuthenticated,
+  isSuperAdmin,
+  setCookieSessionActive,
+  setCurrentUser,
+  setUnauthorizedHandler,
+} from "./lib/auth";
 
 function RouteFallback() {
   return (
@@ -79,8 +92,28 @@ function HomeRedirect() {
   return isAdmin() ? <Navigate to="/admin" replace /> : <Navigate to="/home" replace />;
 }
 
+function LoginRoute() {
+  if (!isAuthenticated()) return <LoginPage />;
+  return isAdmin() ? <Navigate to="/admin" replace /> : <Navigate to="/home" replace />;
+}
+
+function isPublicRoute(pathname) {
+  return pathname.startsWith("/live/")
+    || pathname === "/lottery-share"
+    || pathname.startsWith("/lottery-share/")
+    || pathname.startsWith("/lottery/")
+    || pathname.startsWith("/share/lottery/")
+    || pathname.startsWith("/assessment/")
+    || pathname.startsWith("/assessment-result/");
+}
+
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const skipSessionRestore = location.pathname === "/auth/wecom/callback" || isPublicRoute(location.pathname);
+  const [authReady, setAuthReady] = useState(
+    () => skipSessionRestore || !!getToken(),
+  );
 
   // 全局 401 → 跳登录
   useEffect(() => {
@@ -90,12 +123,47 @@ export default function App() {
     return () => setUnauthorizedHandler(null);
   }, [navigate]);
 
+  // Enterprise WeChat may clear or isolate localStorage between workbench
+  // launches. Restore the 30-day HttpOnly cookie session before route guards
+  // decide whether the user must return to the login page.
+  useEffect(() => {
+    if (skipSessionRestore || isAuthenticated()) {
+      setAuthReady(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAuthReady(false);
+    fetchMe({ skipAuthRedirect: true })
+      .then((user) => {
+        if (cancelled) return;
+        setCurrentUser(user);
+        setCookieSessionActive(true);
+      })
+      .catch(() => {
+        if (!cancelled) clearAuth();
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname, skipSessionRestore]);
+
+  if (!authReady) return <RouteFallback />;
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<LoginRoute />} />
         <Route path="/auth/wecom/callback" element={<WecomCallbackPage />} />
         <Route path="/live/:slug" element={<LivePublicPage />} />
+        <Route path="/lottery/:code" element={<LotteryPublicPage />} />
+        <Route path="/share/lottery/:code" element={<LotteryPublicPage />} />
+        <Route path="/lottery-share" element={<LotterySharePreviewPage />} />
+        <Route path="/lottery-share/:code" element={<LotterySharePreviewPage />} />
         <Route path="/assessment/:publicCode" element={<PublicAssessmentPage />} />
         <Route path="/assessment-result/:shareCode" element={<PublicAssessmentResultPage />} />
 
@@ -124,6 +192,7 @@ export default function App() {
           <Route path="/papers" element={<UserPapersListPage />} />
           <Route path="/papers/:assignmentId/take" element={<UserPaperTakePage />} />
           <Route path="/papers/submissions/:submissionId" element={<UserPaperResultPage />} />
+          <Route path="/lottery-workspace" element={<LotteryLinkWorkspacePage />} />
         </Route>
 
         <Route
