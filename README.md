@@ -126,6 +126,31 @@ npm run build         # 产物输出到 frontend/dist
 
 ---
 
+## 积分商城
+
+- 员工入口：用户导航「积分商城」（`/mall`）。提供「可兑换 / 全部」、可用余额、累计积分前十及固定的个人排名、兑换记录和领取码。
+- 管理员入口：「运营激励 → 积分兑换」（`/admin/mall`）中的「商城积分 / 商品管理 / 兑换记录」。可搜索已有员工发分、维护商品及库存、核对领取人和领取码后核销。原学习排行、流水和规则单独保留在「运营激励 → 学习积分」（`/admin/points`）。
+- 商城积分从零开始，只由管理员发放，与学习积分独立。管理员按正整数填写商品「兑换积分」，员工商城按 1 积分对应 20 元显示金额，例如填写 5 积分，商城显示 100 元。兑换每次 1 件，立即扣余额和库存，累计积分及排名不因消费减少；员工到前台领取，无邮寄或现金支付流程。
+- 兑换记录保留商品名称、成交价格和扣分的快照。发分与兑换支持同一请求重试防重，商品编辑校验版本，核销记录保留操作人和时间。
+- **已有数据库升级只执行 `backend/sql/points_mall.sql`**，创建四张商城表，不清空已有积分或用户；不要重新执行含 `DROP TABLE` 的全量安装脚本。首次安装已包含在 `full_install.sql` 中。部署时先执行增量 SQL，再发布后端和前端构建。
+- 本地商品图片上传复用已有 OSS 配置，要求 HTTPS 公网地址；也可填写 HTTPS 图片地址或从素材库选图。未配置 OSS 时仍可使用无图商品。
+
+商城检查（在 `backend` 目录）：
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p test_mall.py -v
+# 使用独立的本地测试库；该测试会清空指定 mall_test_* 库内的测试表。
+MALL_TEST_DB_DSN='mysql+aiomysql://USER:PASSWORD@127.0.0.1:3306/mall_test_checks' \
+  .venv/bin/python -m unittest discover -s tests -p test_mall_mysql.py -v
+```
+
+前端检查（在 `frontend` 目录）：
+
+```bash
+node --test src/components/mall/mall-utils.test.js src/components/admin/points/mall-admin-utils.test.js
+npm run build
+```
+
 ## 角色
 
 | 角色 | 入口 | 能力 |

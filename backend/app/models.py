@@ -9,6 +9,7 @@ from datetime import date, datetime, time
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -20,7 +21,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import LONGTEXT, VARCHAR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -444,6 +445,97 @@ class UserPointSummary(Base):
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MallAccount(Base):
+    """商城余额独立于学习积分；只由管理员发放增加。"""
+    __tablename__ = "mall_accounts"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    balance_points: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_points: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("balance_points >= 0 AND total_points >= balance_points", name="ck_mall_account_points"),
+    )
+
+
+class MallGrant(Base):
+    __tablename__ = "mall_grants"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_name: Mapped[str] = mapped_column(String(128), default="")
+    department: Mapped[str] = mapped_column(String(128), default="")
+    points: Mapped[int] = mapped_column(Integer, nullable=False)
+    remark: Mapped[str] = mapped_column(String(500), nullable=False)
+    operator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    operator_name: Mapped[str] = mapped_column(String(128), default="")
+    request_id: Mapped[str] = mapped_column(String(64).with_variant(VARCHAR(64, charset="ascii", collation="ascii_bin"), "mysql"), nullable=False)
+    balance_after: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    total_after: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("operator_id", "request_id", name="uk_mall_grants_request"),
+        Index("idx_mall_grants_user", "user_id", "id"),
+        CheckConstraint("points > 0", name="ck_mall_grant_points"),
+    )
+
+
+class MallProduct(Base):
+    __tablename__ = "mall_products"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(2000), default="")
+    image_url: Mapped[str] = mapped_column(String(2048), default="")
+    price_yuan: Mapped[int] = mapped_column(Integer, nullable=False)
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(BigInteger, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(64).with_variant(VARCHAR(64, charset="ascii", collation="ascii_bin"), "mysql"), nullable=True)
+    create_payload_hash: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("created_by", "request_id", name="uk_mall_products_request"),
+        Index("idx_mall_products_enabled", "enabled", "id"),
+        CheckConstraint("price_yuan >= 20 AND MOD(price_yuan, 20) = 0", name="ck_mall_product_price"),
+        CheckConstraint("stock >= 0", name="ck_mall_product_stock"),
+    )
+
+
+class MallRedemption(Base):
+    __tablename__ = "mall_redemptions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_name: Mapped[str] = mapped_column(String(128), default="")
+    department: Mapped[str] = mapped_column(String(128), default="")
+    product_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    product_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    image_url: Mapped[str] = mapped_column(String(2048), default="")
+    price_yuan: Mapped[int] = mapped_column(Integer, nullable=False)
+    points_cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64).with_variant(VARCHAR(64, charset="ascii", collation="ascii_bin"), "mysql"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    redeemed_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    redeemed_by_name: Mapped[str] = mapped_column(String(128), default="")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "request_id", name="uk_mall_redemptions_request"),
+        Index("idx_mall_redemptions_user", "user_id", "id"),
+        Index("idx_mall_redemptions_status", "status", "id"),
+        CheckConstraint("points_cost > 0 AND price_yuan = points_cost * 20", name="ck_mall_redemption_cost"),
+        CheckConstraint("status IN ('pending', 'redeemed')", name="ck_mall_redemption_status"),
     )
 
 

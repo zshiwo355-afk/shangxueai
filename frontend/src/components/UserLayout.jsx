@@ -9,6 +9,7 @@ import {
   RocketOutlined,
   ScheduleOutlined,
   SettingOutlined,
+  ShopOutlined,
 } from "@ant-design/icons";
 import { Avatar, Button, Drawer, Tag } from "antd";
 import { useEffect, useState } from "react";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { key: "magic", label: "课程管理", path: "/workspace/magic", icon: <BookOutlined /> },
   { key: "papers", label: "考试中心", path: "/papers", icon: <FormOutlined /> },
   { key: "lottery", label: "客户抽奖", path: "/lottery-workspace", icon: <GiftOutlined /> },
+  { key: "mall", label: "积分商城", path: "/mall", icon: <ShopOutlined /> },
 ];
 
 function resolveSection(pathname) {
@@ -53,6 +55,9 @@ function resolveSection(pathname) {
   }
   if (pathname.startsWith("/lottery-workspace")) {
     return "客户抽奖";
+  }
+  if (pathname.startsWith("/mall")) {
+    return "积分商城";
   }
   return "用户首页";
 }

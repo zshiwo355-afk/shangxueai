@@ -27,6 +27,7 @@ const LivePublicPage = lazy(() => import("./components/live/LivePublicPage"));
 const LotteryPublicPage = lazy(() => import("./components/lottery/public/LotteryPublicPage"));
 const LotterySharePreviewPage = lazy(() => import("./components/lottery/LotterySharePreviewPage"));
 const LotteryLinkWorkspacePage = lazy(() => import("./components/lottery/LotteryLinkWorkspacePage"));
+const MallPage = lazy(() => import("./components/mall/MallPage"));
 const PublicAssessmentPage = lazy(() => import("./components/assessment/PublicAssessmentPage"));
 const PublicAssessmentResultPage = lazy(() => import("./components/assessment/PublicAssessmentResultPage"));
 
@@ -193,6 +194,7 @@ export default function App() {
           <Route path="/papers/:assignmentId/take" element={<UserPaperTakePage />} />
           <Route path="/papers/submissions/:submissionId" element={<UserPaperResultPage />} />
           <Route path="/lottery-workspace" element={<LotteryLinkWorkspacePage />} />
+          <Route path="/mall" element={<MallPage />} />
         </Route>
 
         <Route

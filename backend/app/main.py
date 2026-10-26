@@ -59,6 +59,7 @@ from .personality_assessments_api import (
 )
 from .personality_retention_worker import personality_retention_worker
 from .points_admin_api import router as points_admin_router
+from .mall_api import router as mall_router, admin_router as mall_admin_router
 from .mentors_admin_api import router as mentors_admin_router
 from .mentors_public_api import router as mentors_public_router
 from .dashboard_api import router as dashboard_admin_router
@@ -152,6 +153,8 @@ app.include_router(newbie_guide_router)
 app.include_router(banners_user_router)
 app.include_router(banners_admin_router)
 app.include_router(points_admin_router)
+app.include_router(mall_router)
+app.include_router(mall_admin_router)
 app.include_router(mentors_admin_router)
 app.include_router(mentors_public_router)
 app.include_router(dashboard_admin_router)

@@ -16,6 +16,7 @@ import {
   SafetyCertificateOutlined,
   RadarChartOutlined,
   SettingOutlined,
+  ShopOutlined,
   SolutionOutlined,
   TeamOutlined,
   TrophyOutlined,
@@ -39,6 +40,7 @@ const MagicAcademyPage = lazy(() => import("./MagicAcademyPage"));
 const MaterialLibraryPage = lazy(() => import("./admin/MaterialLibraryPage"));
 const NotificationsTab = lazy(() => import("./admin/NotificationsTab"));
 const PointsAdminPage = lazy(() => import("./admin/points/PointsAdminPage"));
+const MallAdminPage = lazy(() => import("./admin/points/MallAdminPage"));
 const MentorsTab = lazy(() => import("./admin/mentors/MentorsTab"));
 const DashboardPage = lazy(() => import("./admin/dashboard/DashboardPage"));
 const SyncLogsTab = lazy(() => import("./admin/SyncLogsTab"));
@@ -67,7 +69,8 @@ const MENU_GROUPS = [
     icon: <GiftOutlined />,
     label: "运营激励",
     children: [
-      { key: "points", icon: <TrophyOutlined />, label: "积分管理", path: "/admin/points" },
+      { key: "points", icon: <TrophyOutlined />, label: "学习积分", path: "/admin/points" },
+      { key: "mall", icon: <ShopOutlined />, label: "积分兑换", path: "/admin/mall" },
       { key: "lottery", icon: <GiftOutlined />, label: "活动抽奖", path: "/admin/lottery" },
       { key: "mentors", icon: <UserSwitchOutlined />, label: "导师管理", path: "/admin/mentors" },
       { key: "notifications", icon: <BellOutlined />, label: "推送监控", path: "/admin/notifications" },
@@ -341,6 +344,7 @@ export default function AdminLayout() {
               <Route path="materials" element={<MaterialLibraryPage />} />
               <Route path="mentors" element={<MentorsTab />} />
               <Route path="points" element={<PointsAdminPage />} />
+              <Route path="mall" element={<MallAdminPage />} />
               <Route path="lottery/*" element={<LotteryAdminPage />} />
               <Route path="notifications" element={<NotificationsTab />} />
               <Route path="whitelist" element={showWhitelist ? <WhitelistTab /> : <Navigate to="/admin/users" replace />} />
