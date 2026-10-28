@@ -1571,6 +1571,27 @@ CREATE TABLE `lottery_prizes` (
   KEY `idx_lottery_prizes_campaign_type` (`campaign_id`,`type`,`deleted_at`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='客户抽奖奖品及概率库存';
 
+DROP TABLE IF EXISTS `lottery_display_winners`;
+CREATE TABLE `lottery_display_winners` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `campaign_id` bigint NOT NULL,
+  `prize_id` bigint DEFAULT NULL,
+  `display_name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `prize_name_snapshot` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_demo` tinyint(1) NOT NULL DEFAULT '0',
+  `visibility` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'public',
+  `source` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual_reviewed',
+  `batch_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int NOT NULL,
+  `display_time` datetime NOT NULL,
+  `operator_note` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_lottery_display_batch_row` (`campaign_id`,`batch_id`,`sort_order`) USING BTREE,
+  KEY `idx_lottery_display_campaign_time` (`campaign_id`,`visibility`,`display_time`) USING BTREE,
+  KEY `idx_lottery_display_demo` (`is_demo`,`source`,`created_at`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='抽奖公开中奖展示快照';
+
 DROP TABLE IF EXISTS `lottery_campaign_staff`;
 CREATE TABLE `lottery_campaign_staff` (
   `id` bigint NOT NULL AUTO_INCREMENT,

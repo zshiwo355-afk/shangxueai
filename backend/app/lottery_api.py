@@ -55,6 +55,7 @@ from .models import (
     LotteryCampaign,
     LotteryCampaignStaff,
     LotteryClaim,
+    LotteryDisplayWinner,
     LotteryDraw,
     LotteryInviteLink,
     LotteryLinkActionLog,
@@ -1927,7 +1928,7 @@ async def public_lottery_winners(
     public_code: str,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Small campaign-scoped feed of real wins, never a customer directory."""
+    """Campaign-scoped feed of real wins and manually reviewed broadcast rows."""
     campaign, link = await _public_link_context(db, public_code)
     if link.status != "active":
         raise HTTPException(status_code=409, detail="该抽奖链接已停用。")
@@ -1947,11 +1948,47 @@ async def public_lottery_winners(
         .order_by(desc(LotteryDraw.id))
         .limit(30)
     )).all()
-    return {"items": [
-        {"id": int(draw_id), "display_name": winner_display_name(name),
-         "prize_name": prize_name or "奖品", "created_at": _iso(created_at)}
+    display_rows = (await db.execute(
+        select(
+            LotteryDisplayWinner.id, LotteryDisplayWinner.display_name,
+            LotteryDisplayWinner.prize_name_snapshot, LotteryDisplayWinner.display_time,
+        )
+        .where(
+            LotteryDisplayWinner.campaign_id == int(campaign.id),
+            LotteryDisplayWinner.is_demo.is_(False),
+            LotteryDisplayWinner.visibility == "public",
+            LotteryDisplayWinner.source == "manual_reviewed",
+        )
+        .order_by(desc(LotteryDisplayWinner.display_time), desc(LotteryDisplayWinner.id))
+        .limit(30)
+    )).all()
+    merged = [
+        {
+            "id": int(draw_id),
+            "display_name": winner_display_name(name),
+            "prize_name": prize_name or "奖品",
+            "created_at": _iso(created_at),
+            "_sort_time": created_at,
+        }
         for draw_id, name, prize_name, created_at in rows
-    ]}
+    ]
+    merged.extend(
+        {
+            "id": f"display:{display_id}",
+            "display_name": winner_display_name(name),
+            "prize_name": prize_name or "奖品",
+            "created_at": _iso(display_time),
+            "_sort_time": display_time,
+        }
+        for display_id, name, prize_name, display_time in display_rows
+    )
+    merged.sort(key=lambda item: item["_sort_time"], reverse=True)
+    return {
+        "items": [
+            {key: value for key, value in item.items() if key != "_sort_time"}
+            for item in merged[:30]
+        ]
+    }
 
 
 @public_router.get("/{public_code}/draws")

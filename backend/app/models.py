@@ -1504,6 +1504,30 @@ class LotteryPrize(Base):
     )
 
 
+class LotteryDisplayWinner(Base):
+    __tablename__ = "lottery_display_winners"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    prize_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    prize_name_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="public")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual_reviewed")
+    batch_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    operator_note: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "batch_id", "sort_order", name="uk_lottery_display_batch_row"),
+        Index("idx_lottery_display_campaign_time", "campaign_id", "visibility", "display_time"),
+        Index("idx_lottery_display_demo", "is_demo", "source", "created_at"),
+    )
+
+
 class LotteryCampaignStaff(Base):
     __tablename__ = "lottery_campaign_staff"
 

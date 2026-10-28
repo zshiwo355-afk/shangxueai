@@ -24,33 +24,40 @@ def test_display_names_never_publish_free_form_customer_fields(name, expected):
     assert winner_display_name(name) == expected
 
 
-def test_feed_is_real_current_campaign_wins_only_and_never_mutates_any_record():
+def test_feed_merges_real_wins_with_manual_reviewed_broadcast_rows_without_mutation():
     current, customer = campaign(), link(used=1, total=10)
     customer.last_opened_at = datetime(2026, 10, 1)
     instant = datetime(2026, 10, 23, 2, 30)
     db = Session(Result(customer), Result(current), Result(rows=[
         (102, "张小明", "礼盒（原中奖名称）", instant),
         (100, "王女士13800138000", "优惠券", instant),
+    ]), Result(rows=[
+        (501, "李先生", "茅台酒", instant + timedelta(minutes=1)),
     ]))
     response = complete(api.public_lottery_winners("private-code", db))
     assert response == {"items": [
+        {"id": "display:501", "display_name": "李先生", "prize_name": "茅台酒", "created_at": "2026-10-23T02:31:00Z"},
         {"id": 102, "display_name": "张先生", "prize_name": "礼盒（原中奖名称）", "created_at": "2026-10-23T02:30:00Z"},
         {"id": 100, "display_name": "幸运客户", "prize_name": "优惠券", "created_at": "2026-10-23T02:30:00Z"},
     ]}
-    query = sql(db.statements[-1])
-    assert "lottery_draws.campaign_id = 7" in query
-    assert "lottery_invite_links.campaign_id = 7" in query
-    assert "lottery_draws.result_type = 'win'" in query
-    assert "ORDER BY lottery_draws.id DESC" in query and "LIMIT 30" in query
-    assert "lottery_prizes" not in query  # Never rewrite historical prize snapshots.
+    real_query, demo_query = map(sql, db.statements[-2:])
+    assert "lottery_draws.campaign_id = 7" in real_query
+    assert "lottery_invite_links.campaign_id = 7" in real_query
+    assert "lottery_draws.result_type = 'win'" in real_query
+    assert "ORDER BY lottery_draws.id DESC" in real_query and "LIMIT 30" in real_query
+    assert "lottery_display_winners.campaign_id = 7" in demo_query
+    assert "lottery_display_winners.is_demo IS false" in demo_query
+    assert "lottery_display_winners.visibility = 'public'" in demo_query
+    assert "lottery_display_winners.source = 'manual_reviewed'" in demo_query
+    assert "lottery_prizes" not in real_query  # Never rewrite historical prize snapshots.
     for private in ["recipient", "public_code", "customer_code", "customer_note", "openid", "probability", "request_id"]:
-        assert private not in query and private not in str(response)
+        assert private not in real_query and private not in demo_query and private not in str(response)
     assert not db.added and not db.flushes and customer.last_opened_at == datetime(2026, 10, 1)
     assert customer.chance_total == 10 and customer.chance_used == 1
 
 
 def test_no_wins_returns_empty_feed_not_fabricated_items():
-    db = Session(Result(link()), Result(campaign()), Result(rows=[]))
+    db = Session(Result(link()), Result(campaign()), Result(rows=[]), Result(rows=[]))
     assert complete(api.public_lottery_winners("private-code", db)) == {"items": []}
 
 
@@ -59,7 +66,7 @@ def test_http_winners_contract_cannot_expand_scope_or_reveal_customer_fields():
     app.include_router(api.public_router)
     db = Session(Result(link()), Result(campaign()), Result(rows=[
         (3, "欧阳小红女士", "礼盒", datetime(2026, 10, 23, 2, 30)),
-    ]))
+    ]), Result(rows=[]))
 
     async def database():
         yield db
@@ -70,7 +77,7 @@ def test_http_winners_contract_cannot_expand_scope_or_reveal_customer_fields():
     assert response.status_code == 200
     assert response.json() == {"items": [{"id": 3, "display_name": "欧阳女士", "prize_name": "礼盒",
                                           "created_at": "2026-10-23T02:30:00Z"}]}
-    query = sql(db.statements[-1])
+    query = sql(db.statements[-2])
     assert "campaign_id = 7" in query and "99" not in query and "LIMIT 30" in query
     assert not db.added and not db.flushes
 
