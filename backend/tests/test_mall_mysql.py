@@ -7,27 +7,31 @@ Only a local database whose name starts with mall_test_ is accepted. The test
 tables in that database are cleared between cases. No background workers run.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth import create_token
+from app import mall_api
 from app.db import get_db
 from app.mall_api import admin_router, router
 from app.models import (
-    MallAccount, MallGrant, MallProduct, MallRedemption, User, UserPointSummary,
+    MallAccount, MallDanmaku, MallGrant, MallProduct, MallRedemption, User, UserPointSummary,
 )
 
 
 TEST_DSN = os.environ.get("MALL_TEST_DB_DSN", "")
 MIGRATION = Path(__file__).resolve().parents[1] / "sql" / "points_mall.sql"
+DANMAKU_MIGRATION = MIGRATION.with_name("mall_danmaku.sql")
 
 
 @unittest.skipUnless(TEST_DSN, "Set MALL_TEST_DB_DSN to an isolated local MySQL database")
@@ -47,16 +51,17 @@ class MallMySQLTests(unittest.IsolatedAsyncioTestCase):
         with engine.begin() as connection:
             User.__table__.create(connection, checkfirst=True)
             UserPointSummary.__table__.create(connection, checkfirst=True)
-            for statement in MIGRATION.read_text().split(";"):
-                if statement.strip():
-                    connection.exec_driver_sql(statement)
+            for migration in (MIGRATION, DANMAKU_MIGRATION):
+                for statement in migration.read_text().split(";"):
+                    if statement.strip():
+                        connection.exec_driver_sql(statement)
         engine.dispose()
 
     async def asyncSetUp(self):
         self.engine = create_async_engine(TEST_DSN, pool_size=12, max_overflow=10)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.sessions.begin() as db:
-            for model in (MallRedemption, MallGrant, MallProduct, MallAccount, UserPointSummary, User):
+            for model in (MallDanmaku, MallRedemption, MallGrant, MallProduct, MallAccount, UserPointSummary, User):
                 await db.execute(delete(model))
             for user_id in range(1, 15):
                 db.add(User(
@@ -117,6 +122,99 @@ class MallMySQLTests(unittest.IsolatedAsyncioTestCase):
         response = await self.request("GET", "/api/mall/summary", user=user)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    async def test_danmaku_authentication_payload_and_server_identity(self):
+        for user in (None, 13):
+            self.assertEqual((await self.request("GET", "/api/mall/danmaku", user=user)).status_code, 401)
+            self.assertEqual((await self.request("POST", "/api/mall/danmaku", user=user, json={"content": "加油"})).status_code, 401)
+        for payload in ({"content": " "}, {"content": "字" * 51}, {"content": "加油", "user_id": 3}, {"content": "加油", "user_name": "他人"}):
+            self.assertEqual((await self.request("POST", "/api/mall/danmaku", user=2, json=payload)).status_code, 422)
+        sent = await self.request("POST", "/api/mall/danmaku", user=2, json={"content": "  " + "🎉" * 50 + "  "})
+        self.assertEqual(sent.status_code, 200, sent.text)
+        self.assertEqual(sent.json()["user_name"], "测试员工2")
+        self.assertEqual(sent.json()["content"], "🎉" * 50)
+        self.assertIs(sent.json()["is_mine"], True)
+        shared = await self.request("GET", "/api/mall/danmaku", user=3)
+        self.assertEqual(shared.json()["items"], [sent.json() | {"is_mine": False}])
+        self.assertEqual(shared.json()["cooldown_seconds"], 0)
+        refresh = await self.request("GET", "/api/mall/danmaku", user=2)
+        self.assertEqual(refresh.json()["items"], [sent.json()])
+        self.assertGreater(refresh.json()["cooldown_seconds"], 0)
+
+    async def test_danmaku_ownership_uses_identity_even_when_employees_share_a_name(self):
+        async with self.sessions.begin() as db:
+            for user_id in (2, 3):
+                (await db.get(User, user_id)).display_name = "同名员工"
+        sent = [await self.request("POST", "/api/mall/danmaku", user=user_id,
+                                   json={"content": "一起加油"}) for user_id in (2, 3)]
+        self.assertTrue(all(response.status_code == 200 for response in sent))
+        self.assertEqual(sent[0].json()["user_name"], sent[1].json()["user_name"])
+        for user_id in (2, 3):
+            refreshed = (await self.request("GET", "/api/mall/danmaku", user=user_id)).json()["items"]
+            self.assertEqual([item["is_mine"] for item in refreshed], [user_id == 2, user_id == 3])
+            self.assertEqual([item["id"] for item in refreshed], [response.json()["id"] for response in sent])
+
+    async def test_danmaku_latest_hundred_preserves_history_points_and_migration(self):
+        await self.grant(points=10)
+        before = await self.summary()
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=10)
+        async with self.sessions.begin() as db:
+            db.add(UserPointSummary(user_id=2, total_points=123, training_points=123))
+            db.add_all(MallDanmaku(user_id=2, user_name="历史署名", content=f"历史{i}", created_at=timestamp) for i in range(105))
+        sent = await self.request("POST", "/api/mall/danmaku", user=2, json={"content": "积分不变"})
+        self.assertEqual(sent.status_code, 200, sent.text)
+        # Re-running the deploy migration must retain existing history.
+        async with self.engine.begin() as connection:
+            for statement in DANMAKU_MIGRATION.read_text().split(";"):
+                if statement.strip():
+                    await connection.exec_driver_sql(statement)
+        data = (await self.request("GET", "/api/mall/danmaku", user=3)).json()
+        self.assertEqual(len(data["items"]), 100)
+        self.assertEqual(data["items"][0]["content"], "历史6")
+        self.assertEqual(data["items"][-1], sent.json() | {"is_mine": False})
+        self.assertEqual([item["id"] for item in data["items"]], sorted(item["id"] for item in data["items"]))
+        self.assertEqual(await self.summary(), before)
+        async with self.sessions() as db:
+            self.assertEqual((await db.execute(select(func.count()).select_from(MallDanmaku))).scalar_one(), 106)
+            self.assertEqual((await db.get(UserPointSummary, 2)).total_points, 123)
+            self.assertEqual((await db.execute(select(func.count()).select_from(MallGrant))).scalar_one(), 1)
+            self.assertEqual((await db.execute(select(func.count()).select_from(MallRedemption))).scalar_one(), 0)
+
+    async def test_danmaku_concurrent_same_account_uses_current_read_for_cooldown(self):
+        count = 0
+        all_authenticated = asyncio.Event()
+        original = mall_api._lock_users
+
+        async def synchronized_lock(db, *user_ids):
+            nonlocal count
+            count += 1
+            if count == 6:
+                all_authenticated.set()
+            await asyncio.wait_for(all_authenticated.wait(), timeout=5)
+            return await original(db, *user_ids)
+
+        # All requests first authenticate and open the old REPEATABLE READ
+        # snapshot, then queue on the users row before the first insert commits.
+        with patch("app.mall_api._lock_users", synchronized_lock):
+            results = await asyncio.gather(*(
+                self.request("POST", "/api/mall/danmaku", user=2, json={"content": f"并发{i}"}) for i in range(6)
+            ))
+        self.assertEqual(sum(item.status_code == 200 for item in results), 1, [item.text for item in results])
+        self.assertEqual(sum(item.status_code == 429 for item in results), 5)
+        for item in results:
+            if item.status_code == 429:
+                self.assertIn(int(item.headers["Retry-After"]), range(1, 6))
+        async with self.sessions.begin() as db:
+            row = (await db.execute(select(MallDanmaku))).scalar_one()
+            row.created_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=5)
+        next_send = await self.request("POST", "/api/mall/danmaku", user=2, json={"content": "五秒后可再次发送"})
+        self.assertEqual(next_send.status_code, 200, next_send.text)
+
+    async def test_danmaku_different_accounts_can_send_first_messages_concurrently(self):
+        results = await asyncio.gather(*(
+            self.request("POST", "/api/mall/danmaku", user=user, json={"content": "首次弹幕"}) for user in range(2, 10)
+        ))
+        self.assertTrue(all(item.status_code == 200 for item in results), [item.text for item in results])
 
     async def test_full_grant_exchange_pickup_and_audit_flow(self):
         self.assertEqual((await self.summary())["balance_points"], 0)

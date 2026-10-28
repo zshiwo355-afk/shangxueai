@@ -8,6 +8,7 @@ import {
   createRedemptionRequest, formatMallNumber as number, formatMallTime, newRedemptionRequestId, redemptionBlockReason,
 } from "./mall-utils";
 import "./mall.css";
+import MallDanmaku from "./MallDanmaku";
 
 const PAGE_SIZE = 9;
 
@@ -88,7 +89,7 @@ function Leaderboard({ data, loading, error, onRetry }) {
 }
 
 export default function MallPage() {
-  const [filter, setFilter] = useState("affordable");
+  const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [summary, setSummary] = useState(null);
@@ -172,6 +173,7 @@ export default function MallPage() {
 
   return <div className="mall-page">
     <header className="mall-heading"><div><span className="mall-section-kicker">每一份努力，都值得奖励</span><h1>积分商城</h1><p>用积累的积分，兑换心仪的好礼。</p></div><Button icon={<HistoryOutlined />} onClick={() => setRecordsOpen(true)}>我的兑换记录</Button></header>
+    <MallDanmaku />
     <section className="mall-balance" aria-label="我的商城积分" aria-busy={accountLoading}>
       <div className="mall-balance__primary"><span>可用积分</span><div><strong>{number(summary?.balance_points)}</strong><span>积分</span></div><p>可兑换价值 <b>¥{number(summary ? summary.balance_points * 20 : null)}</b> 的商品</p></div>
       <div className="mall-balance__secondary"><div><span>累计获得</span><strong>{number(summary?.total_points)}<small> 积分</small></strong></div><div><span>已兑换</span><strong>{number(summary?.redeemed_points)}<small> 积分</small></strong></div></div>
@@ -180,7 +182,7 @@ export default function MallPage() {
     {summaryError ? <LoadError error={summaryError} onRetry={refresh} /> : null}
     <div className="mall-content">
       <section className="mall-catalog" aria-label="兑换商品">
-        <div className="mall-catalog__toolbar"><Tabs activeKey={filter} onChange={(value) => { setFilter(value); setPage(1); }} items={[{ key: "affordable", label: "可兑换" }, { key: "all", label: "全部" }]} /><Button type="text" icon={<ReloadOutlined />} onClick={refresh} loading={productsLoading || accountLoading} aria-label="刷新商品、余额和排行榜">刷新</Button></div>
+        <div className="mall-catalog__toolbar"><Tabs activeKey={filter} onChange={(value) => { setFilter(value); setPage(1); }} items={[{ key: "all", label: "全部" }, { key: "affordable", label: "可兑换" }]} /><Button type="text" icon={<ReloadOutlined />} onClick={refresh} loading={productsLoading || accountLoading} aria-label="刷新商品、余额和排行榜">刷新</Button></div>
         <p className="mall-catalog__hint">{filter === "affordable" ? "根据你的可用积分，挑选现在就能兑换的好礼" : "所有在售好礼，积攒积分即可兑换"}</p>
         {productsError ? <LoadError error={productsError} onRetry={refresh} /> : <Spin spinning={productsLoading}>
           {products?.items?.length ? <div className="mall-products">

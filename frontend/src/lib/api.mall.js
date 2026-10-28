@@ -14,6 +14,8 @@ export const fetchMallLeaderboard = () => getJson("/api/mall/leaderboard", "积�
 export const fetchMallProducts = (params) => getJson(`/api/mall/products${query(params)}`, "商品加载失败。");
 export const createMallRedemption = (payload) => postJson("/api/mall/redemptions", payload, "兑换失败。");
 export const fetchMyMallRedemptions = (params) => getJson(`/api/mall/redemptions${query(params)}`, "兑换记录加载失败。");
+export const fetchMallDanmaku = () => getJson("/api/mall/danmaku", "弹幕暂时无法加载。");
+export const sendMallDanmaku = (content) => postJson("/api/mall/danmaku", { content }, "弹幕发送失败，请重试。");
 
 export const fetchAdminMallSummary = (id) => getJson(`/api/admin/mall/users/${id}/summary`, "员工商城积分加载失败。");
 export const fetchAdminMallGrants = (params) => getJson(`/api/admin/mall/grants${query(params)}`, "积分发放记录加载失败。");

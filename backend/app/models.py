@@ -21,7 +21,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.mysql import LONGTEXT, VARCHAR
+from sqlalchemy.dialects.mysql import DATETIME, LONGTEXT, VARCHAR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -446,6 +446,20 @@ class UserPointSummary(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class MallDanmaku(Base):
+    __tablename__ = "mall_danmaku"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(String(50), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime().with_variant(DATETIME(fsp=6), "mysql"), nullable=False,
+    )
+
+    __table_args__ = (Index("idx_mall_danmaku_user", "user_id", "id"),)
 
 
 class MallAccount(Base):

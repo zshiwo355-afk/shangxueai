@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import io
 import json
+import math
 import uuid
 import warnings
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ from .magic_academy_api._oss import (
     _ensure_oss_settings,
     _upload_binary_to_oss,
 )
-from .models import MallAccount, MallGrant, MallProduct, MallRedemption, User
+from .models import MallAccount, MallDanmaku, MallGrant, MallProduct, MallRedemption, User
 
 router = APIRouter(prefix="/api/mall", tags=["mall"])
 admin_router = APIRouter(prefix="/api/admin/mall", tags=["admin-mall"])
@@ -104,6 +105,22 @@ class RedemptionPayload(BaseModel):
     product_id: int = Field(strict=True, gt=0)
     expected_price_yuan: Price
     request_id: RequestId
+
+
+class DanmakuPayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    content: str = Field(min_length=1, max_length=50)
+
+
+def _danmaku(row: MallDanmaku, viewer_id: int) -> dict[str, Any]:
+    return {
+        "id": row.id, "user_name": row.user_name, "content": row.content,
+        "created_at": _iso(row.created_at), "is_mine": row.user_id == viewer_id,
+    }
+
+
+def _danmaku_cooldown(last_sent: datetime | None, now: datetime) -> int:
+    return max(0, min(5, math.ceil(5 - (now - last_sent).total_seconds()))) if last_sent else 0
 
 
 def _product(row: MallProduct) -> dict[str, Any]:
@@ -184,6 +201,42 @@ async def _summary(db: AsyncSession, user: User) -> dict[str, Any]:
         "balance_points": balance, "total_points": total, "redeemed_points": total - balance,
         "rank": rank, "point_value_yuan": POINT_VALUE_YUAN,
     }
+
+
+@router.get("/danmaku")
+async def list_danmaku(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = (await db.execute(select(MallDanmaku).order_by(MallDanmaku.id.desc()).limit(100))).scalars().all()
+    last_sent = (await db.execute(
+        select(MallDanmaku.created_at).where(MallDanmaku.user_id == user.id)
+        .order_by(MallDanmaku.id.desc()).limit(1)
+    )).scalar_one_or_none()
+    return {
+        "items": [_danmaku(row, user.id) for row in reversed(rows)],
+        "cooldown_seconds": _danmaku_cooldown(last_sent, datetime.now(timezone.utc).replace(tzinfo=None)),
+    }
+
+
+@router.post("/danmaku")
+async def send_danmaku(payload: DanmakuPayload, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    owner = (await _lock_users(db, user.id)).get(user.id)
+    if owner is None or owner.disabled:
+        raise HTTPException(403, "账号已不可用。")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Insert before the range read: locking a missing history would gap-lock
+    # other accounts' first sends. A rejected send rolls this insert back.
+    row = MallDanmaku(user_id=owner.id, user_name=_name(owner), content=payload.content, created_at=now)
+    db.add(row)
+    await db.flush()
+    # Authentication has opened a REPEATABLE READ snapshot; a locking read sees
+    # the previous sender's commit after the shared users-row lock is acquired.
+    last_sent = (await db.execute(
+        select(MallDanmaku.created_at).where(MallDanmaku.user_id == owner.id, MallDanmaku.id < row.id)
+        .order_by(MallDanmaku.id.desc()).limit(1).with_for_update()
+    )).scalar_one_or_none()
+    cooldown = _danmaku_cooldown(last_sent, now)
+    if cooldown:
+        raise HTTPException(429, f"发送太快，请 {cooldown} 秒后再试。", headers={"Retry-After": str(cooldown)})
+    return _danmaku(row, user.id)
 
 
 @router.get("/summary")

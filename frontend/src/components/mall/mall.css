@@ -5,6 +5,38 @@
 .mall-heading h1 { margin: 8px 0 7px; font-size: 32px; font-weight: 650; letter-spacing: .04em; }
 .mall-heading p { margin: 0; color: var(--text-mute, #697586); }
 .mall-heading > .ant-btn { flex-shrink: 0; }
+.mall-danmaku { padding: 0 0 10px; border-bottom: 1px solid #dce5ef; }
+.mall-danmaku__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.mall-danmaku__header h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: #355777; font-size: 15px; font-weight: 600; }
+.mall-danmaku__header h2 .anticon { color: #7591aa; font-size: 18px; }
+.mall-danmaku__header p { margin: 7px 0 0; color: #697586; font-size: 12px; }
+.mall-danmaku__header .ant-btn { flex-shrink: 0; color: #536a7f; font-size: 12px; }
+.mall-danmaku__overlay { position: fixed; inset: 88px 0 24px; z-index: 10; overflow: hidden; pointer-events: none; }
+.mall-danmaku__message { position: absolute; left: 100%; width: max-content; max-width: none; min-height: 44px; margin: 0; padding: 8px 0; border: 0; background: none; appearance: none; color: #637282; white-space: nowrap; font-family: inherit; font-size: 14px; font-weight: 400; line-height: 1.5; text-align: left; text-shadow: 0 1px 2px #ffffffdf; pointer-events: auto; cursor: pointer; touch-action: pan-y; user-select: none; animation: mall-danmaku-fly linear both; }
+.mall-danmaku__message strong { font-weight: 500; }
+.mall-danmaku__message.is-mine, .mall-danmaku__readable .is-mine, .mall-danmaku__readable .is-mine strong { color: #3f766b; font-weight: 600; }
+.mall-danmaku__message:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.mall-danmaku__empty { margin: 0 0 12px; color: #7b8896; font-size: 12px; }
+.mall-danmaku__form { display: flex; align-items: center; gap: 12px; }
+.mall-danmaku__input { position: relative; flex: 1; min-width: 0; }
+.mall-danmaku__input .ant-input { padding-right: 58px; height: 38px; font-size: 13px; }
+.mall-danmaku__input > span { position: absolute; right: 11px; top: 10px; color: #697586; font-size: 11px; pointer-events: none; }
+.mall-danmaku__form > .ant-btn { height: 38px; min-width: 117px; font-size: 13px; box-shadow: none; }
+.mall-danmaku__footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px; margin-top: 9px; color: #697586; font-size: 11px; }
+.mall-danmaku__feedback { margin: 6px 0 0; min-height: 18px; color: #46755e; font-size: 12px; overflow-wrap: anywhere; }
+.mall-danmaku .is-invalid { color: #b34338; }
+.mall-danmaku__warning { margin: 10px 0 0; color: #866024; font-size: 12px; line-height: 1.7; }
+.mall-danmaku__readable { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+.mall-danmaku__readable li { padding: 6px 0; color: #3d5265; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.mall-danmaku__readable strong { color: #466e94; font-weight: 600; }
+.mall-danmaku.is-paused .mall-danmaku__overlay { visibility: hidden; }
+.mall-danmaku.is-paused .mall-danmaku__readable, .mall-danmaku__readable:focus { position: relative; width: auto; max-height: 160px; height: auto; margin: 0 0 12px; padding: 0; overflow: auto; clip-path: none; list-style: none; }
+@keyframes mall-danmaku-fly { from { left: 100%; transform: translateX(0); } to { left: 0; transform: translateX(-100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .mall-danmaku__overlay { visibility: hidden; }
+  .mall-danmaku__message { animation-play-state: paused !important; }
+  .mall-danmaku__readable { position: relative; width: auto; max-height: 160px; height: auto; margin: 0 0 12px; padding: 0; overflow: auto; clip-path: none; list-style: none; }
+}
 .mall-balance { display: grid; grid-template-columns: 1.15fr 1fr 1fr; align-items: center; gap: 24px; padding: 28px 32px; border: 1px solid #dce5ef; border-radius: 20px; background: #f0f5fa; }
 .mall-balance__primary > span, .mall-balance__secondary span { color: #536a7f; font-size: 13px; }
 .mall-balance__primary > div { display: flex; align-items: baseline; gap: 10px; margin: 6px 0; color: #2a4e70; }
@@ -104,6 +136,13 @@
   .mall-balance__secondary { gap: 18px; padding-inline-start: 20px; }
 }
 @media (max-width: 760px) {
+  .mall-danmaku__overlay { inset: 72px 0 16px; }
+  .mall-danmaku__message { font-size: 13px; }
+  .mall-danmaku__header h2 { font-size: 14px; }
+  .mall-danmaku__header p { font-size: 11px; }
+  .mall-danmaku__form { gap: 8px; }
+  .mall-danmaku__form > .ant-btn { min-width: 106px; padding-inline: 10px; font-size: 12px; }
+  .mall-danmaku__footer { font-size: 10px; }
   .mall-page { gap: 20px; }
   .mall-heading { gap: 12px; align-items: flex-start; }
   .mall-heading h1 { font-size: 27px; }

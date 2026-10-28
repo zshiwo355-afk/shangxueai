@@ -1,7 +1,7 @@
 """Offline boundary checks; MySQL transaction/concurrency checks live in test_mall_mysql.py."""
 import io
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from fastapi import HTTPException, UploadFile
@@ -10,13 +10,29 @@ from pydantic import ValidationError
 
 from app.auth import get_current_user, require_admin
 from app.mall_api import (
-    CreateProductPayload, GrantPayload, ProductPayload, RedemptionPayload, UpdateProductPayload,
-    _image_url, _iso, _now, admin_router, router, upload_image,
+    CreateProductPayload, DanmakuPayload, GrantPayload, ProductPayload, RedemptionPayload, UpdateProductPayload,
+    _danmaku_cooldown, _image_url, _iso, _now, admin_router, router, upload_image,
 )
 from app.models import User
 
 
 class MallValidationTest(unittest.TestCase):
+    def test_danmaku_accepts_unicode_codepoints_and_trims_text(self):
+        self.assertEqual(DanmakuPayload(content="  加油 🎉  ").content, "加油 🎉")
+        self.assertEqual(DanmakuPayload(content="🎉" * 50).content, "🎉" * 50)
+        for content in ("", " \n\t ", "🎉" * 51, None, 123):
+            with self.subTest(content=content), self.assertRaises(ValidationError):
+                DanmakuPayload(content=content)
+        with self.assertRaises(ValidationError):
+            DanmakuPayload(content="加油", user_name="冒充他人")
+
+    def test_danmaku_cooldown_never_rounds_down_before_five_seconds(self):
+        now = datetime(2026, 10, 28, 8, 0, 5, 100)
+        self.assertEqual(_danmaku_cooldown(None, now), 0)
+        for elapsed, expected in ((0, 5), (0.1, 5), (4.99, 1), (5, 0), (20, 0)):
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(_danmaku_cooldown(now - timedelta(seconds=elapsed), now), expected)
+
     def test_product_price_requires_whole_points(self):
         for price in (0, 19, 21, 30, 20.0, "20", True, 2_000_000_020):
             with self.subTest(price=price), self.assertRaises(ValidationError):

@@ -1775,6 +1775,17 @@ CREATE TABLE IF NOT EXISTS `mall_redemptions` (
   CONSTRAINT `ck_mall_redemption_status` CHECK (`status` IN ('pending', 'redeemed'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商城兑换及前台核销记录';
 
+-- 商城共享弹幕历史，发送不扣除积分。
+CREATE TABLE IF NOT EXISTS `mall_danmaku` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `user_name` varchar(128) NOT NULL,
+  `content` varchar(50) NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_mall_danmaku_user` (`user_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商城共享弹幕历史';
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
