@@ -1,0 +1,1 @@
+var e=`shangxueai-active-session`;function t(t){if(!(typeof window>`u`||!t?.session_id))try{window.localStorage.setItem(e,JSON.stringify(t))}catch{}}function n(){if(typeof window>`u`)return null;try{let t=window.localStorage.getItem(e);return t?JSON.parse(t):null}catch{return null}}function r(){typeof window>`u`||window.localStorage.removeItem(e)}export{n,t as r,r as t};

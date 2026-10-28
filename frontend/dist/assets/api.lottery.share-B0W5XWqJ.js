@@ -1,0 +1,1 @@
+import{p as e}from"./main-C4PyD4Gd.js";function t(t,n){return e(`/api/public/lottery/share-preview`,{ticket:t,url:n},`员工分享入口已失效，请重新生成二维码。`)}function n(t,n){return e(`/api/lottery/links/${t}/share-config`,{url:n},`客户卡片准备失败。`)}export{t as n,n as t};

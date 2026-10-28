@@ -1,0 +1,1 @@
+import{d as e,p as t}from"./main-C4PyD4Gd.js";async function n(){return e(`/api/exams/my`,`通关列表加载失败。`)}async function r(e){return t(`/api/exams/${e}/start`,{},`开始通关失败。`)}async function i(e){return t(`/api/exams/${e}/finish`,{},`提交通关失败。`)}async function a(t){return e(`/api/exams/${t}/attempts`,`通关详情加载失败。`)}export{r as i,n,i as r,a as t};
