@@ -42,6 +42,7 @@ import {
 } from "../../lib/api.lottery.manage";
 import { LOTTERY_PAGE_SIZE_OPTIONS, lotteryPageChange, lotteryPageFromResponse } from "./lottery-pagination-utils";
 import { lotteryLinkProgressLabel, lotteryLinkRemaining as remainingOf, singleDrawLinkPayload } from "./lottery-single-draw-utils";
+import { campaignLabel, campaignReadOnly, campaignStatusLabel, findLotteryCampaign, lotteryCampaignGroups, retainedLotteryCampaignId } from "./lottery-campaign-utils";
 import LotteryShareModal from "./LotteryShareModal";
 import "./lottery-workspace.css";
 
@@ -66,19 +67,6 @@ function itemOf(value) {
 
 function fmtTime(value) {
   return value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "—";
-}
-
-function campaignLabel(item) {
-  if (!item) return "—";
-  const status = {
-    draft: "草稿", published: "进行中", not_started: "未开始", paused: "已暂停", ended: "已结束", deleted: "已删除 · 历史归档",
-  }[item.effective_status || item.status] || "已发布";
-  return `#${item.id} · ${item.title} · ${status}`;
-}
-
-function campaignReadOnly(item) {
-  return !item || !!item.deleted_at || item.can_create_links === false
-    || ["draft", "paused", "ended", "deleted"].includes(item.effective_status || item.status);
 }
 
 function linkStatus(row) {
@@ -250,19 +238,25 @@ export default function LotteryLinkWorkspacePage() {
   const [shareRow, setShareRow] = useState(null);
   const [recordRow, setRecordRow] = useState(null);
   const [createForm] = Form.useForm();
+  const createCampaignId = Form.useWatch("campaign_id", createForm);
   const campaignRequestRef = useRef(0);
   const linkRequestRef = useRef(0);
   const submittedKeywordRef = useRef("");
+  const pendingCreatedShareRef = useRef(null);
+  const campaignsRef = useRef(campaigns);
+  campaignsRef.current = campaigns;
   const activeCampaignRef = useRef(campaignId);
   activeCampaignRef.current = campaignId;
 
   const campaign = useMemo(
-    () => campaigns.find((item) => String(item.id) === String(campaignId)),
+    () => findLotteryCampaign(campaigns, campaignId),
     [campaignId, campaigns],
   );
   const campaignRef = useRef(campaign);
   campaignRef.current = campaign;
   const campaignUnavailable = campaignReadOnly(campaign);
+  const { available: availableCampaigns, history: historicalCampaigns } = useMemo(() => lotteryCampaignGroups(campaigns), [campaigns]);
+  const createCampaignUnavailable = campaignReadOnly(findLotteryCampaign(campaigns, createCampaignId));
 
   const loadCampaigns = useCallback(async () => {
     const requestId = ++campaignRequestRef.current;
@@ -271,7 +265,7 @@ export default function LotteryLinkWorkspacePage() {
       if (requestId !== campaignRequestRef.current) return;
       const next = itemsOf(data);
       setCampaigns(next);
-      setCampaignId((current) => next.some((item) => String(item.id) === String(current)) ? current : (next.find((item) => !campaignReadOnly(item)) || next[0])?.id);
+      setCampaignId((current) => retainedLotteryCampaignId(next, current));
     } catch (error) {
       if (requestId === campaignRequestRef.current) {
         if (!activeCampaignRef.current) setLoading(false);
@@ -304,8 +298,14 @@ export default function LotteryLinkWorkspacePage() {
       if (next.current !== page) return await loadLinks(next.current, pageSize);
       setRows(next.items);
       setPagination({ current: next.current, pageSize: next.pageSize, total: next.total });
+      const pending = pendingCreatedShareRef.current;
+      if (pending && String(pending.campaign_id) === String(campaignId)) {
+        pendingCreatedShareRef.current = null;
+        if (!campaignReadOnly(findLotteryCampaign(campaignsRef.current, campaignId))) setShareRow(pending);
+      }
     } catch (error) {
       if (isCurrent()) {
+        pendingCreatedShareRef.current = null;
         setRows([]);
         setPagination((prev) => ({ ...prev, total: 0 }));
         message.error(error?.message || "客户链接加载失败。");
@@ -320,10 +320,13 @@ export default function LotteryLinkWorkspacePage() {
     return () => { campaignRequestRef.current += 1; linkRequestRef.current += 1; };
   }, [loadCampaigns]);
   useEffect(() => {
+    if (String(pendingCreatedShareRef.current?.campaign_id) !== String(campaignId)) pendingCreatedShareRef.current = null;
     setRows([]);
     setShareRow(null);
     setRecordRow(null);
     setCreateOpen(false);
+    setKeyword("");
+    submittedKeywordRef.current = "";
     setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
     loadLinks(1, pagination.pageSize);
     return () => { linkRequestRef.current += 1; };
@@ -331,32 +334,38 @@ export default function LotteryLinkWorkspacePage() {
 
   useEffect(() => {
     if (!campaignUnavailable) return;
+    pendingCreatedShareRef.current = null;
     setShareRow(null);
-    if (!saving && !createConfirming) {
-      setCreateOpen(false);
-    }
-  }, [campaignUnavailable, createConfirming, saving]);
+  }, [campaignUnavailable]);
 
-  const selectCampaign = (value) => {
+  const selectCampaign = (value, createdLink = null) => {
+    if (String(value) === String(activeCampaignRef.current) && !createdLink) return;
+    const sameCampaign = String(value) === String(activeCampaignRef.current);
     activeCampaignRef.current = value;
     linkRequestRef.current += 1;
+    pendingCreatedShareRef.current = createdLink;
     setRows([]);
     setPagination((prev) => ({ ...prev, current: 1, total: 0 }));
+    setKeyword("");
+    submittedKeywordRef.current = "";
     setShareRow(null);
     setRecordRow(null);
     setCreateOpen(false);
     setCampaignId(value);
+    if (sameCampaign) loadLinks(1, pagination.pageSize);
   };
 
   const openCreate = () => {
-    if (campaignReadOnly(campaignRef.current)) return;
+    const initial = campaignReadOnly(campaignRef.current) ? availableCampaigns[0] : campaignRef.current;
+    if (!initial) return;
     createForm.resetFields();
-    createForm.setFieldsValue({ campaign_id: campaignId });
+    createForm.setFieldsValue({ campaign_id: initial.id });
     setCreateOpen(true);
   };
 
   const createLink = async (values) => {
-    if (String(activeCampaignRef.current) !== String(values.campaign_id) || campaignReadOnly(campaignRef.current)) {
+    const targetCampaign = findLotteryCampaign(campaignsRef.current, values.campaign_id);
+    if (campaignReadOnly(targetCampaign)) {
       message.warning("活动或授权状态已变化，请刷新后确认，未生成链接。");
       return;
     }
@@ -367,12 +376,8 @@ export default function LotteryLinkWorkspacePage() {
         expires_at: values.expires_at ? values.expires_at.toISOString() : null,
       }));
       const saved = itemOf(result);
-      if (String(activeCampaignRef.current) !== String(values.campaign_id)) return;
-      setCreateOpen(false);
-      await loadLinks(1, pagination.pageSize);
-      if (String(activeCampaignRef.current) !== String(values.campaign_id)) return;
-      setShareRow(saved);
-      message.success("客户专属链接已生成。");
+      selectCampaign(targetCampaign.id, saved);
+      message.success(`「${targetCampaign.title}」客户专属链接已生成。`);
     } catch (error) {
       message.error(error?.message || "生成专属链接失败。");
       await loadCampaigns();
@@ -383,11 +388,15 @@ export default function LotteryLinkWorkspacePage() {
   };
 
   const confirmCreateLink = async () => {
-    if (saving || createConfirmingRef.current || campaignReadOnly(campaignRef.current)) return;
+    if (saving || createConfirmingRef.current) return;
     createConfirmingRef.current = true;
     setCreateConfirming(true);
     try {
       const values = await createForm.validateFields();
+      const selectedCampaign = findLotteryCampaign(campaignsRef.current, values.campaign_id);
+      if (campaignReadOnly(selectedCampaign)) {
+        throw new Error("该活动暂不可生成链接，请重新选择可用活动。");
+      }
       const customerName = String(values.customer_name || "").trim();
       const payload = singleDrawLinkPayload({
         ...values,
@@ -410,7 +419,7 @@ export default function LotteryLinkWorkspacePage() {
             <Descriptions bordered size="small" column={1}>
               <Descriptions.Item label="客户">{customerName}</Descriptions.Item>
               <Descriptions.Item label="抽奖机会"><Text strong className="lottery-create-confirm__chance">1 次</Text></Descriptions.Item>
-              <Descriptions.Item label="活动">{campaignLabel(campaign)}</Descriptions.Item>
+              <Descriptions.Item label="活动">{campaignLabel(selectedCampaign)}</Descriptions.Item>
               <Descriptions.Item label="有效期">{values.expires_at ? fmtTime(values.expires_at) : "不超过活动有效期"}</Descriptions.Item>
             </Descriptions>
           </div>
@@ -526,8 +535,42 @@ export default function LotteryLinkWorkspacePage() {
           <Paragraph>为客户生成专属链接，每条链接只能抽奖一次。通过微信分享，并在这里追踪抽奖与兑奖结果。</Paragraph>
           {campaign ? <Paragraph>当前活动：{campaignLabel(campaign)}</Paragraph> : null}
         </div>
-        <Button type="primary" size="large" icon={<PlusOutlined />} disabled={!campaignId || campaignUnavailable || saving || createConfirming} onClick={openCreate}>生成客户专属链接</Button>
+        <Button type="primary" size="large" icon={<PlusOutlined />} disabled={!availableCampaigns.length || saving || createConfirming} onClick={openCreate}>生成客户专属链接</Button>
       </section>
+
+      {campaigns.length ? <section className="lottery-campaign-picker" aria-label="选择抽奖活动">
+        <div className="lottery-campaign-picker__heading">
+          <div><Title level={4}>可发给客户的活动 <span>{availableCampaigns.length}</span></Title><Text type="secondary">点击切换活动；各活动的客户链接和中奖记录独立显示。</Text></div>
+          {historicalCampaigns.length ? <Select
+            aria-label="查看历史或不可建链活动"
+            value={campaignUnavailable ? campaignId : undefined}
+            placeholder={`历史 / 不可建链活动（${historicalCampaigns.length}）`}
+            showSearch
+            optionFilterProp="label"
+            className="lottery-campaign-history"
+            disabled={saving || createConfirming}
+            options={historicalCampaigns.map((item) => ({ value: item.id, label: campaignLabel(item) }))}
+            onChange={(value) => selectCampaign(value)}
+          /> : null}
+        </div>
+        {availableCampaigns.length ? <div className="lottery-campaign-options">
+          {availableCampaigns.map((item) => {
+            const selected = String(item.id) === String(campaignId);
+            return <button
+              key={item.id}
+              type="button"
+              className={`lottery-campaign-option${selected ? " lottery-campaign-option--selected" : ""}`}
+              aria-pressed={selected}
+              disabled={saving || createConfirming}
+              onClick={() => selectCampaign(item.id)}
+            >
+              <span className="lottery-campaign-option__meta"><span>活动 #{item.id}</span><Tag bordered={false} color={item.effective_status === "not_started" ? "processing" : "success"}>{campaignStatusLabel(item)}</Tag></span>
+              <strong>{item.title}</strong>
+              <span className="lottery-campaign-option__action">{selected ? "当前活动 · 正在查看" : "切换到此活动 →"}</span>
+            </button>;
+          })}
+        </div> : <Text type="secondary">暂无可生成链接的活动，可以查看历史记录。</Text>}
+      </section> : null}
 
       {!campaigns.length && !loading ? (
         <Alert
@@ -546,18 +589,9 @@ export default function LotteryLinkWorkspacePage() {
       </section>
 
       <section className="lottery-workspace-surface">
+        {campaign ? <div className="lottery-workspace-list-heading"><Text strong>{campaignLabel(campaign)}</Text><Text type="secondary">客户链接与记录</Text></div> : null}
         <div className="lottery-workspace-toolbar">
           <Space wrap>
-            <Select
-              value={campaignId}
-              placeholder="选择抽奖活动"
-              style={{ width: 380, maxWidth: "100%" }}
-              showSearch
-              optionFilterProp="label"
-              disabled={saving || createConfirming}
-              options={campaigns.map((item) => ({ value: item.id, label: campaignLabel(item) }))}
-              onChange={selectCampaign}
-            />
             <Input.Search
               allowClear
               value={keyword}
@@ -591,7 +625,7 @@ export default function LotteryLinkWorkspacePage() {
         okText="生成并扫码分享"
         cancelText="取消"
         confirmLoading={saving || createConfirming}
-        okButtonProps={{ disabled: campaignUnavailable }}
+        okButtonProps={{ disabled: createCampaignUnavailable }}
         onOk={confirmCreateLink}
         onCancel={() => setCreateOpen(false)}
         cancelButtonProps={{ disabled: saving || createConfirming }}
@@ -601,9 +635,9 @@ export default function LotteryLinkWorkspacePage() {
         destroyOnHidden
       >
         <Alert className="lottery-form-tip" type="info" showIcon message="每条链接固定 1 次抽奖机会，由服务端核销，抽完后不能追加。" />
-        <Form form={createForm} layout="vertical" requiredMark="optional" disabled={saving || createConfirming || campaignUnavailable}>
+        <Form form={createForm} layout="vertical" requiredMark="optional" disabled={saving || createConfirming}>
           <Form.Item name="campaign_id" label="活动" rules={[{ required: true, message: "请选择活动" }]}>
-            <Select disabled options={campaigns.map((item) => ({ value: item.id, label: campaignLabel(item) }))} />
+            <Select showSearch optionFilterProp="label" options={availableCampaigns.map((item) => ({ value: item.id, label: campaignLabel(item) }))} />
           </Form.Item>
           <div className="lottery-form-grid">
             <Form.Item name="customer_name" label="客户姓名 / 称呼" rules={[{ required: true, message: "请输入客户姓名或称呼" }, { max: 100 }]}>

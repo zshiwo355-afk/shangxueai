@@ -267,6 +267,93 @@ class MallMySQLTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.redeem(affordable)).status_code, 409)
         self.assertEqual((await self.summary())["balance_points"], 5)
 
+    async def test_builtin_ranking_names_are_hidden_for_every_role_without_changing_points(self):
+        async with self.sessions.begin() as db:
+            (await db.get(User, 1)).username = "admin"
+            (await db.get(User, 14)).username = "superadmin"
+            db.add_all([
+                MallAccount(user_id=1, balance_points=17, total_points=1000),
+                MallAccount(user_id=14, balance_points=9, total_points=900),
+                MallAccount(user_id=2, balance_points=8, total_points=100),
+            ])
+        for roles in (("admin", "super_admin"), ("user", "admin"), ("super_admin", "user")):
+            with self.subTest(roles=roles):
+                async with self.sessions.begin() as db:
+                    (await db.get(User, 1)).role = roles[0]
+                    (await db.get(User, 14)).role = roles[1]
+                response = await self.request("GET", "/api/mall/leaderboard", user=2)
+                self.assertEqual(response.status_code, 200, response.text)
+                board = response.json()
+                self.assertFalse({1, 14} & {item["user_id"] for item in board["items"]})
+                self.assertEqual(board["items"][0]["user_id"], 2)
+                self.assertEqual(board["me"]["rank"], 1)
+                for user_id, balance, total in ((1, 17, 1000), (14, 9, 900)):
+                    personal = await self.summary(user_id)
+                    self.assertIsNone(personal["rank"])
+                    self.assertEqual((personal["balance_points"], personal["total_points"]), (balance, total))
+                    hidden_board = await self.request("GET", "/api/mall/leaderboard", user=user_id)
+                    self.assertEqual(hidden_board.status_code, 200, hidden_board.text)
+                    me = hidden_board.json()["me"]
+                    self.assertIsNone(me["rank"])
+                    self.assertEqual((me["balance_points"], me["total_points"]), (balance, total))
+        async with self.sessions() as db:
+            for user_id, balance, total in ((1, 17, 1000), (14, 9, 900), (2, 8, 100)):
+                account = await db.get(MallAccount, user_id)
+                self.assertEqual((account.balance_points, account.total_points), (balance, total))
+
+    async def test_other_admin_roles_and_admin_display_name_fill_the_top_ten(self):
+        expected_top = [1, 14, 4, 5, 6, 7, 8, 9, 10, 11]
+        visible_order = [*expected_top, 12]
+        async with self.sessions.begin() as db:
+            # Prefixes and display names are not the two exact hidden usernames.
+            (await db.get(User, 1)).username = "admin_operator"
+            super_admin = await db.get(User, 14)
+            super_admin.username = "superadmin_operator"
+            super_admin.role = "super_admin"
+            (await db.get(User, 2)).username = "admin"
+            (await db.get(User, 3)).username = "superadmin"
+            (await db.get(User, 4)).display_name = "admin"
+            db.add_all([
+                MallAccount(user_id=2, balance_points=1000, total_points=1000),
+                MallAccount(user_id=3, balance_points=900, total_points=900),
+            ])
+            for index, user_id in enumerate(visible_order):
+                points = 200 - index * 10
+                db.add(MallAccount(user_id=user_id, balance_points=points, total_points=points))
+        response = await self.request("GET", "/api/mall/leaderboard", user=12)
+        self.assertEqual(response.status_code, 200, response.text)
+        board = response.json()
+        self.assertEqual([item["user_id"] for item in board["items"]], expected_top)
+        self.assertEqual([item["rank"] for item in board["items"]], list(range(1, 11)))
+        self.assertEqual(board["items"][2]["name"], "admin")
+        self.assertEqual(board["me"]["rank"], 11)
+        self.assertEqual((await self.summary(1))["rank"], 1)
+        self.assertEqual((await self.summary(14))["rank"], 2)
+        for hidden_id in (2, 3):
+            response = await self.request("GET", f"/api/admin/mall/users/{hidden_id}/summary", user=1)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIsNone(response.json()["rank"])
+
+    async def test_hidden_ranking_names_do_not_take_tied_score_rank_positions(self):
+        async with self.sessions.begin() as db:
+            (await db.get(User, 1)).username = "admin"
+            (await db.get(User, 2)).username = "superadmin"
+            (await db.get(User, 14)).role = "super_admin"
+            for user_id in range(1, 15):
+                db.add(MallAccount(user_id=user_id, balance_points=7, total_points=10))
+        response = await self.request("GET", "/api/mall/leaderboard", user=14)
+        self.assertEqual(response.status_code, 200, response.text)
+        board = response.json()
+        self.assertEqual([item["user_id"] for item in board["items"]], list(range(3, 13)))
+        self.assertEqual([item["rank"] for item in board["items"]], list(range(1, 11)))
+        self.assertEqual(board["me"]["rank"], 11)
+        for user_id, rank in ((3, 1), (8, 6), (12, 10), (14, 11)):
+            personal = await self.summary(user_id)
+            self.assertEqual(personal["rank"], rank)
+            self.assertEqual((personal["balance_points"], personal["total_points"]), (7, 10))
+        for user_id in (1, 2):
+            self.assertIsNone((await self.summary(user_id))["rank"])
+
     async def test_stale_product_form_does_not_restore_sold_stock(self):
         await self.grant(points=10)
         product = await self.product(stock=2)

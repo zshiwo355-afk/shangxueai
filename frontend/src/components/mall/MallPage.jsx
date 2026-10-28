@@ -80,7 +80,7 @@ function Leaderboard({ data, loading, error, onRetry }) {
         })}
       </ol>
       <div className="mall-leaderboard__me" aria-label="我的积分">
-        <div className="mall-leaderboard__me-title"><strong>我的积分</strong><span>{data?.me?.rank ? `第 ${data.me.rank} 名` : "暂无排名"}</span></div>
+        <div className="mall-leaderboard__me-title"><strong>我的积分</strong>{data?.me?.rank ? <span>第 {data.me.rank} 名</span> : null}</div>
         <div className="mall-leaderboard__me-stats"><div><span>累计获得</span><strong>{number(data?.me?.total_points)}</strong></div><div><span>可用余额</span><strong>{number(data?.me?.balance_points)}</strong></div></div>
       </div>
     </Spin>}

@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/mall", tags=["mall"])
 admin_router = APIRouter(prefix="/api/admin/mall", tags=["admin-mall"])
 POINT_VALUE_YUAN = 20
 MAX_ACCOUNT_POINTS = 9_000_000_000_000
+MALL_HIDDEN_RANKING_USERNAMES = ("admin", "superadmin")
 RequestId = Annotated[str, Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")]
 Price = Annotated[int, Field(strict=True, ge=20, le=2_000_000_000, multiple_of=20)]
 
@@ -167,14 +168,21 @@ async def _summary(db: AsyncSession, user: User) -> dict[str, Any]:
     account = await db.get(MallAccount, user.id)
     balance = int(account.balance_points) if account else 0
     total = int(account.total_points) if account else 0
-    score = func.coalesce(MallAccount.total_points, 0)
-    above = (await db.execute(
-        select(func.count()).select_from(User).outerjoin(MallAccount, MallAccount.user_id == User.id)
-        .where(User.disabled.is_(False), or_(score > total, and_(score == total, User.id < user.id)))
-    )).scalar_one()
+    rank = None
+    # Exclude only the two built-in accounts, not employees with admin roles.
+    if not user.disabled and user.username.lower() not in MALL_HIDDEN_RANKING_USERNAMES:
+        score = func.coalesce(MallAccount.total_points, 0)
+        above = (await db.execute(
+            select(func.count()).select_from(User).outerjoin(MallAccount, MallAccount.user_id == User.id)
+            .where(
+                User.disabled.is_(False), User.username.not_in(MALL_HIDDEN_RANKING_USERNAMES),
+                or_(score > total, and_(score == total, User.id < user.id)),
+            )
+        )).scalar_one()
+        rank = int(above) + 1
     return {
         "balance_points": balance, "total_points": total, "redeemed_points": total - balance,
-        "rank": int(above) + 1 if not user.disabled else None, "point_value_yuan": POINT_VALUE_YUAN,
+        "rank": rank, "point_value_yuan": POINT_VALUE_YUAN,
     }
 
 
@@ -196,7 +204,8 @@ async def leaderboard(db: AsyncSession = Depends(get_db), user: User = Depends(g
     score = func.coalesce(MallAccount.total_points, 0)
     rows = (await db.execute(
         select(User, score).outerjoin(MallAccount, MallAccount.user_id == User.id)
-        .where(User.disabled.is_(False)).order_by(score.desc(), User.id.asc()).limit(10)
+        .where(User.disabled.is_(False), User.username.not_in(MALL_HIDDEN_RANKING_USERNAMES))
+        .order_by(score.desc(), User.id.asc()).limit(10)
     )).all()
     items = [
         {"user_id": person.id, "name": _name(person), "department": person.department,

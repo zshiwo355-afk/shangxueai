@@ -10,7 +10,7 @@ test("employee workspace ignores all legacy link quota settings", () => {
 });
 
 test("unlimited link creation retains permission, campaign and duplicate-submit guards", () => {
-  assert.match(source, /disabled=\{!campaignId \|\| campaignUnavailable \|\| saving \|\| createConfirming\} onClick=\{openCreate\}/);
+  assert.match(source, /disabled=\{!availableCampaigns\.length \|\| saving \|\| createConfirming\} onClick=\{openCreate\}/);
   assert.match(source, /campaignReadOnly\(campaignRef\.current\)/);
   assert.match(source, /createConfirmingRef\.current = true/);
   assert.match(source, /singleDrawLinkPayload\(/);
